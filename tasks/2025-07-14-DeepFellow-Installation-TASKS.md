@@ -1,7 +1,7 @@
 # Tasks
 
 * \[ ] 1.0 Implement DeepFellow Installation Management System
-  * \[ ] 1.1 Define installation commands for 'infra' and 'server'
+  * \[x] 1.1 Define installation commands for 'infra' and 'server'
     * Create a command-line interface (CLI) parser to handle `infra install` and `server install`.
     * Ensure commands accept required parameters (e.g., deployment type, environment).
   * \[ ] 1.2 Implement compatibility checks for system requirements

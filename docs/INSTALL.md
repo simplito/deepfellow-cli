@@ -5,25 +5,28 @@
 ### One-time use (recommended)
 
 ```bash
-uvx deepfellow --help
+uvx deepfellow-cli --help
 ```
 
 ### Permanent installation
 
 ```bash
-uv tool install deepfellow
+uv tool install deepfellow-cli
+deepfellow --help
 ```
 
 ### Alternative: pipx
 
 ```bash
-pipx install deepfellow
+pipx install deepfellow-cli
+deepfellow --help
 ```
 
 ### Universal installer (works anywhere)
 
 ```bash
 curl -sSL https://install.deepfellow.com | bash
+deepfellow --help
 ```
 
 ## Installation Methods
@@ -33,7 +36,7 @@ curl -sSL https://install.deepfellow.com | bash
 **For one-time use:**
 
 ```bash
-uvx deepfellow [command]
+uvx deepfellow-cli [command]
 ```
 
 This runs your tool directly without installing it permanently.
@@ -41,25 +44,25 @@ This runs your tool directly without installing it permanently.
 **For permanent installation:**
 
 ```bash
-uv tool install deepfellow
+uv tool install deepfellow-cli
 ```
 
 **Install from source:**
 
 ```bash
-uv tool install git+https://github.com/yourusername/deepfellow.git
+uv tool install git+https://github.com/seemplito/deepfellow-cli.git
 ```
 
 ### 📦 pipx (Python-focused)
 
 ```bash
-pipx install deepfellow
+pipx install deepfellow-cli
 ```
 
 **Install from source:**
 
 ```bash
-pipx install git+https://github.com/yourusername/deepfellow.git
+pipx install git+https://github.com/seemplito/deepfellow-cli.git
 ```
 
 ### 🌐 Universal Installer
@@ -110,13 +113,13 @@ deepfellow --help
 ### uv
 
 ```bash
-uv tool upgrade deepfellow
+uv tool upgrade deepfellow-cli
 ```
 
 ### pipx
 
 ```bash
-pipx upgrade deepfellow
+pipx upgrade deepfellow-cli
 ```
 
 ### Universal installer
@@ -130,13 +133,13 @@ curl -sSL https://install.deepfellow.com | bash -s -- --upgrade
 ### uv
 
 ```bash
-uv tool uninstall deepfellow
+uv tool uninstall deepfellow-cli
 ```
 
 ### pipx
 
 ```bash
-pipx uninstall deepfellow
+pipx uninstall deepfellow-cli
 ```
 
 ### Universal installer
@@ -152,11 +155,13 @@ deepfellow --uninstall
 If you get "command not found" after installation:
 
 1. **Check your PATH:** Ensure the installation directory is in your PATH
+
    ```bash
    echo $PATH
    ```
 
 2. **Reload your shell:**
+
    ```bash
    source ~/.bashrc  # or ~/.zshrc
    ```
@@ -184,7 +189,7 @@ If you encounter permission errors:
 If downloads fail:
 
 * Check your internet connection
-* Try installing from PyPI directly: `pip install deepfellow`
+* Try installing from PyPI directly: `pip install deepfellow-cli`
 * Use a different mirror or wait and retry
 
 ### Python version issues
@@ -192,7 +197,7 @@ If downloads fail:
 If you get Python version errors:
 
 * Check your Python version: `python --version`
-* Ensure Python 3.8+ is installed
+* Ensure Python 3.12+ is installed
 * Consider using pyenv to manage Python versions
 
 ## Advanced Installation
@@ -201,17 +206,17 @@ If you get Python version errors:
 
 ```bash
 # Latest from main branch
-uv tool install git+https://github.com/yourusername/deepfellow.git
+uv tool install git+git+https://github.com/seemplito/deepfellow-cli.git
 
 # Specific branch
-uv tool install git+https://github.com/yourusername/deepfellow.git@develop
+uv tool install git+git+https://github.com/seemplito/deepfellow-cli.git@develop
 ```
 
 ### Editable Installation (for development)
 
 ```bash
-git clone https://github.com/yourusername/deepfellow.git
-cd deepfellow
+git clone git+https://github.com/seemplito/deepfellow-cli.git
+cd deepfellow-cli
 uv tool install --editable .
 ```
 
@@ -219,7 +224,7 @@ uv tool install --editable .
 
 ```bash
 # Download wheel
-pip download deepfellow
+pip download deepfellow-cli
 
 # Install from wheel
 uv tool install ./deepfellow-*.whl
@@ -228,6 +233,6 @@ uv tool install ./deepfellow-*.whl
 ## Getting Help
 
 * 📖 [Full Documentation](https://docs.deepfellow.com)
-* 🐛 [Report Issues](https://github.com/yourusername/deepfellow/issues)
-* 💬 [Discussions](https://github.com/yourusername/deepfellow/discussions)
+* 🐛 [Report Issues](https://github.com/simplito/deepfellow/issues)
+* 💬 [Discussions](https://github.com/simplito/deepfellow/discussions)
 * 📧 [Email Support](mailto:support@deepfellow.com)

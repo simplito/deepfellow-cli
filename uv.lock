@@ -24,7 +24,7 @@ wheels = [
 ]
 
 [[package]]
-name = "deepfellow"
+name = "deepfellow-cli"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
