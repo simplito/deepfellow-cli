@@ -9,9 +9,8 @@ app = typer.Typer()
 
 @app.command()
 def configure(ctx: typer.Context) -> None:
-    """Configure server."""
+    """Configure infra."""
     config = get_config(ctx)
-    typer.echo(f"Server configure using config: {config}")
-    print("Configuring server")
+    typer.echo(f"Infra configure using config: {config}")
+    print("Configuring infra")
     print("Ask for admin API Key, or create a new one.")
-    print("Retrive info about access to infra, database.")
