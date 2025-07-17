@@ -10,7 +10,11 @@ dependencies = ["typer>=0.16.0"]
 deepfellow = "deepfellow.main:app"
 
 [dependency-groups]
-dev = ["pytest>=8.4.1", "ruff>=0.12.3"]
+dev = [
+    "pytest>=8.4.1",
+    "pytest-cov>=6.2.1",
+    "ruff>=0.12.3",
+]
 
 
 [tool.ruff]
@@ -97,15 +101,4 @@ section-order = [
     "first-party",
     "local",
     "local-folder",
-]
-
-[tool.ruff.lint.isort.sections]
-"local" = ["healing_tale"]
-
-[tool.ruff.lint.flake8-bugbear]
-extend-immutable-calls = [
-    "fastapi.Depends",
-    "fastapi.params.Depends",
-    "fastapi.Query",
-    "fastapi.params.Query",
 ]

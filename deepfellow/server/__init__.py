@@ -6,7 +6,7 @@ from .configure import app as configure_app
 from .install import app as install_app
 from .start import app as start_app
 
-DEFAULT_CONFIG = Path("~/.deepfellow/config-server.yaml").expanduser()
+DEFAULT_CONFIG = Path("~/.deepfellow/server/config.json").expanduser()
 
 app = typer.Typer()
 

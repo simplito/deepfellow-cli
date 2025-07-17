@@ -10,7 +10,7 @@ from .start import app as start_app
 
 app = typer.Typer()
 
-DEFAULT_CONFIG = Path("~/.deepfellow/config-infra.yaml").expanduser()
+DEFAULT_CONFIG = Path("~/.deepfellow/infra/config.json").expanduser()
 
 
 @app.callback()
