@@ -2,7 +2,7 @@
 
 import typer
 
-from deepfellow.common.config import get_config
+from deepfellow.common.config import get_config_path
 
 app = typer.Typer()
 
@@ -10,6 +10,6 @@ app = typer.Typer()
 @app.command()
 def start(ctx: typer.Context) -> None:
     """Start server."""
-    config = get_config(ctx)
+    config = get_config_path(ctx)
     typer.echo(f"Server start using config: {config}")
     print("Starting server")

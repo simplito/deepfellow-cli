@@ -2,7 +2,7 @@
 
 import typer
 
-from deepfellow.common.config import get_config
+from deepfellow.common.config import get_config_path
 
 app = typer.Typer()
 
@@ -10,6 +10,6 @@ app = typer.Typer()
 @app.command()
 def download(ctx: typer.Context, model: str) -> None:
     """Download model."""
-    config = get_config(ctx)
+    config = get_config_path(ctx)
     typer.echo(f"Infra download using config: {config}")
     print(f"Infra download {model}")

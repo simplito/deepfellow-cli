@@ -1,13 +1,102 @@
 """Config for CLI."""
 
+import json
+from copy import deepcopy
 from pathlib import Path
+from typing import Any
 
 import typer
 
 
-def get_config(ctx: typer.Context) -> Path | None:
-    """Get config from context."""
-    if ctx.obj and ctx.obj.get("config"):
-        return ctx.obj["config"]
+def get_config_path(ctx: typer.Context) -> Path:
+    """Get config path from context.
 
-    return None
+    Args:
+        ctx (typer.Context): CLI context object.
+
+    Returns:
+       Path: Config file path.
+
+    Raises:
+       typer.BadParameter: If no config provided.
+    """
+    if ctx.obj and ctx.obj.get("config"):
+        config_path = ctx.obj["config"]
+        # Ensure we return a Path object
+        if isinstance(config_path, Path):
+            return config_path
+
+        return Path(config_path)
+
+    raise typer.BadParameter("No config provided.")
+
+
+def load_config(ctx: typer.Context) -> dict[str, Any]:
+    """Load and parse config file.
+
+    Args:
+        ctx (typer.Context): CLI context object.
+
+    Returns:
+        dict[str, Any]: Config object
+
+    Raises:
+        FileNotFoundError: If no config file found
+        Exit: If error loading config
+    """
+    config_path = get_config_path(ctx)
+
+    try:
+        content = config_path.read_text(encoding="utf-8")
+        return json.loads(content)
+    except FileNotFoundError:
+        typer.echo(f"Config file not found: {config_path}", err=True)
+        raise
+    except PermissionError as exc:
+        typer.echo(f"Permission denied reading config file: {config_path}", err=True)
+        raise typer.Exit(1) from exc
+    except json.JSONDecodeError as exc:
+        typer.echo(f"Error parsing config file: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    except UnicodeDecodeError as exc:
+        typer.echo(f"Error reading config file (encoding issue): {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+
+def store_config(ctx: typer.Context, config_data_source: dict[str, Any], update: bool = True) -> None:
+    """Store/save config data to file.
+
+    Args:
+        ctx (typer.Context): Typer context
+        config_data_source (dict[str, Any]): Config data to store
+        update (bool): If True, load and update existing config
+
+    Raises:
+       Exit: If the config file cannot be written to disk and any OS error
+    """
+    config_path = get_config_path(ctx)
+    config_data = deepcopy(config_data_source)
+
+    if update:
+        try:
+            current_config = json.loads(config_path.read_text(encoding="utf-8"))
+            config_data = {**current_config, **config_data}
+        except FileNotFoundError:
+            # No previous config, just write the new one
+            pass
+
+    try:
+        # Create parent directories if they don't exist
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write JSON with pretty formatting
+        content = json.dumps(config_data, indent=2, ensure_ascii=False)
+        config_path.write_text(content, encoding="utf-8")
+    except PermissionError as exc:
+        typer.echo(f"Permission denied writing config file: {config_path}", err=True)
+        raise typer.Exit(1) from exc
+    except OSError as exc:
+        typer.echo(f"Error writing config file: {exc}", err=True)
+        raise typer.Exit(1) from exc
+        
+    typer.echo(f"Config saved to: {config_path}")
