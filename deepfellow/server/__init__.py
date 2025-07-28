@@ -30,7 +30,7 @@ def callback(
     """
     ctx.ensure_object(dict)
     ctx.obj["config-path"] = config
-    ctx.obj["config"] = load_config(ctx)
+    ctx.obj["config"] = load_config()
 
 
 app.add_typer(install_app)
