@@ -9,8 +9,8 @@ app = typer.Typer()
 
 
 @app.command()
-def models(ctx: typer.Context) -> None:
+def models() -> None:
     """Models list."""
-    config = get_config_path(ctx)
+    config = get_config_path()
     echo.warning(f"Infra models using config: {config}")
     echo.info("Infra list models")

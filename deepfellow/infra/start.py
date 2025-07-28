@@ -9,8 +9,8 @@ app = typer.Typer()
 
 
 @app.command()
-def start(ctx: typer.Context) -> None:
+def start() -> None:
     """Start infra."""
-    config = get_config_path(ctx)
+    config = get_config_path()
     typer.echo(f"Infra start using config: {config}")
     echo.info("Starting infra")
