@@ -24,7 +24,7 @@ def main(ctx: typer.Context, version: bool = typer.Option(False), debug: bool = 
     ctx.ensure_object(dict)
     ctx.obj["debug"] = debug
 
-    if not ctx.invoked_subcommand:
+    if ctx.invoked_subcommand is None:
         print("""
   ┌─────────────────────────────────────────────────┐
   │                                                 │
