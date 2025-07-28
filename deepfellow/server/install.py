@@ -2,10 +2,12 @@
 
 import typer
 
+from deepfellow.common.echo import echo
+
 app = typer.Typer()
 
 
 @app.command()
 def install() -> None:
     """Install server."""
-    print("Installing server")
+    echo.info("Installing server")

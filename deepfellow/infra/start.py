@@ -3,6 +3,7 @@
 import typer
 
 from deepfellow.common.config import get_config_path
+from deepfellow.common.echo import echo
 
 app = typer.Typer()
 
@@ -12,4 +13,4 @@ def start(ctx: typer.Context) -> None:
     """Start infra."""
     config = get_config_path(ctx)
     typer.echo(f"Infra start using config: {config}")
-    print("Starting infra")
+    echo.info("Starting infra")
