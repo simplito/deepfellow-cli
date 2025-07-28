@@ -46,13 +46,13 @@ def main(ctx: typer.Context, version: bool = typer.Option(False), debug: bool = 
 
 
 @app.command()
-def log_check(ctx: typer.Context) -> None:
+def log_check() -> None:
     """Log check - a temporary function."""
-    echo.debug("Debug", ctx)
-    echo.info("Info", ctx)
-    echo.success("Success", ctx)
-    echo.warning("Warning", ctx)
-    echo.error("Error", ctx)
+    echo.debug("Debug")
+    echo.info("Info")
+    echo.success("Success")
+    echo.warning("Warning")
+    echo.error("Error")
 
 
 # Add object-based command groups
