@@ -10,11 +10,7 @@ dependencies = ["typer>=0.16.0"]
 deepfellow = "deepfellow.main:app"
 
 [dependency-groups]
-dev = [
-    "pytest>=8.4.1",
-    "pytest-cov>=6.2.1",
-    "ruff>=0.12.3",
-]
+dev = ["pytest>=8.4.1", "pytest-cov>=6.2.1", "ruff>=0.12.3"]
 
 
 [tool.ruff]
@@ -99,6 +95,5 @@ section-order = [
     "standard-library",
     "third-party",
     "first-party",
-    "local",
     "local-folder",
 ]

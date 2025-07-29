@@ -2,6 +2,8 @@ from pathlib import Path
 
 import typer
 
+from deepfellow.common.config import load_config
+
 from .create_api_key import app as create_api_key_app
 from .download import app as download_app
 from .install import app as install_app
@@ -20,9 +22,16 @@ def callback(
         DEFAULT_CONFIG, "--config", "-c", envvar="DF_INFRA_CONFIG", help="Path to the config file."
     ),
 ) -> None:
-    """Infra common for all commands."""
+    """Infra common for all commands.
+
+    This method is run before any infra subcommand.
+
+    Args:
+        config (Path, optional): Path to the config file. Defaults to ~/.deepfellow/infra/config.json
+    """
     ctx.ensure_object(dict)
-    ctx.obj["config"] = config
+    ctx.obj["config-path"] = config
+    ctx.obj["config"] = load_config()
 
 
 app.add_typer(install_app)

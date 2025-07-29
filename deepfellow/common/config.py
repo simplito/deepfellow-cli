@@ -5,10 +5,11 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+import click
 import typer
 
 
-def get_config_path(ctx: typer.Context) -> Path:
+def get_config_path() -> Path:
     """Get config path from context.
 
     Args:
@@ -20,8 +21,9 @@ def get_config_path(ctx: typer.Context) -> Path:
     Raises:
        typer.BadParameter: If no config provided.
     """
-    if ctx.obj and ctx.obj.get("config"):
-        config_path = ctx.obj["config"]
+    ctx = click.get_current_context()
+    if ctx.obj and ctx.obj.get("config-path"):
+        config_path = ctx.obj["config-path"]
         # Ensure we return a Path object
         if isinstance(config_path, Path):
             return config_path
@@ -31,11 +33,11 @@ def get_config_path(ctx: typer.Context) -> Path:
     raise typer.BadParameter("No config provided.")
 
 
-def load_config(ctx: typer.Context) -> dict[str, Any]:
+def load_config(raise_on_error: bool = False) -> dict[str, Any]:
     """Load and parse config file.
 
     Args:
-        ctx (typer.Context): CLI context object.
+        raise_on_error (bool, optional): Whether to raise on error loading config. Defaults to False.
 
     Returns:
         dict[str, Any]: Config object
@@ -44,37 +46,42 @@ def load_config(ctx: typer.Context) -> dict[str, Any]:
         FileNotFoundError: If no config file found
         Exit: If error loading config
     """
-    config_path = get_config_path(ctx)
+    config_path = get_config_path()
 
     try:
         content = config_path.read_text(encoding="utf-8")
         return json.loads(content)
     except FileNotFoundError:
         typer.echo(f"Config file not found: {config_path}", err=True)
-        raise
+        if raise_on_error:
+            raise
     except PermissionError as exc:
         typer.echo(f"Permission denied reading config file: {config_path}", err=True)
-        raise typer.Exit(1) from exc
+        if raise_on_error:
+            raise typer.Exit(1) from exc
     except json.JSONDecodeError as exc:
         typer.echo(f"Error parsing config file: {exc}", err=True)
-        raise typer.Exit(1) from exc
+        if raise_on_error:
+            raise typer.Exit(1) from exc
     except UnicodeDecodeError as exc:
         typer.echo(f"Error reading config file (encoding issue): {exc}", err=True)
-        raise typer.Exit(1) from exc
+        if raise_on_error:
+            raise typer.Exit(1) from exc
+
+    return {}
 
 
-def store_config(ctx: typer.Context, config_data_source: dict[str, Any], update: bool = True) -> None:
+def store_config(config_data_source: dict[str, Any], update: bool = True) -> None:
     """Store/save config data to file.
 
     Args:
-        ctx (typer.Context): Typer context
         config_data_source (dict[str, Any]): Config data to store
         update (bool): If True, load and update existing config
 
     Raises:
        Exit: If the config file cannot be written to disk and any OS error
     """
-    config_path = get_config_path(ctx)
+    config_path = get_config_path()
     config_data = deepcopy(config_data_source)
 
     if update:
@@ -98,5 +105,5 @@ def store_config(ctx: typer.Context, config_data_source: dict[str, Any], update:
     except OSError as exc:
         typer.echo(f"Error writing config file: {exc}", err=True)
         raise typer.Exit(1) from exc
-        
+
     typer.echo(f"Config saved to: {config_path}")
