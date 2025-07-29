@@ -25,7 +25,7 @@ class Echo(Console):
 
     def error(self, message: str) -> None:
         """Print an error message to the console."""
-        self.print(f"❌\t[red]{message}[/]")
+        self.print(f"💀\t[red]{message}[/]")
 
 
 echo = Echo()
