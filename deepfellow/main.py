@@ -1,10 +1,13 @@
 """Main typer module."""
 
+import json
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as get_version
+from pathlib import Path
 
 import typer
 
+from .common.defaults import DF_CLI_CONFIG_PATH
 from .common.echo import echo
 from .infra import app as infra_app
 from .server import app as server_app
@@ -13,16 +16,22 @@ app = typer.Typer(invoke_without_command=True)
 
 
 @app.callback()
-def main(ctx: typer.Context, version: bool = typer.Option(False), debug: bool = typer.Option(False)) -> None:
+def main(
+    ctx: typer.Context,
+    config: Path = typer.Option(
+        DF_CLI_CONFIG_PATH, "--config", "-c", envvar="DF_CLI_CONFIG_PATH", help="Path to the CLI config file."
+    ),
+    debug: bool = typer.Option(False, "-v", "-vv", "--verbose", "--debug", help="Display debug information"),
+) -> None:
     """Display callback function."""
-    if version:
-        try:
-            echo.success(get_version("deepfellow-cli"))
-        except PackageNotFoundError:
-            echo.error("No version information available. Have you installed the command?")
-
     ctx.ensure_object(dict)
     ctx.obj["debug"] = debug
+    ctx.obj["cli-config"] = {}
+    echo.debug(f"{config=}")
+    if config.is_file():
+        cli_config = json.loads(config.read_text(encoding="utf-8"))
+        ctx.obj["cli-config"] = cli_config
+        echo.debug(f"{cli_config=}")
 
     if ctx.invoked_subcommand is None:
         print("""
@@ -43,6 +52,15 @@ def main(ctx: typer.Context, version: bool = typer.Option(False), debug: bool = 
   └─────────────────────────────────────────────────┘
   `deepfellow --help` for help with commands.
 """)
+
+
+@app.command()
+def version() -> None:
+    """Print version info."""
+    try:
+        echo.success(get_version("deepfellow-cli"))
+    except PackageNotFoundError:
+        echo.error("No version information available. Have you installed the command?")
 
 
 @app.command()
