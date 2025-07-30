@@ -8,7 +8,6 @@ from deepfellow.common.defaults import DF_INFRA_CONFIG_PATH, DF_INFRA_DIRECTORY,
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
 from deepfellow.common.git import Git
-from deepfellow.common.validation import validate_system
 
 app = typer.Typer()
 
@@ -26,9 +25,6 @@ def install(
 ) -> None:
     """Install infra."""
     config_path = config
-    # Check environment if all commands are installed
-    validate_system()
-    # TODO Store and reuse CLI config
     echo.debug(f"{config_path=},\n{repository=}\n{branch=},\n{tag=},\n{directory=},\n{yes=}")
     if directory.is_dir():
         echo.error(f"Directory {directory} already exists.")

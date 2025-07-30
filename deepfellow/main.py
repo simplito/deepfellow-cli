@@ -7,12 +7,35 @@ from pathlib import Path
 
 import typer
 
+from deepfellow.common.validation import validate_system
+
 from .common.defaults import DF_CLI_CONFIG_PATH
 from .common.echo import echo
 from .infra import app as infra_app
 from .server import app as server_app
 
 app = typer.Typer(invoke_without_command=True)
+
+
+def print_name() -> None:
+    echo.print("""
+┌─────────────────────────────────────────────────┐
+│                                                 │
+│   \033[37m▓▓▓▓▓   ▓▓▓▓▓  ▓▓▓▓▓  ▓▓▓▓▓\033[0m                   │
+│   \033[97m▓▓  ▓▓  ▓▓     ▓▓     ▓▓  ▓▓\033[0m                  │
+│   \033[37m▓▓  ▓▓  ▓▓▓▓   ▓▓▓▓   ▓▓▓▓▓\033[0m                   │
+│   \033[90m▓▓  ▓▓  ▓▓     ▓▓     ▓▓\033[0m                      │
+│   \033[30m▓▓▓▓▓   ▓▓▓▓▓  ▓▓▓▓▓  ▓▓\033[0m                      │
+│                                                 │
+│   \033[37m▓▓▓▓▓  ▓▓▓▓▓  ▓▓     ▓▓     ▓▓▓▓▓▓  ▓▓   ▓▓\033[0m   │
+│   \033[97m▓▓     ▓▓     ▓▓     ▓▓     ▓▓  ▓▓  ▓▓   ▓▓\033[0m   │
+│   \033[37m▓▓▓▓   ▓▓▓▓   ▓▓     ▓▓     ▓▓  ▓▓  ▓▓ ▓ ▓▓\033[0m   │
+│   \033[90m▓▓     ▓▓     ▓▓     ▓▓     ▓▓  ▓▓  ▓▓▓▓▓▓▓\033[0m   │
+│   \033[30m▓▓     ▓▓▓▓▓  ▓▓▓▓▓  ▓▓▓▓▓  ▓▓▓▓▓▓  ▓▓ ▓ ▓▓\033[0m   │
+│                                                 │
+└─────────────────────────────────────────────────┘
+`deepfellow --help` for help with commands.
+""")
 
 
 @app.callback()
@@ -24,6 +47,10 @@ def main(
     debug: bool = typer.Option(False, "-v", "-vv", "--verbose", "--debug", help="Display debug information"),
 ) -> None:
     """Display callback function."""
+    if ctx.invoked_subcommand is None:
+        print_name()
+        raise typer.Exit(0)
+
     ctx.ensure_object(dict)
     ctx.obj["debug"] = debug
     ctx.obj["cli-config"] = {}
@@ -32,26 +59,10 @@ def main(
         cli_config = json.loads(config.read_text(encoding="utf-8"))
         ctx.obj["cli-config"] = cli_config
         echo.debug(f"{cli_config=}")
+        # TODO Store and reuse CLI config
 
-    if ctx.invoked_subcommand is None:
-        print("""
-  ┌─────────────────────────────────────────────────┐
-  │                                                 │
-  │   \033[37m▓▓▓▓▓   ▓▓▓▓▓  ▓▓▓▓▓  ▓▓▓▓▓\033[0m                   │
-  │   \033[97m▓▓  ▓▓  ▓▓     ▓▓     ▓▓  ▓▓\033[0m                  │
-  │   \033[37m▓▓  ▓▓  ▓▓▓▓   ▓▓▓▓   ▓▓▓▓▓\033[0m                   │
-  │   \033[90m▓▓  ▓▓  ▓▓     ▓▓     ▓▓\033[0m                      │
-  │   \033[30m▓▓▓▓▓   ▓▓▓▓▓  ▓▓▓▓▓  ▓▓\033[0m                      │
-  │                                                 │
-  │   \033[37m▓▓▓▓▓  ▓▓▓▓▓  ▓▓     ▓▓     ▓▓▓▓▓▓  ▓▓   ▓▓\033[0m   │
-  │   \033[97m▓▓     ▓▓     ▓▓     ▓▓     ▓▓  ▓▓  ▓▓   ▓▓\033[0m   │
-  │   \033[37m▓▓▓▓   ▓▓▓▓   ▓▓     ▓▓     ▓▓  ▓▓  ▓▓ ▓ ▓▓\033[0m   │
-  │   \033[90m▓▓     ▓▓     ▓▓     ▓▓     ▓▓  ▓▓  ▓▓▓▓▓▓▓\033[0m   │
-  │   \033[30m▓▓     ▓▓▓▓▓  ▓▓▓▓▓  ▓▓▓▓▓  ▓▓▓▓▓▓  ▓▓ ▓ ▓▓\033[0m   │
-  │                                                 │
-  └─────────────────────────────────────────────────┘
-  `deepfellow --help` for help with commands.
-""")
+    # Check environment if all commands are installed
+    validate_system()
 
 
 @app.command()
