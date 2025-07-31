@@ -173,3 +173,7 @@ Thumbs.db
 
 # CLI-specific files
 # Config files (if you want to ignore
+
+
+# RUFF
+.ruff_cache

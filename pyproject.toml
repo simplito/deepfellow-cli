@@ -42,6 +42,7 @@ ignore = [
     "D301",
     "D413",
     "EM101",
+    "EM102",  # Exception must not use an f-string literal, assign to variable first
     "RUF012", # Mutable class attributes should be annotated with `typing.ClassVar`
     "TRY003",
 ]
