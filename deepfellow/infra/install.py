@@ -1,5 +1,6 @@
 """Install infra typer command."""
 
+import shutil
 from pathlib import Path
 
 import typer
@@ -8,39 +9,64 @@ from deepfellow.common.defaults import DF_INFRA_CONFIG_PATH, DF_INFRA_DIRECTORY,
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
 from deepfellow.common.git import Git
+from deepfellow.common.system import run
 
 app = typer.Typer()
 
 
 @app.command()
 def install(
+    ctx: typer.Context,
     branch: str | None = typer.Option(None, help="Specify a branch to install from"),
     tag: str | None = typer.Option(None, help="Specify a tag to install from"),
-    directory: Path = typer.Option(DF_INFRA_DIRECTORY),
-    repository: str = typer.Option(DF_INFRA_REPO),
-    config: Path = typer.Option(
-        DF_INFRA_CONFIG_PATH, "--config", "-c", envvar="DF_INFRA_CONFIG", help="Path to the config file."
+    directory: Path = typer.Option(
+        DF_INFRA_DIRECTORY, envvar="DF_INFRA_DIRECTORY", help="Target directory for the infra installation."
+    ),
+    repository: str = typer.Option(DF_INFRA_REPO, envvar="DF_INFRA_REPO", help="Git repository of infra."),
+    infra_config: Path = typer.Option(
+        DF_INFRA_CONFIG_PATH, "--infra-config", envvar="DF_INFRA_CONFIG_PATH", help="Relative path to the config file."
     ),
     yes: bool = typer.Option(False, "-y", "--yes", help="Automatically answer to all questions"),
 ) -> None:
     """Install infra."""
-    config_path = config
-    echo.debug(f"{config_path=},\n{repository=}\n{branch=},\n{tag=},\n{directory=},\n{yes=}")
+    debug = ctx.obj.get("debug")
+    echo.debug(f"{infra_config=},\n{repository=}\n{branch=},\n{tag=},\n{directory=},\n{yes=}")
+    omit_pulling_repository = False
     if directory.is_dir():
-        echo.error(f"Directory {directory} already exists.")
-        raise typer.Exit(1)
+        echo.warning(f"Directory {directory} already exists.")
+        omit_pulling_repository = typer.confirm("Should I proceed installation with the existing code?")
+        if not omit_pulling_repository:
+            raise typer.Exit(2)
 
-    if not yes and not typer.confirm(f"Confirm installing DF Infra in {directory}"):
-        raise typer.Exit(1)
+    if (
+        not omit_pulling_repository  # We already asked the question about installation
+        and not yes  # auto-confirm mode is on
+        and not typer.confirm(f"Confirm installing DF Infra in {directory}", default=True)
+    ):
+        raise typer.Exit(2)
 
     echo.info("Installing infra.")
-    try:
-        directory.mkdir(parents=True)
-    except Exception as exc_info:
-        echo.error("Unable to create infra directory.")
-        reraise_if_debug(exc_info)
+    if not omit_pulling_repository:
+        try:
+            directory.mkdir(parents=True)
+        except Exception as exc_info:
+            echo.error("Unable to create infra directory.")
+            reraise_if_debug(exc_info)
 
-    git = Git(repository=repository)
-    git.clone(branch=branch, tag=tag, directory=directory)
+        git = Git(repository=repository)
+        git.clone(branch=branch, tag=tag, directory=directory)
 
-    # TODO Configure infra
+    # Install dependencies
+    echo.info("Installing dependencies...")
+    shutil.copy(directory / "default.pyproject.toml", directory / "pyproject.toml")
+    command = "poetry install"
+    if not debug:
+        command += " --quiet"
+
+    run(command, cwd=directory)
+    shutil.copy(directory / "config/default.infra_config.toml", directory / infra_config)
+    echo.success("Infra installed.")
+    echo.debug("TODO Can we edit the Infra config?")
+
+    # TODO Find out if we need hooks
+    # TODO Sould we ask questions ad update infra config?

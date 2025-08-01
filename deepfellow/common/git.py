@@ -25,8 +25,8 @@ class Git:
 
         point = branch or tag
         cmd_point = "" if point is None else f"-b {point} --single-branch"
-        cmd = f"git clone {cmd_point} {self.repository} {directory}"
-
+        cmd = f"git clone  --depth 1 {cmd_point} {self.repository} {directory}"
+        echo.debug(cmd)
         try:
             subprocess.run(cmd, shell=True, check=True, text=True)
         except subprocess.CalledProcessError as exc_info:
