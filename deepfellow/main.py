@@ -18,7 +18,8 @@ app = typer.Typer(invoke_without_command=True)
 
 
 def print_name() -> None:
-    echo.print("""
+    """Print out the DeepFellow name in ASCII art."""
+    print("""
 ┌─────────────────────────────────────────────────┐
 │                                                 │
 │   \033[37m▓▓▓▓▓   ▓▓▓▓▓  ▓▓▓▓▓  ▓▓▓▓▓\033[0m                   │

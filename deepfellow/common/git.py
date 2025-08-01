@@ -1,11 +1,12 @@
 """Git commands."""
 
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from subprocess import CalledProcessError
 
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import GitError, reraise_if_debug
+from deepfellow.common.system import run
 
 
 @dataclass
@@ -25,10 +26,10 @@ class Git:
 
         point = branch or tag
         cmd_point = "" if point is None else f"-b {point} --single-branch"
-        cmd = f"git clone {cmd_point} {self.repository} {directory}"
-
+        cmd = f"git clone  --depth 1 {cmd_point} {self.repository} {directory}"
+        echo.debug(cmd)
         try:
-            subprocess.run(cmd, shell=True, check=True, text=True)
-        except subprocess.CalledProcessError as exc_info:
+            run(cmd, raises=GitError("Git clone failed"))
+        except (GitError, CalledProcessError) as exc_info:
             echo.error(f"Failed to clone from {self.repository} {branch=} {tag=}")
             reraise_if_debug(exc_info)
