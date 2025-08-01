@@ -26,26 +26,26 @@ def install(
     infra_config: Path = typer.Option(
         DF_INFRA_CONFIG_PATH, "--infra-config", envvar="DF_INFRA_CONFIG_PATH", help="Relative path to the config file."
     ),
-    yes: bool = typer.Option(False, "-y", "--yes", help="Automatically answer to all questions"),
 ) -> None:
     """Install infra."""
-    debug = ctx.obj.get("debug")
+    debug = ctx.obj.get("debug", False)
+    yes = ctx.obj.get("yes", False)
     echo.debug(f"{infra_config=},\n{repository=}\n{branch=},\n{tag=},\n{directory=},\n{yes=}")
     omit_pulling_repository = False
     if directory.is_dir():
         echo.warning(f"Directory {directory} already exists.")
         omit_pulling_repository = typer.confirm("Should I proceed installation with the existing code?")
         if not omit_pulling_repository:
-            raise typer.Exit(2)
+            raise typer.Exit(1)
 
     if (
         not omit_pulling_repository  # We already asked the question about installation
         and not yes  # auto-confirm mode is on
         and not typer.confirm(f"Confirm installing DF Infra in {directory}", default=True)
     ):
-        raise typer.Exit(2)
+        raise typer.Exit(1)
 
-    echo.info("Installing infra.")
+    echo.info("Installing DF Infra.")
     if not omit_pulling_repository:
         try:
             directory.mkdir(parents=True)
@@ -54,7 +54,7 @@ def install(
             reraise_if_debug(exc_info)
 
         git = Git(repository=repository)
-        git.clone(branch=branch, tag=tag, directory=directory)
+        git.clone(branch=branch, tag=tag, directory=directory, quiet=not debug)
 
     # Install dependencies
     echo.info("Installing dependencies...")
@@ -65,7 +65,7 @@ def install(
 
     run(command, cwd=directory)
     shutil.copy(directory / "config/default.infra_config.toml", directory / infra_config)
-    echo.success("Infra installed.")
+    echo.success("DF Infra installed.")
     echo.debug("TODO Can we edit the Infra config?")
 
     # TODO Find out if we need hooks
