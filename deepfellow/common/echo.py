@@ -4,7 +4,7 @@ from typing import Any
 
 import click
 from rich.console import Console
-from rich.prompt import Confirm
+from rich.prompt import Confirm, Prompt
 
 
 def add_tabs(msg: str) -> str:
@@ -35,12 +35,17 @@ class Echo(Console):
         """Print an error message to the console."""
         self.print(f"💀\t[bold red]{add_tabs(message)}[/]")
 
-    def confirm(self, message: str, *args: Any, **kwargs: Any) -> bool:
+    def confirm(self, message: str, **kwargs: Any) -> bool:
         """Prompt the user for confirmation."""
         if "default" not in kwargs:
             kwargs["default"] = False
 
-        return Confirm.ask(f"❓\t[blue]{add_tabs(message)}[/]", *args, **kwargs)
+        return Confirm.ask(prompt=f"❓\t[blue]{add_tabs(message)}[/]", **kwargs)
+
+    def prompt(self, message: str, **kwargs: Any) -> Any:
+        """Prompt the user for value."""
+        print(kwargs)
+        return Prompt.ask(prompt=f"❓\t[blue]{add_tabs(message)}[/]", show_default=True, **kwargs)
 
 
 echo = Echo()

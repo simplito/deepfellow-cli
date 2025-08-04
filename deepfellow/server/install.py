@@ -30,6 +30,9 @@ def install(
     yes = ctx.obj.get("yes", False)
     echo.debug(f"{repository=}\n{branch=},\n{tag=},\n{directory=},\n{yes=}")
     omit_pulling_repository = False
+    if directory == DF_SERVER_DIRECTORY:
+        directory = Path(echo.prompt("Provide directory for installation", default=str(directory)))
+
     if directory.is_dir():
         echo.warning(f"Directory {directory} already exists.")
         omit_pulling_repository = echo.confirm("Should I proceed installation with the existing code?")
