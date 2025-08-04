@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import typer
+from rich.progress import Progress
 
 from deepfellow.common.defaults import DF_SERVER_DIRECTORY, DF_SERVER_REPO
 from deepfellow.common.echo import echo
@@ -23,9 +24,10 @@ def clone_repo(repository: str, branch: str | None, tag: str | None, directory: 
         echo.error(f"Unable to create infra directory - {directory}.")
         reraise_if_debug(exc_info)
 
-    echo.info("Cloning repository...")
-    git = Git(repository=repository)
-    git.clone(branch=branch, tag=tag, directory=directory)
+    with Progress(transient=True) as progress:
+        progress.add_task("\tCloning repository...", start=False, total=None)
+        git = Git(repository=repository)
+        git.clone(branch=branch, tag=tag, directory=directory)
 
 
 def configure_installation(directory: Path, env_file: Path) -> None:
