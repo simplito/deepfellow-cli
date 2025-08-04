@@ -2,6 +2,7 @@
 
 import shutil
 from pathlib import Path
+from uuid import uuid4
 
 import typer
 
@@ -31,14 +32,14 @@ def install(
     omit_pulling_repository = False
     if directory.is_dir():
         echo.warning(f"Directory {directory} already exists.")
-        omit_pulling_repository = typer.confirm("Should I proceed installation with the existing code?")
+        omit_pulling_repository = echo.confirm("Should I proceed installation with the existing code?")
         if not omit_pulling_repository:
             raise typer.Exit(1)
 
     if (
         not omit_pulling_repository  # We already asked the question about installation
         and not yes  # auto-confirm mode is on
-        and not typer.confirm(f"Confirm installing DF Server in {directory}", default=True)
+        and not echo.confirm(f"Confirm installing DF Server in {directory}", default=True)
     ):
         raise typer.Exit(1)
 
@@ -63,14 +64,36 @@ def install(
     run(command, cwd=directory)
 
     # Configuration
-    # TODO Ask a few questions anf fill in the secret details
     env_file = directory / ".env"
-    shutil.copy(directory / "example.env", env_file)
+    if not omit_pulling_repository or echo.confirm(
+        "Do you want to override the existing DF server configuration?", default=False
+    ):
+        shutil.copy(directory / "example.env", env_file)
+        # TODO Ask a few questions anf fill in the secret details
+        # Generate DF_ADMIN_KEY
+        admin_key = uuid4()
+        original_env_content = env_file.read_text().splitlines()
+        new_env_content = []
+        for line in original_env_content:
+            if line.startswith("DF_ADMIN_KEY"):
+                new_env_content.append(f"DF_ADMIN_KEY={admin_key}")
+            else:
+                new_env_content.append(line)
+
+        echo.debug(str(new_env_content))
+        env_file.write_text("\n".join(new_env_content))
+        if echo.confirm(
+            "Generated DF_ADMIN_KEY in the configuration file. Do you want me to display it now?", default=True
+        ):
+            echo.info(str(admin_key))
+        else:
+            echo.info("You can display it by running:\n`grep DF_ADMIN_KEY {env_file}`")
 
     echo.success("DF Server installed.")
+
     echo.info(
-        f"Configuration file:\n{env_file}\n"
-        "Edit to provide the appropriate values for your installation and continue with:\n"
-        "`deepfellow server install-continue`"
+        "Edit the configuration file to provide the appropriate values for your installation.\n"
+        f"`vi {env_file}`\n"
+        "Continue the installation by running: `deepfellow server install-continue`"
     )
     echo.debug("TODO Can we edit the Infra config?")

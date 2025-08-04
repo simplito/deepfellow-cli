@@ -32,6 +32,7 @@ target-version = "py313"
 [tool.ruff.lint]
 ignore = [
     "ANN204", # No return type for __init__ method required
+    "ANN401", # Allow for Any in *args and **kwargs
     "B008",   # Do not perform function calls in argument defaults. Required for typer commands.
     "ISC001",
     "D101",   # No docstring for classes required

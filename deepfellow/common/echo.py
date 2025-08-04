@@ -1,7 +1,10 @@
 """Echo the output."""
 
+from typing import Any
+
 import click
 from rich.console import Console
+from rich.prompt import Confirm
 
 
 def add_tabs(msg: str) -> str:
@@ -30,7 +33,14 @@ class Echo(Console):
 
     def error(self, message: str) -> None:
         """Print an error message to the console."""
-        self.print(f"💀\t[red]{add_tabs(message)}[/]")
+        self.print(f"💀\t[bold red]{add_tabs(message)}[/]")
+
+    def confirm(self, message: str, *args: Any, **kwargs: Any) -> bool:
+        """Prompt the user for confirmation."""
+        if "default" not in kwargs:
+            kwargs["default"] = False
+
+        return Confirm.ask(f"❓\t[blue]{add_tabs(message)}[/]", *args, **kwargs)
 
 
 echo = Echo()

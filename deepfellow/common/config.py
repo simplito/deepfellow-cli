@@ -8,6 +8,8 @@ from typing import Any
 import click
 import typer
 
+from deepfellow.common.echo import echo
+
 
 def get_config_path() -> Path:
     """Get config path from context.
@@ -52,19 +54,21 @@ def load_config(raise_on_error: bool = False) -> dict[str, Any]:
         content = config_path.read_text(encoding="utf-8")
         return json.loads(content)
     except FileNotFoundError:
-        typer.echo(f"Config file not found: {config_path}", err=True)
+        msg = f"Config file not found: {config_path}"
+        echo.debug(msg)
         if raise_on_error:
+            echo.error(msg)
             raise
     except PermissionError as exc:
-        typer.echo(f"Permission denied reading config file: {config_path}", err=True)
+        echo.error(f"Permission denied reading config file: {config_path}")
         if raise_on_error:
             raise typer.Exit(1) from exc
     except json.JSONDecodeError as exc:
-        typer.echo(f"Error parsing config file: {exc}", err=True)
+        echo.error(f"Error parsing config file: {exc}")
         if raise_on_error:
             raise typer.Exit(1) from exc
     except UnicodeDecodeError as exc:
-        typer.echo(f"Error reading config file (encoding issue): {exc}", err=True)
+        echo.error(f"Error reading config file (encoding issue): {exc}")
         if raise_on_error:
             raise typer.Exit(1) from exc
 
@@ -100,10 +104,10 @@ def store_config(config_data_source: dict[str, Any], update: bool = True) -> Non
         content = json.dumps(config_data, indent=2, ensure_ascii=False)
         config_path.write_text(content, encoding="utf-8")
     except PermissionError as exc:
-        typer.echo(f"Permission denied writing config file: {config_path}", err=True)
+        echo.error(f"Permission denied writing config file: {config_path}")
         raise typer.Exit(1) from exc
     except OSError as exc:
-        typer.echo(f"Error writing config file: {exc}", err=True)
+        echo.error(f"Error writing config file: {exc}")
         raise typer.Exit(1) from exc
 
     typer.echo(f"Config saved to: {config_path}")
