@@ -20,7 +20,7 @@ def clone_repo(repository: str, branch: str | None, tag: str | None, directory: 
     try:
         directory.mkdir(parents=True)
     except Exception as exc_info:
-        echo.error("Unable to create infra directory.")
+        echo.error(f"Unable to create infra directory - {directory}.")
         reraise_if_debug(exc_info)
 
     echo.info("Cloning repository...")

@@ -44,7 +44,6 @@ class Echo(Console):
 
     def prompt(self, message: str, **kwargs: Any) -> Any:
         """Prompt the user for value."""
-        print(kwargs)
         return Prompt.ask(prompt=f"❓\t[blue]{add_tabs(message)}[/]", show_default=True, **kwargs)
 
 
