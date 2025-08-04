@@ -5,7 +5,7 @@ import typer
 from .echo import echo
 from .system import is_command_available
 
-REQUIRED_COMMANDS = ("uv", "poetry")
+REQUIRED_COMMANDS = ("uv",)
 
 
 def validate_system() -> None:

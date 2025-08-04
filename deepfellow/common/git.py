@@ -13,7 +13,7 @@ from deepfellow.common.system import run
 class Git:
     repository: str
 
-    def clone(self, branch: str | None = None, tag: str | None = None, directory: Path = Path()) -> None:
+    def clone(self, branch: str | None = None, tag: str | None = None, directory: Path = Path(), quiet=True) -> None:
         """Clone repository.
 
         Args:
@@ -26,7 +26,8 @@ class Git:
 
         point = branch or tag
         cmd_point = "" if point is None else f"-b {point} --single-branch"
-        cmd = f"git clone  --depth 1 {cmd_point} {self.repository} {directory}"
+        quiet = "" if not quiet else " --quiet"
+        cmd = f"git clone  --depth 1 {cmd_point} {self.repository} {directory} {quiet}"
         echo.debug(cmd)
         try:
             run(cmd, raises=GitError("Git clone failed"))

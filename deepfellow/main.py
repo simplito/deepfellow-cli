@@ -46,6 +46,7 @@ def main(
         DF_CLI_CONFIG_PATH, "--config", "-c", envvar="DF_CLI_CONFIG_PATH", help="Path to the CLI config file."
     ),
     debug: bool = typer.Option(False, "-v", "-vv", "--verbose", "--debug", help="Display debug information"),
+    yes: bool = typer.Option(False, "-y", "--yes", help="Automatically answer to all questions"),
 ) -> None:
     """Display callback function."""
     if ctx.invoked_subcommand is None:
@@ -54,6 +55,7 @@ def main(
 
     ctx.ensure_object(dict)
     ctx.obj["debug"] = debug
+    ctx.obj["yes"] = yes
     ctx.obj["cli-config"] = {}
     echo.debug(f"{config=}")
     if config.is_file():
