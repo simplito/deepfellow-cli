@@ -15,15 +15,52 @@ from deepfellow.common.system import run
 app = typer.Typer()
 
 
+def clone_repo(repository: str, branch: str | None, tag: str | None, directory: Path) -> None:
+    """Clone the repository to the directory."""
+    try:
+        directory.mkdir(parents=True)
+    except Exception as exc_info:
+        echo.error("Unable to create infra directory.")
+        reraise_if_debug(exc_info)
+
+    echo.info("Cloning repository...")
+    git = Git(repository=repository)
+    git.clone(branch=branch, tag=tag, directory=directory)
+
+
+def configure_installation(directory: Path, env_file: Path) -> None:
+    """Configure the installation."""
+    shutil.copy(directory / "example.env", env_file)
+    # TODO Ask a few questions anf fill in the secret details
+    # Generate DF_ADMIN_KEY
+    admin_key = uuid4()
+    original_env_content = env_file.read_text().splitlines()
+    new_env_content = []
+    for line in original_env_content:
+        if line.startswith("DF_ADMIN_KEY"):
+            new_env_content.append(f"DF_ADMIN_KEY={admin_key}")
+        else:
+            new_env_content.append(line)
+
+    echo.debug(str(new_env_content))
+    env_file.write_text("\n".join(new_env_content))
+    if echo.confirm(
+        "Generated DF_ADMIN_KEY in the configuration file.\nDo you want me to display it now?", default=True
+    ):
+        echo.info(str(admin_key))
+    else:
+        echo.info("You can display it by running:\n`grep DF_ADMIN_KEY {env_file}`")
+
+
 @app.command()
 def install(
     ctx: typer.Context,
+    repository: str = typer.Option(DF_SERVER_REPO, envvar="DF_SERVER_REPO", help="Git repository of server."),
     branch: str | None = typer.Option(None, help="Specify a branch to install from"),
     tag: str | None = typer.Option(None, help="Specify a tag to install from"),
     directory: Path = typer.Option(
         DF_SERVER_DIRECTORY, envvar="DF_SERVER_DIRECTORY", help="Target directory for the server installation."
     ),
-    repository: str = typer.Option(DF_SERVER_REPO, envvar="DF_SERVER_REPO", help="Git repository of server."),
 ) -> None:
     """Install server."""
     debug = ctx.obj.get("debug", False)
@@ -48,15 +85,7 @@ def install(
 
     echo.info("Installing DF Server.")
     if not omit_pulling_repository:
-        try:
-            directory.mkdir(parents=True)
-        except Exception as exc_info:
-            echo.error("Unable to create infra directory.")
-            reraise_if_debug(exc_info)
-
-        echo.info("Cloning repository...")
-        git = Git(repository=repository)
-        git.clone(branch=branch, tag=tag, directory=directory)
+        clone_repo(repository, branch, tag, directory)
 
     # Install dependencies
     echo.info("Installing dependencies...")
@@ -71,26 +100,7 @@ def install(
     if not omit_pulling_repository or echo.confirm(
         "Do you want to override the existing DF server configuration?", default=False
     ):
-        shutil.copy(directory / "example.env", env_file)
-        # TODO Ask a few questions anf fill in the secret details
-        # Generate DF_ADMIN_KEY
-        admin_key = uuid4()
-        original_env_content = env_file.read_text().splitlines()
-        new_env_content = []
-        for line in original_env_content:
-            if line.startswith("DF_ADMIN_KEY"):
-                new_env_content.append(f"DF_ADMIN_KEY={admin_key}")
-            else:
-                new_env_content.append(line)
-
-        echo.debug(str(new_env_content))
-        env_file.write_text("\n".join(new_env_content))
-        if echo.confirm(
-            "Generated DF_ADMIN_KEY in the configuration file. Do you want me to display it now?", default=True
-        ):
-            echo.info(str(admin_key))
-        else:
-            echo.info("You can display it by running:\n`grep DF_ADMIN_KEY {env_file}`")
+        configure_installation(directory, env_file)
 
     echo.success("DF Server installed.")
 
