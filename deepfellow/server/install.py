@@ -38,11 +38,16 @@ def configure_installation(directory: Path, env_file: Path) -> None:
     admin_key = uuid4()
     original_env_content = env_file.read_text().splitlines()
     new_env_content = []
+    replaced_admin_key = False
     for line in original_env_content:
         if line.startswith("DF_ADMIN_KEY"):
+            replaced_admin_key = True
             new_env_content.append(f"DF_ADMIN_KEY={admin_key}")
         else:
             new_env_content.append(line)
+
+    if not replaced_admin_key:
+        new_env_content.append(f"DF_ADMIN_KEY={admin_key}")
 
     echo.debug(str(new_env_content))
     env_file.write_text("\n".join(new_env_content))
