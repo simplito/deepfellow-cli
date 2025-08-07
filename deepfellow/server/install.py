@@ -54,9 +54,20 @@ def configure_installation(directory: Path, env_file: Path) -> None:
     if echo.confirm(
         "Generated DF_ADMIN_KEY in the configuration file.\nDo you want me to display it now?", default=True
     ):
-        echo.info(str(admin_key))
+        echo.info(f"DF_ADMIN_KEY = {admin_key}")
     else:
         echo.info("You can display it by running:\n`grep DF_ADMIN_KEY {env_file}`")
+
+
+def install_dependencies(directory: Path, debug: bool) -> None:
+    """Install dependencies."""
+    command = "uv sync"
+    if not debug:
+        command += " --quiet"
+
+    with Progress(transient=True) as progress:
+        progress.add_task("\tInstalling dependencies...", start=False, total=None)
+        run(command, cwd=directory)
 
 
 @app.command()
@@ -90,17 +101,10 @@ def install(
     ):
         raise typer.Exit(1)
 
-    echo.info("Installing DF Server.")
     if not omit_pulling_repository:
         clone_repo(repository, branch, tag, directory)
 
-    # Install dependencies
-    echo.info("Installing dependencies...")
-    command = "uv sync"
-    if not debug:
-        command += " --quiet"
-
-    run(command, cwd=directory)
+    install_dependencies(directory, debug)
 
     # Configuration
     env_file = directory / ".env"
