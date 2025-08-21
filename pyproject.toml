@@ -41,6 +41,7 @@ ignore = [
     "D203",
     "D213",
     "D301",
+    "D401",   #First line of docstring should be in imperative mood
     "D413",
     "EM101",
     "EM102",  # Exception must not use an f-string literal, assign to variable first
