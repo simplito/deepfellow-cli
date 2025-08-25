@@ -7,9 +7,6 @@ import yaml
 
 from deepfellow.common.docker import (
     generate_env_file,
-    get_infra_compose,
-    get_sample_compose,
-    get_server_compose,
     load_compose_file,
     load_env_file,
     merge_services,
@@ -152,50 +149,6 @@ DF_VALID=valid_value
     result = load_env_file(temp_env_file)
 
     assert result == {"DF_VALID": "valid_value"}
-
-
-def test_get_infra_compose_returns_correct_structure() -> None:
-    result = get_infra_compose()
-
-    expected = {
-        "infra": {
-            "image": "${DF_INFRA_IMAGE}",
-            "ports": ["${DF_INFRA_PORT}:8080"],
-            "environment": [
-                "API_KEY=${DF_INFRA_API_KEY}",
-            ],
-            "restart": "unless-stopped",
-        }
-    }
-    assert result == expected
-
-
-def test_get_server_compose_returns_correct_structure() -> None:
-    result = get_server_compose()
-
-    expected = {
-        "server": {
-            "image": "${DF_SERVER_IMAGE}",
-            "ports": ["${DF_SERVER_PORT}:3000"],
-            "environment": [
-                "API_KEY=${DF_SERVER_API_KEY}",
-                "DB_PASSWORD=${DF_DB_PASSWORD}",
-                "INFRA_URL=http://infra:8080",
-            ],
-            "restart": "unless-stopped",
-        }
-    }
-    assert result == expected
-
-
-def test_get_sample_compose_returns_test_service() -> None:
-    result = get_sample_compose()
-
-    assert "test" in result
-    test_service = result["test"]
-    assert test_service["image"] == "alpine:latest"
-    assert "sh" in test_service["command"]
-    assert "TEST_INFRA_KEY=${DF_INFRA_API_KEY}" in test_service["environment"]
 
 
 def test_merge_services_combines_multiple_services() -> None:

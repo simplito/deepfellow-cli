@@ -5,8 +5,8 @@ from pathlib import Path
 
 import typer
 
-from deepfellow.common.defaults import DF_INFRA_CONFIG_PATH, DF_INFRA_DIRECTORY, DF_INFRA_REPO
-from deepfellow.common.docker import DEFAULT_INFRA_ENV_VARS, generate_env_file, get_infra_compose, save_compose_file
+from deepfellow.common.defaults import DF_INFRA_CONFIG_PATH, DF_INFRA_DIRECTORY, DF_INFRA_IMAGE, DF_INFRA_REPO
+from deepfellow.common.docker import COMPOSE_INFRA, generate_env_file, save_compose_file
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
 from deepfellow.common.git import Git
@@ -21,12 +21,8 @@ def install(
     directory: Path = typer.Option(
         DF_INFRA_DIRECTORY, envvar="DF_INFRA_DIRECTORY", help="Target directory for the Infra installation."
     ),
-    port: int = typer.Option(
-        DEFAULT_INFRA_ENV_VARS["DF_INFRA_PORT"], envvar="DF_INFRA_PORT", help="Port to use to serve the Infra from."
-    ),
-    image: str = typer.Option(
-        DEFAULT_INFRA_ENV_VARS["DF_INFRA_IMAGE"], envvar="DF_INFRA_IMAGE", help="Infra docker image."
-    ),
+    port: int = typer.Option(8080, envvar="DF_INFRA_PORT", help="Port to use to serve the Infra from."),
+    image: str = typer.Option(DF_INFRA_IMAGE, envvar="DF_INFRA_IMAGE", help="Infra docker image."),
 ) -> None:
     """Install infra with docker."""
     yes = ctx.obj.get("yes", False)
@@ -48,10 +44,9 @@ def install(
             echo.error("Unable to create infra directory.")
             reraise_if_debug(exc_info)
 
-    infra_values = DEFAULT_INFRA_ENV_VARS | {"DF_INFRA_PORT": port, "DF_INFRA_IMAGE": image}
+    infra_values = {"DF_INFRA_PORT": port, "DF_INFRA_IMAGE": image}
     generate_env_file(directory / ".env", infra_values)
-    infra_compose = get_infra_compose()
-    save_compose_file(infra_compose, directory / "docker-compose.yml")
+    save_compose_file(COMPOSE_INFRA, directory / "docker-compose.yml")
     echo.success("DF Infra installed.")
 
 

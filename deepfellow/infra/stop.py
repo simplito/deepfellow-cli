@@ -12,11 +12,12 @@ app = typer.Typer()
 
 
 @app.command()
-def start(
+def stop(
     directory: Path = typer.Option(
         DF_INFRA_DIRECTORY, envvar="DF_INFRA_DIRECTORY", help="Target directory for the Infra installation."
     ),
 ) -> None:
     """Start infra."""
-    echo.info("Starting DF Infra")
-    run("docker compose up -d", cwd=directory)
+    echo.debug("Stopping DF Infra")
+    run("docker compose down", cwd=directory)
+    echo.info("DF Infra is down")

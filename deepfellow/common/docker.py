@@ -33,12 +33,6 @@ import yaml
 
 from deepfellow.common.echo import echo
 
-DEFAULT_INFRA_ENV_VARS = {
-    "DF_INFRA_PORT": "8080",
-    "DF_INFRA_API_KEY": "changeme123",
-    "DF_INFRA_IMAGE": "private-repo/infra:latest",
-}
-
 DEFAULT_SERVER_ENV_VARS = {
     "DF_SERVER_PORT": "3000",
     "DF_SERVER_API_KEY": "changeme456",
@@ -46,7 +40,47 @@ DEFAULT_SERVER_ENV_VARS = {
     "DF_SERVER_IMAGE": "private-repo/server:latest",
 }
 
-DEFAULT_ENV_VARS = {**DEFAULT_INFRA_ENV_VARS, **DEFAULT_SERVER_ENV_VARS}
+COMPOSE_SAMPLE = {
+    "test": {
+        "image": "alpine:latest",
+        "command": [
+            "sh",
+            "-c",
+            "echo 'Environment Variables from .env file:' "
+            "&& env | grep '^TEST_' | sort && echo 'Test completed' && sleep 10",
+        ],
+        "environment": [
+            "TEST_INFRA_KEY=${DF_INFRA_API_KEY}",
+            "TEST_SERVER_KEY=${DF_SERVER_API_KEY}",
+            "TEST_INFRA_PORT=${DF_INFRA_PORT}",
+            "TEST_SERVER_PORT=${DF_SERVER_PORT}",
+            "TEST_DB_PASSWORD=${DF_DB_PASSWORD}",
+            "TEST_INFRA_IMAGE=${DF_INFRA_IMAGE}",
+            "TEST_SERVER_IMAGE=${DF_SERVER_IMAGE}",
+        ],
+    }
+}
+
+COMPOSE_INFRA = {
+    "infra": {
+        "image": "${DF_INFRA_IMAGE}",
+        "ports": ["${DF_INFRA_PORT}:8080"],
+        "restart": "unless-stopped",
+    }
+}
+
+COMPOSE_SERVER = {
+    "server": {
+        "image": "${DF_SERVER_IMAGE}",
+        "ports": ["${DF_SERVER_PORT}:3000"],
+        "environment": [
+            "API_KEY=${DF_SERVER_API_KEY}",
+            "DB_PASSWORD=${DF_DB_PASSWORD}",
+            "INFRA_URL=http://infra:${DF_INFRA_PORT}",
+        ],
+        "restart": "unless-stopped",
+    }
+}
 
 
 def generate_env_file(env_file: Path, values: Mapping[str, str | int]) -> None:
@@ -86,59 +120,6 @@ def load_env_file(env_file: Path) -> dict[str, str]:
                 env_vars[key] = value.strip()
 
     return env_vars
-
-
-def get_infra_compose() -> dict[str, Any]:
-    """Returns Docker Compose service configuration for infra."""
-    return {
-        "infra": {
-            "image": "${DF_INFRA_IMAGE}",
-            "ports": ["${DF_INFRA_PORT}:8080"],
-            "environment": [
-                "API_KEY=${DF_INFRA_API_KEY}",
-            ],
-            "restart": "unless-stopped",
-        }
-    }
-
-
-def get_server_compose() -> dict[str, Any]:
-    """Returns Docker Compose service configuration for server."""
-    return {
-        "server": {
-            "image": "${DF_SERVER_IMAGE}",
-            "ports": ["${DF_SERVER_PORT}:3000"],
-            "environment": [
-                "API_KEY=${DF_SERVER_API_KEY}",
-                "DB_PASSWORD=${DF_DB_PASSWORD}",
-                "INFRA_URL=http://infra:8080",
-            ],
-            "restart": "unless-stopped",
-        }
-    }
-
-
-def get_sample_compose() -> dict[str, Any]:
-    """Returns test service that prints environment variables for testing."""
-    return {
-        "test": {
-            "image": "alpine:latest",
-            "command": [
-                "sh",
-                "-c",
-                "echo 'Environment Variables from .env file:' && env | grep '^TEST_' | sort && echo 'Test completed' && sleep 10",
-            ],
-            "environment": [
-                "TEST_INFRA_KEY=${DF_INFRA_API_KEY}",
-                "TEST_SERVER_KEY=${DF_SERVER_API_KEY}",
-                "TEST_INFRA_PORT=${DF_INFRA_PORT}",
-                "TEST_SERVER_PORT=${DF_SERVER_PORT}",
-                "TEST_DB_PASSWORD=${DF_DB_PASSWORD}",
-                "TEST_INFRA_IMAGE=${DF_INFRA_IMAGE}",
-                "TEST_SERVER_IMAGE=${DF_SERVER_IMAGE}",
-            ],
-        }
-    }
 
 
 def merge_services(*service_dicts: dict[str, Any]) -> dict[str, Any]:
