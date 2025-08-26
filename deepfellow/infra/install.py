@@ -19,7 +19,7 @@ app = typer.Typer()
 def install(
     ctx: typer.Context,
     directory: Path = typer.Option(
-        DF_INFRA_DIRECTORY, envvar="DF_INFRA_DIRECTORY", help="Target directory for the Infra installation."
+        DF_INFRA_DIRECTORY, "--directory", "--dir", envvar="DF_INFRA_DIRECTORY", help="Target directory for the Infra installation."
     ),
     port: int = typer.Option(8080, envvar="DF_INFRA_PORT", help="Port to use to serve the Infra from."),
     image: str = typer.Option(DF_INFRA_IMAGE, envvar="DF_INFRA_IMAGE", help="Infra docker image."),
@@ -56,7 +56,7 @@ def install_from_repo(
     branch: str | None = typer.Option(None, help="Specify a branch to install from"),
     tag: str | None = typer.Option(None, help="Specify a tag to install from"),
     directory: Path = typer.Option(
-        DF_INFRA_DIRECTORY, envvar="DF_INFRA_DIRECTORY", help="Target directory for the infra installation."
+        DF_INFRA_DIRECTORY, "--directory", "--dir", envvar="DF_INFRA_DIRECTORY", help="Target directory for the infra installation."
     ),
     repository: str = typer.Option(DF_INFRA_REPO, envvar="DF_INFRA_REPO", help="Git repository of infra."),
     infra_config: Path = typer.Option(
