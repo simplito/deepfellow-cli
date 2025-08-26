@@ -47,7 +47,9 @@ COMPOSE_SAMPLE = {
             "sh",
             "-c",
             "echo 'Environment Variables from .env file:' "
-            "&& env | grep '^TEST_' | sort && echo 'Test completed' && sleep 10",
+            "&& echo 'TEST_ variables:' && env | grep '^TEST_' | sort "
+            "&& echo 'DF_ variables:' && env | grep '^DF_' | sort "
+            "&& echo 'Test completed' && sleep 10",
         ],
         "environment": [
             "TEST_INFRA_KEY=${DF_INFRA_API_KEY}",
