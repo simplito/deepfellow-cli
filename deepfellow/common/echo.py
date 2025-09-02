@@ -13,9 +13,10 @@ def add_tabs(msg: str) -> str:
 
 
 class Echo(Console):
-    def debug(self, message: str) -> None:
+    def debug(self, message_source: Any) -> None:
         """Print a debug message to the console."""
         ctx = click.get_current_context()
+        message = str(message_source)
         if ctx and ctx.obj.get("debug"):
             self.print(f"🔍\t[grey]{add_tabs(message)}[/]", style="dim white")
 

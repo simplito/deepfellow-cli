@@ -7,3 +7,6 @@ test *FLAGS:
 
 ruff *FLAGS:
     uv run ruff check {{FLAGS}} .
+
+mypy *FLAGS:
+    uv run mypy . {{FLAGS}}

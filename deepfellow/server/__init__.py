@@ -7,6 +7,7 @@ from deepfellow.common.config import load_config
 from .configure import app as configure_app
 from .install import app as install_app
 from .start import app as start_app
+from .stop import app as stop_app
 
 DEFAULT_CONFIG = Path("~/.deepfellow/server/config.json").expanduser()
 
@@ -36,3 +37,4 @@ def callback(
 app.add_typer(install_app)
 app.add_typer(configure_app)
 app.add_typer(start_app)
+app.add_typer(stop_app)
