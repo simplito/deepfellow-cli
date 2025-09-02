@@ -7,8 +7,7 @@ import typer
 from deepfellow.common.defaults import DF_INFRA_DIRECTORY
 from deepfellow.common.echo import echo
 from deepfellow.common.system import run
-
-from .utils.validation import validate_directory
+from deepfellow.common.validation import validate_directory
 
 app = typer.Typer()
 
@@ -17,6 +16,8 @@ app = typer.Typer()
 def start(
     directory: Path = typer.Option(
         DF_INFRA_DIRECTORY,
+        "--directory",
+        "--dir",
         envvar="DF_INFRA_DIRECTORY",
         help="Target directory for the Infra installation.",
         callback=validate_directory,
