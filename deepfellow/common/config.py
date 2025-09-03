@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import click
 import typer
@@ -253,3 +254,25 @@ def save_env_file(env_file: Path, values: Mapping[str, str | int]) -> None:
 
     action = "Updated" if file_existed else "Generated"
     echo.info(f"{action} {env_file.as_posix()} with environment variables")
+
+
+def configure_uuid_key(name: str, existing: str | None) -> str:
+    """Generate a new UUID key if required.
+
+    Args:
+        name (str): The name of the key.
+        existing (str | None): The existing value of the key.
+
+    Returns:
+        str: The new or existing UUID key.
+    """
+    if existing is not None and echo.confirm(
+        f"There is an existing {name} in the env file. Do you want to keep it?", default=True
+    ):
+        return existing
+
+    new_value = str(uuid4())
+    if echo.confirm(f"{name} created. Is it safe to print it here?"):
+        echo.info(f"{name}: {new_value}")
+
+    return new_value

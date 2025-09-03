@@ -59,6 +59,10 @@ COMPOSE_INFRA = {
     "infra": {
         "image": "${DF_INFRA_IMAGE}",
         "ports": ["${DF_INFRA_PORT}:8080"],
+        "environment": [
+            "API_KEY=${DF_INFRA_API_KEY}",
+            "ADMIN_API_KEY=${DF_INFRA_ADMIN_API_KEY}",
+        ],
         "restart": "unless-stopped",
     }
 }
@@ -69,7 +73,7 @@ COMPOSE_SERVER = {
         "image": "${DF_SERVER_IMAGE}",
         "ports": ["${DF_SERVER_PORT}:3000"],
         "environment": [
-            "DF_ADMIN_KEY=${DF_ADMIN_KEY}",
+            "DF_ADMIN_KEY=${DF_SERVER_ADMIN_KEY}",
             "DF_MONGO_URL=${DF_MONGO_URL}",
             "DF_MONGO_USER=${DF_MONGO_USER}",
             "DF_MONGO_PASSWORD=${DF_MONGO_PASSWORD}",
