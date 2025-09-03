@@ -6,13 +6,12 @@ from typing import Any
 
 import typer
 
-from deepfellow.common.config import env_to_dict, read_env_file, save_env_file
+from deepfellow.common.config import configure_uuid_key, env_to_dict, read_env_file, save_env_file
 from deepfellow.common.defaults import DF_SERVER_DIRECTORY, DF_SERVER_IMAGE, DF_SERVER_PORT
 from deepfellow.common.docker import COMPOSE_MONGO_DB, COMPOSE_SERVER, COMPOSE_VECTOR_DB, save_compose_file
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
 from deepfellow.server.utils.configure import (
-    configure_admin_key,
     configure_infras,
     configure_mongo,
     configure_vector_db,
@@ -74,12 +73,12 @@ def install(
     vector_db_active = vector_db_envs.get("DF_VECTOR_DATABASE__PROVIDER__ACTIVE") == "1"
 
     echo.info("An Admin needs to identify in DF Server by providing an Admin Key.")
-    admin_key_env = configure_admin_key(original_env_content.get("df_admin_key"))
+    admin_key_env = configure_uuid_key("Admin Key", original_env_content.get("df_admin_key"))
 
     save_env_file(
         env_file,
         {
-            "DF_ADMIN_KEY": admin_key_env,
+            "DF_SERVER_ADMIN_KEY": admin_key_env,
             "DF_SERVER_PORT": port,
             "DF_SERVER_IMAGE": image,
             **mongo_env,

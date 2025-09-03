@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 from typing import Any
-from uuid import uuid4
 
 from deepfellow.common.config import dict_to_env
 from deepfellow.common.defaults import DF_MONGO_DB, DF_MONGO_PASSWORD, DF_MONGO_URL, DF_MONGO_USER, VECTOR_DATABASE
@@ -34,7 +33,7 @@ def configure_vector_db(custom: bool, api_endpoints: list[str]) -> dict[str, str
         vector_db_config["embedding"].update(
             {
                 "model": echo.prompt("Provide the model for embedding", default=VECTOR_DATABASE["embedding"]["model"]),
-                "size": echo.prompt("Provide the embedding size", default=VECTOR_DATABASE["embedding"]["size"])
+                "size": echo.prompt("Provide the embedding size", default=VECTOR_DATABASE["embedding"]["size"]),
             }
         )
 
@@ -86,17 +85,3 @@ def configure_mongo(custom: bool) -> dict[str, str]:
         echo.info("A default MongoDB setup is created.")
 
     return mongo_config
-
-
-def configure_admin_key(existing: str | None) -> str:
-    """Generate a new admin key if required."""
-    if existing is not None and echo.confirm(
-        "There is an existing Admin Key in the env file. Do you want to keep it?", default=True
-    ):
-        return existing
-
-    admin_key = str(uuid4())
-    if echo.confirm("Admin key created. Is it safe to print it here?"):
-        echo.info(f"ADMIN_KEY: {admin_key}")
-
-    return admin_key
