@@ -1,7 +1,7 @@
 import json
 from copy import deepcopy
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import call, patch, Mock
 
 import pytest
 import typer
@@ -31,67 +31,78 @@ def temp_invalid_encoding_file(tmp_path):
     return config_file
 
 
-def test_get_config_path_with_path_object(context, tmp_path):
+@patch("deepfellow.common.config.click")
+def test_get_config_path_with_path_object(mock_click: Mock, context, tmp_path):
     config_file = tmp_path / "config.json"
-    context.obj = {"config": config_file}
+    context.obj = {"config-path": config_file}
+    mock_click.get_current_context.return_value = context
 
-    result = get_config_path(context)
+    result = get_config_path()
 
     assert result == config_file
     assert isinstance(result, Path)
     assert result is config_file  # Should be the exact same object
 
 
-def test_get_config_path_with_string_path(context, tmp_path):
+@patch("deepfellow.common.config.click")
+def test_get_config_path_with_string_path(mock_click: Mock, context, tmp_path):
     config_file = tmp_path / "config.json"
-    context.obj = {"config": str(config_file)}
+    context.obj = {"config-path": str(config_file)}
+    mock_click.get_current_context.return_value = context
 
-    result = get_config_path(context)
+    result = get_config_path()
 
     assert result == config_file
     assert isinstance(result, Path)
+    assert result is not config_file  # Shouldn't be the exact same object
 
 
 @pytest.mark.parametrize(
     "invalid_context_obj",
     [None, {}, {"other_key": "value"}, {"config": None}, {"config": ""}, {"config": False}],
 )
-def test_get_config_path_invalid_context_obj(invalid_context_obj: dict | None, context):
+@patch("deepfellow.common.config.click")
+def test_get_config_path_invalid_context_obj(mock_click: Mock, invalid_context_obj: dict | None, context):
     context.obj = invalid_context_obj
+    mock_click.get_current_context.return_value = context
 
     with pytest.raises(typer.BadParameter, match="No config provided."):
-        get_config_path(context)
+        get_config_path()
 
 
-def test_get_config_path_relative_string_path(context):
-    context.obj = {"config": "config.json"}
+@patch("deepfellow.common.config.click")
+def test_get_config_path_relative_string_path(mock_click: Mock, context):
+    context.obj = {"config-path": "config.json"}
+    mock_click.get_current_context.return_value = context
 
-    result = get_config_path(context)
+    result = get_config_path()
 
     assert result == Path("config.json")
-    assert isinstance(result, Path)
 
 
 @pytest.mark.parametrize(
     "valid_path",
     ["config.json", "~/config.json", "C:\\Users\\user\\config.json", "/path/with spaces/and-dashes/config_file.json"],
 )
-def test_get_config_path_valid_path(valid_path, context):
-    context.obj = {"config": valid_path}
+@patch("deepfellow.common.config.click")
+def test_get_config_path_valid_path(mock_click: Mock, valid_path, context):
+    context.obj = {"config-path": valid_path}
+    mock_click.get_current_context.return_value = context
 
-    result = get_config_path(context)
+    result = get_config_path()
 
     assert result == Path(valid_path)
-    assert isinstance(result, Path)
 
 
-def test_get_config_path_preserves_path_properties(context, tmp_path):
+@patch("deepfellow.common.config.click")
+def test_get_config_path_preserves_path_properties(mock_click: Mock, context, tmp_path):
     config_file = tmp_path / "subdir" / "config.json"
     config_file.parent.mkdir(parents=True)
     config_file.write_text('{"test": "value"}')
-    context.obj = {"config": str(config_file)}
+    context.obj = {"config-path": str(config_file)}
+    mock_click.get_current_context.return_value = context
 
-    result = get_config_path(context)
+    result = get_config_path()
 
     assert result == config_file
     assert result.name == "config.json"
@@ -99,11 +110,13 @@ def test_get_config_path_preserves_path_properties(context, tmp_path):
     assert result.parent.name == "subdir"
 
 
-def test_get_config_path_with_additional_context_data(context, tmp_path):
+@patch("deepfellow.common.config.click")
+def test_get_config_path_with_additional_context_data(mock_click: Mock, context, tmp_path):
     config_file = tmp_path / "config.json"
-    context.obj = {"config": config_file, "verbose": True, "dry_run": False, "other_data": {"nested": "value"}}
+    context.obj = {"config-path": config_file, "verbose": True, "dry_run": False, "other_data": {"nested": "value"}}
+    mock_click.get_current_context.return_value = context
 
-    result = get_config_path(context)
+    result = get_config_path()
 
     assert result == config_file
     assert isinstance(result, Path)
@@ -130,33 +143,31 @@ def test_load_config_empty_file(mock_get_config_path, context, tmp_path):
     assert result == {}
 
 
+@patch("deepfellow.common.config.echo")
 @patch("deepfellow.common.config.get_config_path")
-def test_load_config_file_not_found(mock_get_config_path, context, tmp_path):
+def test_load_config_file_not_found(mock_get_config_path, mock_echo, tmp_path):
     nonexistent_file = tmp_path / "nonexistent.json"
     mock_get_config_path.return_value = nonexistent_file
 
     with pytest.raises(FileNotFoundError):
-        load_config(context)
+        load_config(raise_on_error=True)
 
 
 @patch.object(Path, "read_text", side_effect=PermissionError("Access denied"))
-@patch("typer.echo")
+@patch("deepfellow.common.config.echo")
 @patch("deepfellow.common.config.get_config_path")
 def test_load_config_permission_error(mock_get_config_path, mock_echo, mock_read_text, context, temp_config_file):
     mock_get_config_path.return_value = temp_config_file
 
     with pytest.raises(typer.Exit) as exc_info:
-        load_config(context)
+        load_config(raise_on_error=True)
 
     assert exc_info.value.exit_code == 1
-    assert mock_echo.call_count == 1
-    call_args = mock_echo.call_args[0]
-    assert "Permission denied reading config file" in call_args[0]
-    assert str(temp_config_file) in call_args[0]
-    assert mock_echo.call_args[1]["err"] is True
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == call(f"Permission denied reading config file: {temp_config_file}")
 
 
-@patch("typer.echo")
+@patch("deepfellow.common.config.echo")
 @patch("deepfellow.common.config.get_config_path")
 def test_load_config_json_decode_error(mock_get_config_path, mock_echo, context, temp_invalid_json_file):
     mock_get_config_path.return_value = temp_invalid_json_file
@@ -165,13 +176,12 @@ def test_load_config_json_decode_error(mock_get_config_path, mock_echo, context,
         load_config(context)
 
     assert exc_info.value.exit_code == 1
-    assert mock_echo.call_count == 1
-    call_args = mock_echo.call_args[0]
+    assert mock_echo.error.call_count == 1
+    call_args = mock_echo.error.call_args[0]
     assert "Error parsing config file" in call_args[0]
-    assert mock_echo.call_args[1]["err"] is True
 
 
-@patch("typer.echo")
+@patch("deepfellow.common.config.echo")
 @patch("deepfellow.common.config.get_config_path")
 def test_load_config_unicode_decode_error(mock_get_config_path, mock_echo, context, temp_invalid_encoding_file):
     mock_get_config_path.return_value = temp_invalid_encoding_file
@@ -180,10 +190,9 @@ def test_load_config_unicode_decode_error(mock_get_config_path, mock_echo, conte
         load_config(context)
 
     assert exc_info.value.exit_code == 1
-    assert mock_echo.call_count == 1
-    call_args = mock_echo.call_args[0]
+    assert mock_echo.error.call_count == 1
+    call_args = mock_echo.error.call_args[0]
     assert "Error reading config file (encoding issue)" in call_args[0]
-    assert mock_echo.call_args[1]["err"] is True
 
 
 @patch("deepfellow.common.config.get_config_path")
@@ -224,24 +233,13 @@ def test_load_config_with_unicode_content(mock_get_config_path, context, tmp_pat
 
 
 @patch("deepfellow.common.config.get_config_path")
-def test_load_config_path_conversion(mock_get_config_path, context, temp_config_file):
-    mock_get_config_path.return_value = temp_config_file
-
-    result = load_config(context)
-
-    assert mock_get_config_path.call_count == 1
-    assert mock_get_config_path.call_args[0][0] == context
-    assert isinstance(result, dict)
-
-
-@patch("deepfellow.common.config.get_config_path")
-def test_load_config_json_with_null_values(mock_get_config_path, context, tmp_path):
+def test_load_config_json_with_null_values(mock_get_config_path, tmp_path):
     config_with_nulls = {"database": {"host": "localhost", "password": None, "ssl": False}, "optional_feature": None}
     config_file = tmp_path / "nulls.json"
     config_file.write_text(json.dumps(config_with_nulls), encoding="utf-8")
     mock_get_config_path.return_value = config_file
 
-    result = load_config(context)
+    result = load_config()
 
     assert result == config_with_nulls
     assert result["database"]["password"] is None
@@ -250,7 +248,7 @@ def test_load_config_json_with_null_values(mock_get_config_path, context, tmp_pa
 
 
 @patch("deepfellow.common.config.get_config_path")
-def test_load_config_large_file(mock_get_config_path, context, tmp_path):
+def test_load_config_large_file(mock_get_config_path, tmp_path):
     large_config = {
         "services": {f"service_{i}": {"port": 8000 + i, "enabled": i % 2 == 0} for i in range(100)},
         "metadata": {"version": "2.0.0", "created_by": "test_suite"},
@@ -259,7 +257,7 @@ def test_load_config_large_file(mock_get_config_path, context, tmp_path):
     config_file.write_text(json.dumps(large_config), encoding="utf-8")
     mock_get_config_path.return_value = config_file
 
-    result = load_config(context)
+    result = load_config()
 
     assert result == large_config
     assert len(result["services"]) == 100
@@ -268,7 +266,7 @@ def test_load_config_large_file(mock_get_config_path, context, tmp_path):
 
 
 @patch("deepfellow.common.config.get_config_path")
-def test_load_config_nested_directories(mock_get_config_path, context, tmp_path):
+def test_load_config_nested_directories(mock_get_config_path, tmp_path):
     config_dir = tmp_path / "configs" / "environments"
     config_dir.mkdir(parents=True)
     config_data = {"environment": "test", "nested": True}
@@ -276,40 +274,40 @@ def test_load_config_nested_directories(mock_get_config_path, context, tmp_path)
     config_file.write_text(json.dumps(config_data), encoding="utf-8")
     mock_get_config_path.return_value = config_file
 
-    result = load_config(context)
+    result = load_config()
 
     assert result == config_data
     assert result["environment"] == "test"
     assert result["nested"] is True
 
 
-@patch("typer.echo")
+@patch("deepfellow.common.config.echo")
 @patch("deepfellow.common.config.get_config_path")
-def test_store_config_create_new_file(mock_get_config_path, mock_echo, context, tmp_path):
+def test_store_config_create_new_file(mock_get_config_path, mock_echo, tmp_path):
     config_file = tmp_path / "new_config.json"
     mock_get_config_path.return_value = config_file
     config_data = {"database": {"host": "localhost"}, "debug": True}
 
-    store_config(context, config_data)
+    store_config(config_data)
 
     assert config_file.exists()
     saved_content = json.loads(config_file.read_text(encoding="utf-8"))
     assert saved_content == config_data
-    assert mock_echo.call_count == 1
-    call_args = mock_echo.call_args[0]
+    assert mock_echo.info.call_count == 1
+    call_args = mock_echo.info.call_args[0]
     assert f"Config saved to: {config_file}" in call_args[0]
 
 
-@patch("typer.echo")
+@patch("deepfellow.common.config.echo")
 @patch("deepfellow.common.config.get_config_path")
-def test_store_config_update_existing_file(mock_get_config_path, mock_echo, context, tmp_path):
+def test_store_config_update_existing_file(mock_get_config_path, mock_echo, tmp_path):
     config_file = tmp_path / "existing_config.json"
     existing_config = {"database": {"host": "old_host"}, "api": {"port": 8000}}
     config_file.write_text(json.dumps(existing_config), encoding="utf-8")
     mock_get_config_path.return_value = config_file
     new_config = {"database": {"host": "new_host"}, "debug": True}
 
-    store_config(context, new_config, update=True)
+    store_config(new_config, update=True)
 
     saved_content = json.loads(config_file.read_text(encoding="utf-8"))
     expected = {
@@ -318,78 +316,78 @@ def test_store_config_update_existing_file(mock_get_config_path, mock_echo, cont
         "debug": True,  # Added
     }
     assert saved_content == expected
-    assert mock_echo.call_count == 1
+    assert mock_echo.info.call_count == 1
 
 
-@patch("typer.echo")
+@patch("deepfellow.common.config.echo")
 @patch("deepfellow.common.config.get_config_path")
-def test_store_config_no_update(mock_get_config_path, mock_echo, context, tmp_path):
+def test_store_config_no_update(mock_get_config_path, mock_echo, tmp_path):
     config_file = tmp_path / "existing_config.json"
     existing_config = {"database": {"host": "old_host"}, "api": {"port": 8000}}
     config_file.write_text(json.dumps(existing_config), encoding="utf-8")
     mock_get_config_path.return_value = config_file
     new_config = {"database": {"host": "new_host"}, "debug": True}
 
-    store_config(context, new_config, update=False)
+    store_config(new_config, update=False)
 
     saved_content = json.loads(config_file.read_text(encoding="utf-8"))
     assert saved_content == new_config
-    assert mock_echo.call_count == 1
+    assert mock_echo.info.call_count == 1
 
 
-@patch("typer.echo")
+@patch("deepfellow.common.config.echo")
 @patch("deepfellow.common.config.get_config_path")
-def test_store_config_create_parent_directories(mock_get_config_path, mock_echo, context, tmp_path):
+def test_store_config_create_parent_directories(mock_get_config_path, mock_echo, tmp_path):
     config_file = tmp_path / "deep" / "nested" / "config.json"
     mock_get_config_path.return_value = config_file
     config_data = {"test": "value"}
 
-    store_config(context, config_data)
+    store_config(config_data)
 
     assert config_file.parent.exists()
     assert config_file.exists()
     saved_content = json.loads(config_file.read_text(encoding="utf-8"))
     assert saved_content == config_data
-    assert mock_echo.call_count == 1
+    assert mock_echo.info.call_count == 1
 
 
-@patch("typer.echo")
+@patch("deepfellow.common.config.echo")
 @patch("deepfellow.common.config.get_config_path")
-def test_store_config_pretty_formatting(mock_get_config_path, mock_echo, context, tmp_path):
+def test_store_config_pretty_formatting(mock_get_config_path, mock_echo, tmp_path):
     config_file = tmp_path / "config.json"
     mock_get_config_path.return_value = config_file
     config_data = {"database": {"host": "localhost", "port": 5432}, "api": {"debug": True}}
 
-    store_config(context, config_data)
+    store_config(config_data)
 
     content = config_file.read_text(encoding="utf-8")
     assert "  " in content  # Should have 2-space indentation
     assert content.count("\n") > 1  # Should be multi-line
     parsed = json.loads(content)
     assert parsed == config_data
-    assert mock_echo.call_count == 1
+    assert mock_echo.info.call_count == 1
 
 
-@patch("typer.echo")
+@patch("deepfellow.common.config.echo")
 @patch("deepfellow.common.config.get_config_path")
-def test_store_config_unicode_content(mock_get_config_path, mock_echo, context, tmp_path):
+def test_store_config_unicode_content(mock_get_config_path, mock_echo, tmp_path):
     config_file = tmp_path / "unicode_config.json"
     mock_get_config_path.return_value = config_file
     config_data = {"app_name": "My App™", "description": "ćśńół", "emoji": "🚀"}
 
-    store_config(context, config_data)
+    store_config(config_data)
 
     saved_content = json.loads(config_file.read_text(encoding="utf-8"))
     assert saved_content == config_data
     assert saved_content["app_name"] == "My App™"
     assert saved_content["description"] == "ćśńół"
     assert saved_content["emoji"] == "🚀"
-    assert mock_echo.call_count == 1
+    assert mock_echo.info.call_count == 1
 
 
-@patch("typer.echo")
+@patch("deepfellow.common.config.echo")
 @patch("deepfellow.common.config.get_config_path")
-def test_store_config_deep_copy_modification(mock_get_config_path, mock_echo, context, tmp_path):
+def test_store_config_deep_copy_modification(mock_get_config_path, mock_echo, tmp_path):
     config_file = tmp_path / "config.json"
     existing_config = {"existing": "value"}
     config_file.write_text(json.dumps(existing_config), encoding="utf-8")
@@ -397,88 +395,85 @@ def test_store_config_deep_copy_modification(mock_get_config_path, mock_echo, co
     original_data = {"new": "value"}
     original_copy = deepcopy(original_data)
 
-    store_config(context, original_data, update=True)
+    store_config(original_data, update=True)
 
     assert original_data == original_copy
     saved_content = json.loads(config_file.read_text(encoding="utf-8"))
     assert saved_content == {"existing": "value", "new": "value"}
-    assert mock_echo.call_count == 1
+    assert mock_echo.info.call_count == 1
 
 
-@patch("typer.echo")
+@patch("deepfellow.common.config.echo")
 @patch("deepfellow.common.config.get_config_path")
-def test_store_config_update_nonexistent_file(mock_get_config_path, mock_echo, context, tmp_path):
+def test_store_config_update_nonexistent_file(mock_get_config_path, mock_echo, tmp_path):
     config_file = tmp_path / "nonexistent.json"
     mock_get_config_path.return_value = config_file
     config_data = {"new": "config"}
 
-    store_config(context, config_data, update=True)
+    store_config(config_data, update=True)
 
     assert config_file.exists()
     saved_content = json.loads(config_file.read_text(encoding="utf-8"))
     assert saved_content == config_data
-    assert mock_echo.call_count == 1
+    assert mock_echo.info.call_count == 1
 
 
 @patch.object(Path, "write_text", side_effect=PermissionError("Access denied"))
-@patch("typer.echo")
+@patch("deepfellow.common.config.echo")
 @patch("deepfellow.common.config.get_config_path")
-def test_store_config_permission_error(mock_get_config_path, mock_echo, mock_write_text, context, tmp_path):
+def test_store_config_permission_error(mock_get_config_path, mock_echo, mock_write_text, tmp_path):
     config_file = tmp_path / "config.json"
     mock_get_config_path.return_value = config_file
     config_data = {"test": "value"}
 
     with pytest.raises(typer.Exit) as exc_info:
-        store_config(context, config_data)
+        store_config(config_data)
 
     assert exc_info.value.exit_code == 1
-    assert mock_echo.call_count == 1
-    call_args = mock_echo.call_args[0]
+    assert mock_echo.error.call_count == 1
+    call_args = mock_echo.error.call_args[0]
     assert "Permission denied writing config file" in call_args[0]
     assert str(config_file) in call_args[0]
-    assert mock_echo.call_args[1]["err"] is True
 
 
 @patch.object(Path, "write_text", side_effect=OSError("Disk full"))
-@patch("typer.echo")
+@patch("deepfellow.common.config.echo")
 @patch("deepfellow.common.config.get_config_path")
-def test_store_config_os_error(mock_get_config_path, mock_echo, mock_write_text, context, tmp_path):
+def test_store_config_os_error(mock_get_config_path, mock_echo, mock_write_text, tmp_path):
     config_file = tmp_path / "config.json"
     mock_get_config_path.return_value = config_file
     config_data = {"test": "value"}
 
     with pytest.raises(typer.Exit) as exc_info:
-        store_config(context, config_data)
+        store_config(config_data)
 
     assert exc_info.value.exit_code == 1
-    assert mock_echo.call_count == 1
-    call_args = mock_echo.call_args[0]
+    assert mock_echo.error.call_count == 1
+    call_args = mock_echo.error.call_args[0]
     assert "Error writing config file" in call_args[0]
     assert "Disk full" in call_args[0]
-    assert mock_echo.call_args[1]["err"] is True
 
 
 @patch.object(Path, "mkdir", side_effect=PermissionError("Cannot create directory"))
-@patch("typer.echo")
+@patch("deepfellow.common.config.echo")
 @patch("deepfellow.common.config.get_config_path")
-def test_store_config_mkdir_permission_error(mock_get_config_path, mock_echo, mock_mkdir, context, tmp_path):
+def test_store_config_mkdir_permission_error(mock_get_config_path, mock_echo, mock_mkdir, tmp_path):
     config_file = tmp_path / "restricted" / "config.json"
     mock_get_config_path.return_value = config_file
     config_data = {"test": "value"}
 
     with pytest.raises(typer.Exit) as exc_info:
-        store_config(context, config_data)
+        store_config(config_data)
 
     assert exc_info.value.exit_code == 1
-    assert mock_echo.call_count == 1
-    call_args = mock_echo.call_args[0]
+    assert mock_echo.error.call_count == 1
+    call_args = mock_echo.error.call_args[0]
     assert "Permission denied writing config file" in call_args[0]
-    assert mock_echo.call_args[1]["err"] is True
 
 
-@patch("typer.echo")
+@patch("deepfellow.common.config.echo")
 @patch("deepfellow.common.config.get_config_path")
-def test_store_config_complex_nested_data(mock_get_config_path, mock_echo, context, tmp_path):
+def test_store_config_complex_nested_data(mock_get_config_path, mock_echo, tmp_path):
     config_file = tmp_path / "complex_config.json"
     mock_get_config_path.return_value = config_file
     config_data = {
@@ -490,18 +485,18 @@ def test_store_config_complex_nested_data(mock_get_config_path, mock_echo, conte
         "metadata": {"version": "1.0.0", "created_at": "2024-01-01"},
     }
 
-    store_config(context, config_data)
+    store_config(config_data)
 
     saved_content = json.loads(config_file.read_text(encoding="utf-8"))
     assert saved_content == config_data
     assert saved_content["database"]["connections"]["primary"]["host"] == "db1"
     assert "auth" in saved_content["features"]["enabled"]
-    assert mock_echo.call_count == 1
+    assert mock_echo.info.call_count == 1
 
 
-@patch("typer.echo")
+@patch("deepfellow.common.config.echo")
 @patch("deepfellow.common.config.get_config_path")
-def test_store_config_merge_preserves_nested_structure(mock_get_config_path, mock_echo, context, tmp_path):
+def test_store_config_merge_preserves_nested_structure(mock_get_config_path, mock_echo, tmp_path):
     config_file = tmp_path / "nested_config.json"
     existing_config = {"database": {"host": "old_host", "port": 5432}, "api": {"port": 8000, "debug": False}}
     config_file.write_text(json.dumps(existing_config), encoding="utf-8")
@@ -511,7 +506,7 @@ def test_store_config_merge_preserves_nested_structure(mock_get_config_path, moc
         "logging": {"level": "INFO"},  # Should add new section
     }
 
-    store_config(context, new_config, update=True)
+    store_config(new_config, update=True)
 
     saved_content = json.loads(config_file.read_text(encoding="utf-8"))
     expected = {
@@ -520,35 +515,35 @@ def test_store_config_merge_preserves_nested_structure(mock_get_config_path, moc
         "logging": {"level": "INFO"},  # Added
     }
     assert saved_content == expected
-    assert mock_echo.call_count == 1
+    assert mock_echo.info.call_count == 1
 
 
-@patch("typer.echo")
+@patch("deepfellow.common.config.echo")
 @patch("deepfellow.common.config.get_config_path")
-def test_store_config_empty_dict(mock_get_config_path, mock_echo, context, tmp_path):
+def test_store_config_empty_dict(mock_get_config_path, mock_echo, tmp_path):
     config_file = tmp_path / "empty_config.json"
     mock_get_config_path.return_value = config_file
     config_data = {}
 
-    store_config(context, config_data)
+    store_config(config_data)
 
     saved_content = json.loads(config_file.read_text(encoding="utf-8"))
     assert saved_content == {}
-    assert mock_echo.call_count == 1
+    assert mock_echo.info.call_count == 1
 
 
-@patch("typer.echo")
+@patch("deepfellow.common.config.echo")
 @patch("deepfellow.common.config.get_config_path")
-def test_store_config_with_none_values(mock_get_config_path, mock_echo, context, tmp_path):
+def test_store_config_with_none_values(mock_get_config_path, mock_echo, tmp_path):
     config_file = tmp_path / "null_config.json"
     mock_get_config_path.return_value = config_file
     config_data = {"database": {"password": None}, "optional_feature": None, "enabled": False}
 
-    store_config(context, config_data)
+    store_config(config_data)
 
     saved_content = json.loads(config_file.read_text(encoding="utf-8"))
     assert saved_content == config_data
     assert saved_content["database"]["password"] is None
     assert saved_content["optional_feature"] is None
     assert saved_content["enabled"] is False
-    assert mock_echo.call_count == 1
+    assert mock_echo.info.call_count == 1
