@@ -113,7 +113,7 @@ def store_config(config_data_source: dict[str, Any], update: bool = True) -> Non
         echo.error(f"Error writing config file: {exc}")
         raise typer.Exit(1) from exc
 
-    typer.echo(f"Config saved to: {config_path}")
+    echo.info(f"Config saved to: {config_path}")
 
 
 def dict_to_env(data: dict[str, Any], prefix: str = "DF_", parent_key: str = "") -> dict[str, str]:

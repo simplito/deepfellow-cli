@@ -1,4 +1,3 @@
-from collections.abc import Mapping
 from pathlib import Path
 from unittest import mock
 
@@ -6,9 +5,7 @@ import pytest
 import yaml
 
 from deepfellow.common.docker import (
-    generate_env_file,
     load_compose_file,
-    load_env_file,
     merge_services,
     save_compose_file,
 )
@@ -39,116 +36,6 @@ def existing_env_content() -> str:
 DF_EXISTING_VAR=existing_value
 DF_SHARED_VAR=old_value
 """
-
-
-@mock.patch("deepfellow.common.docker.echo")
-def test_generate_env_file_creates_new_file(
-    mock_echo: mock.Mock, temp_env_file: Path, sample_env_vars: dict[str, str | int]
-) -> None:
-    generate_env_file(temp_env_file, sample_env_vars)
-
-    assert temp_env_file.exists()
-    content = temp_env_file.read_text()
-
-    assert "# Docker Compose Environment Variables" in content
-    assert "DF_TEST_PORT=9000" in content
-    assert "DF_TEST_KEY=test_secret" in content
-    assert "DF_TEST_IMAGE=test:latest" in content
-
-    assert mock_echo.info.call_count == 1
-    assert mock_echo.info.call_args == mock.call(f"Generated {temp_env_file.as_posix()} with environment variables")
-
-
-@mock.patch("deepfellow.common.docker.echo")
-def test_generate_env_file_updates_existing_file(
-    mock_echo: mock.Mock,
-    temp_env_file: Path,
-    existing_env_content: str,
-    sample_env_vars: dict[str, str | int],
-) -> None:
-    temp_env_file.write_text(existing_env_content)
-
-    # Add a shared variable to test precedence
-    test_vars = {**sample_env_vars, "DF_SHARED_VAR": "new_value"}
-
-    generate_env_file(temp_env_file, test_vars)
-
-    content = temp_env_file.read_text()
-
-    # Check existing var is preserved
-    assert "DF_EXISTING_VAR=existing_value" in content
-    # Check new vars are added
-    assert "DF_TEST_PORT=9000" in content
-    # Check precedence - new value should override old
-    assert "DF_SHARED_VAR=new_value" in content
-    assert "DF_SHARED_VAR=old_value" not in content
-
-    assert mock_echo.info.call_count == 1
-    assert mock_echo.info.call_args == mock.call(f"Updated {temp_env_file.as_posix()} with environment variables")
-
-
-@mock.patch("builtins.print")
-@mock.patch.object(Path, "write_text")
-@mock.patch.object(Path, "exists", return_value=False)
-def test_generate_env_file_handles_mapping_types(
-    mock_exists: mock.Mock, mock_write_text: mock.Mock, mock_print: mock.Mock
-) -> None:
-    from collections import OrderedDict
-
-    temp_file = Path("test.env")
-    ordered_vars: Mapping[str, str | int] = OrderedDict([("DF_A", "first"), ("DF_B", 123)])
-
-    generate_env_file(temp_file, ordered_vars)
-
-    assert mock_write_text.call_count == 1
-    content = mock_write_text.call_args[0][0]
-    assert "DF_A=first" in content
-    assert "DF_B=123" in content
-
-
-def test_load_env_file_returns_empty_dict_when_file_not_exists() -> None:
-    non_existent_file = Path("nonexistent.env")
-
-    result = load_env_file(non_existent_file)
-
-    assert result == {}
-
-
-def test_load_env_file_parses_env_file_correctly(temp_env_file: Path) -> None:
-    content = """# Comment line
-DF_PORT=8080
-DF_KEY=secret123
-DF_MULTI_EQUALS=value=with=equals
-
-# Another comment
-DF_SPACES = value with spaces
-"""
-    temp_env_file.write_text(content)
-
-    result = load_env_file(temp_env_file)
-
-    expected = {
-        "DF_PORT": "8080",
-        "DF_KEY": "secret123",
-        "DF_MULTI_EQUALS": "value=with=equals",
-        "DF_SPACES": "value with spaces",
-    }
-    assert result == expected
-
-
-def test_load_env_file_ignores_invalid_lines(temp_env_file: Path) -> None:
-    content = """# This is a comment
-invalid_line_without_equals
-=missing_key
-DF_VALID=valid_value
-
-    # Indented comment
-"""
-    temp_env_file.write_text(content)
-
-    result = load_env_file(temp_env_file)
-
-    assert result == {"DF_VALID": "valid_value"}
 
 
 def test_merge_services_combines_multiple_services() -> None:
@@ -187,15 +74,14 @@ def test_merge_services_handles_overlapping_services() -> None:
 
 @mock.patch("deepfellow.common.docker.echo")
 def test_save_compose_file_writes_yaml_content(mock_echo: mock.Mock, temp_compose_file: Path) -> None:
-    services = {"web": {"image": "nginx", "ports": ["80:80"]}}
-    expected_compose = {"services": services}
+    expected = {"web": {"image": "nginx", "ports": ["80:80"]}}
 
-    save_compose_file(services, temp_compose_file)
+    save_compose_file(expected, temp_compose_file)
 
     assert temp_compose_file.exists()
     content = temp_compose_file.read_text()
     parsed = yaml.safe_load(content)
-    assert parsed == expected_compose
+    assert parsed == expected
 
     assert mock_echo.info.call_count == 1
     assert mock_echo.info.call_args == mock.call(
@@ -206,14 +92,13 @@ def test_save_compose_file_writes_yaml_content(mock_echo: mock.Mock, temp_compos
 @mock.patch("deepfellow.common.docker.echo")
 @mock.patch.object(Path, "write_text")
 def test_save_compose_file_uses_default_path(mock_write_text: mock.Mock, mock_echo: mock.Mock) -> None:
-    services = {}
-    expected_compose = {"services": services}
+    expected = {}
 
-    save_compose_file(services)
+    save_compose_file(expected)
 
     assert mock_write_text.call_count == 1
     yaml_content = mock_write_text.call_args[0][0]
-    assert yaml.safe_load(yaml_content) == expected_compose
+    assert yaml.safe_load(yaml_content) == expected
 
     assert mock_echo.info.call_count == 1
     assert "docker-compose.yml" in mock_echo.info.call_args[0][0]

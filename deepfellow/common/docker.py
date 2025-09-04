@@ -182,24 +182,6 @@ COMPOSE_MONGO_DB = {
 }
 
 
-def load_env_file(env_file: Path) -> dict[str, str]:
-    """Loads .env file and returns dictionary of key-value pairs."""
-    env_vars: dict[str, str] = {}
-    if not env_file.exists():
-        return env_vars
-
-    content = env_file.read_text()
-    for line in content.splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            key, value = line.split("=", 1)
-            key = key.strip()
-            if key:  # Only add if key is not empty
-                env_vars[key] = value.strip()
-
-    return env_vars
-
-
 def merge_services(*service_dicts: dict[str, Any]) -> dict[str, Any]:
     """Combines multiple service dictionaries into one."""
     merged: dict[str, Any] = {"services": {}}
