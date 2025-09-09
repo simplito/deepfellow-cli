@@ -58,7 +58,7 @@ COMPOSE_SAMPLE = {
 COMPOSE_INFRA = {
     "infra": {
         "image": "${DF_INFRA_IMAGE}",
-        "ports": ["${DF_INFRA_PORT}:8080"],
+        "ports": ["${DF_INFRA_PORT}:8086"],
         "environment": [
             "API_KEY=${DF_INFRA_API_KEY}",
             "ADMIN_API_KEY=${DF_INFRA_ADMIN_API_KEY}",
