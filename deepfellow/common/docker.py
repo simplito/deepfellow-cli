@@ -192,7 +192,14 @@ def merge_services(*service_dicts: dict[str, Any]) -> dict[str, Any]:
 
 
 def represent_none(self: yaml.representer.BaseRepresenter, _: None) -> yaml.ScalarNode:
-    """Custom representer for None values."""
+    """Custom representer for None values.
+
+    Required for volumes to generate:
+
+    volumes:
+      milvus:
+      etcd:
+    """
     return self.represent_scalar("tag:yaml.org,2002:null", "")
 
 
