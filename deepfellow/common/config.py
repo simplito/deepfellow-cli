@@ -17,9 +17,6 @@ from deepfellow.common.echo import echo
 def get_config_path() -> Path:
     """Get config path from context.
 
-    Args:
-        ctx (typer.Context): CLI context object.
-
     Returns:
        Path: Config file path.
 
@@ -58,10 +55,11 @@ def load_config(raise_on_error: bool = False) -> dict[str, Any]:
         return json.loads(content)
     except FileNotFoundError:
         msg = f"Config file not found: {config_path}"
-        echo.debug(msg)
         if raise_on_error:
             echo.error(msg)
             raise
+
+        echo.debug(msg)
     except PermissionError as exc:
         echo.error(f"Permission denied reading config file: {config_path}")
         if raise_on_error:
@@ -100,10 +98,7 @@ def store_config(config_data_source: dict[str, Any], update: bool = True) -> Non
             pass
 
     try:
-        # Create parent directories if they don't exist
         config_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Write JSON with pretty formatting
         content = json.dumps(config_data, indent=2, ensure_ascii=False)
         config_path.write_text(content, encoding="utf-8")
     except PermissionError as exc:
@@ -130,14 +125,12 @@ def dict_to_env(data: dict[str, Any], prefix: str = "DF_", parent_key: str = "")
     env_vars = {}
 
     for key, value in data.items():
-        # Create the full key path
         full_key = f"{parent_key}__{key.upper()}" if parent_key else f"{prefix}{key.upper()}" if prefix else key.upper()
 
         if isinstance(value, dict):
             # Recursively handle nested dictionaries
             env_vars.update(dict_to_env(value, prefix="", parent_key=full_key))
         else:
-            # Convert value to string
             env_vars[full_key] = str(value)
 
     return env_vars
@@ -186,6 +179,7 @@ def env_to_dict(env_vars: dict[str, str], prefix: str = "") -> dict[str, str | i
                 # Intermediate key, create nested dict if doesn't exist
                 if k not in current:
                     current[k] = {}
+
                 current = current[k]
 
     return result
@@ -211,7 +205,6 @@ def read_env_file(file_path: str | Path) -> dict[str, str]:
     for line in lines:
         line = line.strip()
 
-        # Skip empty lines and comments
         if not line or line.startswith("#"):
             continue
 

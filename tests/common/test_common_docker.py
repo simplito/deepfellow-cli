@@ -133,3 +133,18 @@ def test_load_compose_file_uses_default_path(mock_exists: mock.Mock, mock_read_t
     result = load_compose_file()
 
     assert result == expected_content
+
+
+def test_save_compose_file_with_volumes(temp_compose_file: Path):
+    compose = {"volumes": {"test_volume_1": None, "test_volume_2": None}}
+
+    save_compose_file(compose, temp_compose_file)
+
+    content = temp_compose_file.read_text()
+    assert (
+        content
+        == """volumes:
+  test_volume_1:
+  test_volume_2:
+"""
+    )
