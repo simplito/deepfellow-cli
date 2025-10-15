@@ -4,9 +4,10 @@ from pathlib import Path
 from typing import Any
 
 import typer
+
 from deepfellow.common.config import configure_uuid_key, env_to_dict, read_env_file, save_env_file
 from deepfellow.common.defaults import DF_INFRA_DIRECTORY, DF_INFRA_IMAGE
-from deepfellow.common.docker import COMPOSE_INFRA, save_compose_file
+from deepfellow.common.docker import COMPOSE_INFRA, get_docker_socket, save_compose_file
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
 
@@ -29,6 +30,7 @@ def install(
     """Install infra with docker."""
     yes = ctx.obj.get("yes", False)
     echo.debug(f"{directory=},\n{yes=}")
+    docker_socket = get_docker_socket()
     override_existing_installation = False
     directory_exists = False
     if directory.is_dir():
@@ -65,5 +67,7 @@ def install(
         "DF_INFRA_ADMIN_API_KEY": admin_api_key,
     }
     save_env_file(directory / ".env", infra_values)
-    save_compose_file({"services": COMPOSE_INFRA}, directory / "docker-compose.yml")
+    compose_infra = COMPOSE_INFRA
+    compose_infra["infra"]["volumes"] = [f"{docker_socket}:/run/docker.sock"]
+    save_compose_file({"services": compose_infra}, directory / "docker-compose.yml")
     echo.success("DF Infra installed.\nCall `depfellow infra start`.")
