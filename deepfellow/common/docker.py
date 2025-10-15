@@ -25,12 +25,15 @@ Sample usage:
     save_compose_file(test_compose, Path("docker-compose.test.yml"))
 """
 
+import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from deepfellow.common.echo import echo
+from deepfellow.common.exceptions import DockerSocketNotFoundError
 
 COMPOSE_SAMPLE = {
     "test": {
@@ -218,3 +221,49 @@ def load_compose_file(compose_file: Path = Path("docker-compose.yml")) -> dict[s
         return {"services": {}}
 
     return yaml.safe_load(compose_file.read_text())
+
+
+def get_docker_socket() -> str:
+    """Get the Docker socket.
+
+    Detect active docker socket with `docker context inspect`
+    https://docs.docker.com/reference/cli/docker/context/inspect/
+
+    Returns the str representing the path to the socket.
+    """
+    if (docker_host := os.getenv("DOCKER_HOST")) and docker_host.startswith("unix://"):
+        return docker_host.replace("unix://", "")
+
+    # Try to find the active docker socket
+    try:
+        result = subprocess.run(
+            ["docker", "context", "inspect", "-f", "{{.Endpoints.docker.Host}}"], capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            host = result.stdout.strip()
+            if host.startswith("unix://"):
+                return host.replace("unix://", "")
+
+    except subprocess.CalledProcessError:
+        pass
+
+    socket_file = "docker.sock"
+
+    # Let's see if the rootless socket exists
+    rootless_path: str | None = None
+    if xdg_runtime_dir := os.getenv("XDG_RUNTIME_DIR"):
+        rootless_path = f"{xdg_runtime_dir}/{socket_file}"
+        if Path(rootless_path).is_file():
+            return rootless_path
+
+    uid = os.getuid()
+    rootless_path = f"/run/user/{uid}/{socket_file}"
+    if Path(rootless_path).is_file():
+        return rootless_path
+
+    # Let's try with rootfull
+    rootful_path = f"/run/{socket_file}"
+    if Path(rootful_path).is_file():
+        return rootful_path
+
+    raise DockerSocketNotFoundError()
