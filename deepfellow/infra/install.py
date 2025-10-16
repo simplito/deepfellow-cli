@@ -83,7 +83,7 @@ def install(
 
     # Find out the compose prefix
     original_compose_prefix = original_env_content.get("df_infra_compose_prefix")
-    compose_prefix = str | None
+    compose_prefix: str | None = None
     if original_compose_prefix is not None and echo.confirm(
         f"Would you like to keep the previously configured compose prefix '{original_compose_prefix}'?", default=True
     ):
