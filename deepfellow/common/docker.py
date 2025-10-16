@@ -67,6 +67,7 @@ COMPOSE_INFRA = {
             "ADMIN_API_KEY=${DF_INFRA_ADMIN_API_KEY}",
             "DF_DOCKER_SUBNET=${DF_INFRA_DOCKER_SUBNET}",
             "DF_COMPOSE_PREFIX=${DF_INFRA_COMPOSE_PREFIX}",
+            "DF_STORAGE_DIR=${DF_INFRA_STORAGE_DIR}",
         ],
         "restart": "unless-stopped",
         "volumes": [
