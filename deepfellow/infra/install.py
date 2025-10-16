@@ -6,8 +6,8 @@ from typing import Any
 import typer
 
 from deepfellow.common.config import configure_uuid_key, env_to_dict, read_env_file, save_env_file
-from deepfellow.common.defaults import DF_INFRA_DIRECTORY, DF_INFRA_IMAGE
-from deepfellow.common.docker import COMPOSE_INFRA, get_docker_socket, save_compose_file
+from deepfellow.common.defaults import DF_INFRA_DIRECTORY, DF_INFRA_DOCKER_NETWORK, DF_INFRA_IMAGE
+from deepfellow.common.docker import COMPOSE_INFRA, ensure_network, get_socket, save_compose_file
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
 
@@ -26,11 +26,14 @@ def install(
     ),
     port: int = typer.Option(8080, envvar="DF_INFRA_PORT", help="Port to use to serve the Infra from."),
     image: str = typer.Option(DF_INFRA_IMAGE, envvar="DF_INFRA_IMAGE", help="Infra docker image."),
+    docker_network: str = typer.Option(
+        DF_INFRA_DOCKER_NETWORK, envvar="DF_INFRA_DOCKER_NETWORK", help="Infra docker network."
+    ),
 ) -> None:
     """Install infra with docker."""
     yes = ctx.obj.get("yes", False)
     echo.debug(f"{directory=},\n{yes=}")
-    docker_socket = get_docker_socket()
+    docker_socket = get_socket()
     override_existing_installation = False
     directory_exists = False
     if directory.is_dir():
@@ -60,14 +63,34 @@ def install(
     echo.info("An Admin needs to identify itself in DF Infra to perform actions.")
     admin_api_key = configure_uuid_key("Admin API Key", original_env_content.get("df_infra_admin_api_key"))
 
+    # Find out which docker network to use
+    original_docker_network = original_env_content.get("df_infra_subnet")
+    if (
+        original_docker_network is not None
+        and original_docker_network != DF_INFRA_DOCKER_NETWORK
+        and docker_network == DF_INFRA_DOCKER_NETWORK
+        and echo.confirm(
+            f"Would you like to keep the previously configured docker network '{original_docker_network}'?"
+        )
+    ):
+        docker_network = original_docker_network
+
+    # Create the network if needed
+    ensure_network(docker_network)
+
     infra_values = {
         "DF_INFRA_PORT": port,
         "DF_INFRA_IMAGE": image,
         "DF_INFRA_API_KEY": api_key,
         "DF_INFRA_ADMIN_API_KEY": admin_api_key,
+        "DF_INFRA_SUBNET": docker_network,
     }
     save_env_file(directory / ".env", infra_values)
+
     compose_infra = COMPOSE_INFRA
     compose_infra["infra"]["volumes"] = [f"{docker_socket}:/run/docker.sock"]
-    save_compose_file({"services": compose_infra}, directory / "docker-compose.yml")
+    save_compose_file(
+        {"services": compose_infra, "networks": {docker_network: {"external": True}}},
+        directory / "docker-compose.yml",
+    )
     echo.success("DF Infra installed.\nCall `depfellow infra start`.")
