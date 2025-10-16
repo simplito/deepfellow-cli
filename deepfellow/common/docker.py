@@ -66,6 +66,7 @@ COMPOSE_INFRA = {
             "API_KEY=${DF_INFRA_API_KEY}",
             "ADMIN_API_KEY=${DF_INFRA_ADMIN_API_KEY}",
             "DF_DOCKER_SUBNET=${DF_INFRA_DOCKER_SUBNET}",
+            "DF_COMPOSE_PREFIX=${DF_INFRA_COMPOSE_PREFIX}",
         ],
         "restart": "unless-stopped",
     }
@@ -115,7 +116,9 @@ COMPOSE_VECTOR_DB = {
         ],
         "ports": ["2379:2379"],
         "volumes": ["etcd:/etcd"],
-        "command": "etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd",
+        "command": (
+            "etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd"
+        ),
         "healthcheck": {
             "test": ["CMD", "etcdctl", "endpoint", "health"],
             "interval": "30s",

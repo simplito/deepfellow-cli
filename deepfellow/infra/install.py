@@ -1,5 +1,7 @@
 """Install infra typer command."""
 
+import random
+import string
 from pathlib import Path
 from typing import Any
 
@@ -70,7 +72,8 @@ def install(
         and original_docker_network != DF_INFRA_DOCKER_NETWORK
         and docker_network == DF_INFRA_DOCKER_NETWORK
         and echo.confirm(
-            f"Would you like to keep the previously configured docker network '{original_docker_network}'?"
+            f"Would you like to keep the previously configured docker network '{original_docker_network}'?",
+            default=True,
         )
     ):
         docker_network = original_docker_network
@@ -78,12 +81,24 @@ def install(
     # Create the network if needed
     ensure_network(docker_network)
 
+    # Find out the compose prefix
+    original_compose_prefix = original_env_content.get("df_infra_compose_prefix")
+    compose_prefix = str | None
+    if original_compose_prefix is not None and echo.confirm(
+        f"Would you like to keep the previously configured compose prefix '{original_compose_prefix}'?", default=True
+    ):
+        compose_prefix = original_compose_prefix
+    else:
+        random_letters = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
+        compose_prefix = f"df{random_letters}_"
+
     infra_values = {
         "DF_INFRA_PORT": port,
         "DF_INFRA_IMAGE": image,
         "DF_INFRA_API_KEY": api_key,
         "DF_INFRA_ADMIN_API_KEY": admin_api_key,
         "DF_INFRA_DOCKER_SUBNET": docker_network,
+        "DF_INFRA_COMPOSE_PREFIX": compose_prefix,
     }
     save_env_file(directory / ".env", infra_values)
 
