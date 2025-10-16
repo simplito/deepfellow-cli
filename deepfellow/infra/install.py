@@ -8,7 +8,7 @@ from typing import Any
 import typer
 
 from deepfellow.common.config import configure_uuid_key, env_to_dict, read_env_file, save_env_file
-from deepfellow.common.defaults import DF_INFRA_DIRECTORY, DF_INFRA_DOCKER_NETWORK, DF_INFRA_IMAGE
+from deepfellow.common.defaults import DF_INFRA_DIRECTORY, DF_INFRA_DOCKER_NETWORK, DF_INFRA_IMAGE, DF_INFRA_STORAGE_DIR
 from deepfellow.common.docker import COMPOSE_INFRA, ensure_network, find_docker_config, get_socket, save_compose_file
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
@@ -32,6 +32,9 @@ def install(
         DF_INFRA_DOCKER_NETWORK, envvar="DF_INFRA_DOCKER_NETWORK", help="Infra docker network."
     ),
     docker_config: Path | None = typer.Option(None, envvar="DF_INFRA_DOCKER_CONFIG", help="Path to the docker config."),
+    storage: Path = typer.Option(
+        DF_INFRA_STORAGE_DIR, envvar="DF_INFRA_STORAGE_DIR", help="Storage for the Infra services."
+    ),
 ) -> None:
     """Install infra with docker."""
     yes = ctx.obj.get("yes", False)
@@ -100,6 +103,19 @@ def install(
         echo.error("Docker configuration file not found.\nUse --docker-config option to provide it.")
         raise typer.Exit(1) from exc
 
+    # Dind out the infra storage dir
+    original_storage = original_env_content.get("DF_INFRA_STORAGE_DIR")
+    if (
+        original_storage is not None
+        and original_storage != DF_INFRA_STORAGE_DIR
+        and storage == DF_INFRA_STORAGE_DIR
+        and echo.confirm(
+            f"Would you like to keep the previously configured storage dir '{original_storage}'?",
+            default=True,
+        )
+    ):
+        storage = original_storage
+
     infra_values = {
         "DF_INFRA_PORT": port,
         "DF_INFRA_IMAGE": image,
@@ -108,6 +124,7 @@ def install(
         "DF_INFRA_DOCKER_SUBNET": docker_network,
         "DF_INFRA_COMPOSE_PREFIX": compose_prefix,
         "DF_INFRA_DOCKER_CONFIG": str(docker_config),
+        "DF_INFRA_STORAGE_DIR": storage.expanduser().resolve().as_posix(),
     }
     save_env_file(directory / ".env", infra_values)
 
