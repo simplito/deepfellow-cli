@@ -64,7 +64,7 @@ def install(
     admin_api_key = configure_uuid_key("Admin API Key", original_env_content.get("df_infra_admin_api_key"))
 
     # Find out which docker network to use
-    original_docker_network = original_env_content.get("df_infra_subnet")
+    original_docker_network = original_env_content.get("df_infra_docker_subnet")
     if (
         original_docker_network is not None
         and original_docker_network != DF_INFRA_DOCKER_NETWORK
@@ -83,7 +83,7 @@ def install(
         "DF_INFRA_IMAGE": image,
         "DF_INFRA_API_KEY": api_key,
         "DF_INFRA_ADMIN_API_KEY": admin_api_key,
-        "DF_INFRA_SUBNET": docker_network,
+        "DF_INFRA_DOCKER_SUBNET": docker_network,
     }
     save_env_file(directory / ".env", infra_values)
 
