@@ -65,7 +65,7 @@ COMPOSE_INFRA = {
         "environment": [
             "API_KEY=${DF_INFRA_API_KEY}",
             "ADMIN_API_KEY=${DF_INFRA_ADMIN_API_KEY}",
-            "SUBNET=${DF_INFRA_SUBNET}",
+            "DF_DOCKER_SUBNET=${DF_INFRA_DOCKER_SUBNET}",
         ],
         "restart": "unless-stopped",
     }
