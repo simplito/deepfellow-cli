@@ -69,7 +69,10 @@ COMPOSE_INFRA = {
             "DF_COMPOSE_PREFIX=${DF_INFRA_COMPOSE_PREFIX}",
         ],
         "restart": "unless-stopped",
-    }
+        "volumes": [
+            "${DF_INFRA_DOCKER_CONFIG}:/root/.docker/config.json:ro",
+        ],
+    },
 }
 
 COMPOSE_SERVER = {
@@ -343,3 +346,38 @@ def ensure_network(network_name: str, driver: str = "bridge") -> None:
     networks = list_networks()
     if network_name not in networks:
         create_network(network_name, driver)
+
+
+def find_docker_config(explicit_path: Path | None = None) -> Path:
+    """Finds Docker config.json file.
+
+    Search order:
+    1. Explicit path from --docker-config (if provided)
+    2. ~/.docker/config.json (rootless/user)
+    3. /root/.docker/config.json (rootful)
+
+    Args:
+        explicit_path: Optional explicit path to config.json from CLI argument
+
+    Returns:
+        Path: Path to the config.json file
+
+    Raises:
+        FileNotFoundError: If config.json cannot be found in any location
+    """
+    if explicit_path is not None:
+        explicit = explicit_path.expanduser().resolve()
+        if explicit.exists() and explicit.is_file():
+            return explicit
+
+        raise FileNotFoundError(f"Explicitly specified Docker config not found: {explicit_path}")
+
+    user_config = Path.home() / ".docker" / "config.json"
+    if user_config.exists() and user_config.is_file():
+        return user_config
+
+    root_config = Path("/root/.docker/config.json")
+    if root_config.exists() and root_config.is_file():
+        return root_config
+
+    raise FileNotFoundError("Docker config.json not found.")
