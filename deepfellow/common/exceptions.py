@@ -16,6 +16,10 @@ class DockerSocketNotFoundError(Exception):
     """Raised if docker.sock file not found."""
 
 
+class DockerNetworkError(Exception):
+    """Raised if getting a list of networks fails."""
+
+
 def reraise_if_debug(exc_info: Exception) -> None:
     """Reraise the exception if debug in Context."""
     ctx = click.get_current_context()

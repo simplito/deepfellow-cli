@@ -33,7 +33,7 @@ from typing import Any
 import yaml
 
 from deepfellow.common.echo import echo
-from deepfellow.common.exceptions import DockerSocketNotFoundError
+from deepfellow.common.exceptions import DockerNetworkError, DockerSocketNotFoundError
 
 COMPOSE_SAMPLE = {
     "test": {
@@ -65,6 +65,7 @@ COMPOSE_INFRA = {
         "environment": [
             "API_KEY=${DF_INFRA_API_KEY}",
             "ADMIN_API_KEY=${DF_INFRA_ADMIN_API_KEY}",
+            "SUBNET=${DF_INFRA_SUBNET}",
         ],
         "restart": "unless-stopped",
     }
@@ -223,13 +224,17 @@ def load_compose_file(compose_file: Path = Path("docker-compose.yml")) -> dict[s
     return yaml.safe_load(compose_file.read_text())
 
 
-def get_docker_socket() -> str:
+def get_socket() -> str:
     """Get the Docker socket.
 
     Detect active docker socket with `docker context inspect`
     https://docs.docker.com/reference/cli/docker/context/inspect/
 
-    Returns the str representing the path to the socket.
+    Returns:
+        str: the path to the socket
+
+    Raises:
+        DockerNetworkError: When unable to find the socket
     """
     if (docker_host := os.getenv("DOCKER_HOST")) and docker_host.startswith("unix://"):
         return docker_host.replace("unix://", "")
@@ -267,3 +272,71 @@ def get_docker_socket() -> str:
         return rootful_path
 
     raise DockerSocketNotFoundError()
+
+
+def list_networks() -> list[str]:
+    """Returns a list of all Docker network names.
+
+    https://docs.docker.com/reference/cli/docker/network/ls#format
+
+    Returns:
+        list[str]: List of network names
+        ['bridge', 'host', 'deepfellow-infra-net']
+
+    Raises:
+        DockerNetworkError: When unable to fetch network list
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "network", "ls", "--format", "{{.Name}}"], capture_output=True, text=True, check=True
+        )
+        networks = result.stdout.strip().split("\n")
+    except subprocess.CalledProcessError as exc:
+        raise DockerNetworkError("Failed to fetch Docker network list") from exc
+
+    # Filter potential empty lines
+    return [net for net in networks if net]
+
+
+def create_network(network_name: str, driver: str = "bridge") -> None:
+    """Creates a new Docker network.
+
+    https://docs.docker.com/reference/cli/docker/network/create
+
+    Args:
+        network_name: Name of the network to create
+        driver: Network driver (default: 'bridge')
+
+    Returns:
+        bool: True if network was created, False on error
+
+    Raises:
+        DockerNetworkError: When unable to create network
+    """
+    try:
+        subprocess.run(
+            ["docker", "network", "create", "--driver", driver, network_name],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise DockerNetworkError(f"Failed to create network '{network_name}'") from exc
+
+
+def ensure_network(network_name: str, driver: str = "bridge") -> None:
+    """Ensures a Docker network exists. Creates it if it doesn't exist.
+
+    Args:
+        network_name: Name of the network
+        driver: Network driver (default: 'bridge')
+
+    Returns:
+        bool: True if network exists or was created
+
+    Raises:
+        DockerNetworkError: When unable to list or create network
+    """
+    networks = list_networks()
+    if network_name not in networks:
+        create_network(network_name, driver)
