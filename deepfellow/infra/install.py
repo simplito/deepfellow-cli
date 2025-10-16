@@ -9,7 +9,7 @@ import typer
 
 from deepfellow.common.config import configure_uuid_key, env_to_dict, read_env_file, save_env_file
 from deepfellow.common.defaults import DF_INFRA_DIRECTORY, DF_INFRA_DOCKER_NETWORK, DF_INFRA_IMAGE
-from deepfellow.common.docker import COMPOSE_INFRA, ensure_network, get_socket, save_compose_file
+from deepfellow.common.docker import COMPOSE_INFRA, ensure_network, find_docker_config, get_socket, save_compose_file
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
 
@@ -31,6 +31,7 @@ def install(
     docker_network: str = typer.Option(
         DF_INFRA_DOCKER_NETWORK, envvar="DF_INFRA_DOCKER_NETWORK", help="Infra docker network."
     ),
+    docker_config: Path | None = typer.Option(None, envvar="DF_INFRA_DOCKER_CONFIG", help="Path to the docker config."),
 ) -> None:
     """Install infra with docker."""
     yes = ctx.obj.get("yes", False)
@@ -92,6 +93,13 @@ def install(
         random_letters = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
         compose_prefix = f"df{random_letters}_"
 
+    # Find the docker config
+    try:
+        docker_config = find_docker_config(explicit_path=docker_config)
+    except FileNotFoundError as exc:
+        echo.error("Docker configuration file not found.\nUse --docker-config option to provide it.")
+        raise typer.Exit(1) from exc
+
     infra_values = {
         "DF_INFRA_PORT": port,
         "DF_INFRA_IMAGE": image,
@@ -99,11 +107,12 @@ def install(
         "DF_INFRA_ADMIN_API_KEY": admin_api_key,
         "DF_INFRA_DOCKER_SUBNET": docker_network,
         "DF_INFRA_COMPOSE_PREFIX": compose_prefix,
+        "DF_INFRA_DOCKER_CONFIG": str(docker_config),
     }
     save_env_file(directory / ".env", infra_values)
 
     compose_infra = COMPOSE_INFRA
-    compose_infra["infra"]["volumes"] = [f"{docker_socket}:/run/docker.sock"]
+    compose_infra["infra"]["volumes"].append(f"{docker_socket}:/run/docker.sock")
     save_compose_file(
         {"services": compose_infra, "networks": {docker_network: {"external": True}}},
         directory / "docker-compose.yml",
