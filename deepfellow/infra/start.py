@@ -15,7 +15,6 @@ app = typer.Typer()
 @app.command()
 def start(
     directory: Path = directory_option(
-        "Target directory for the Infra installation.",
         callback=validate_directory,
     ),
 ) -> None:
