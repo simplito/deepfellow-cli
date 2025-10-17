@@ -7,7 +7,7 @@ from typing import Any
 import typer
 
 from deepfellow.common.config import configure_uuid_key, env_to_dict, read_env_file, save_env_file
-from deepfellow.common.defaults import DF_SERVER_DIRECTORY, DF_SERVER_IMAGE, DF_SERVER_PORT
+from deepfellow.common.defaults import DF_SERVER_IMAGE, DF_SERVER_PORT
 from deepfellow.common.docker import COMPOSE_MONGO_DB, COMPOSE_SERVER, COMPOSE_VECTOR_DB, save_compose_file
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
@@ -16,6 +16,7 @@ from deepfellow.server.utils.configure import (
     configure_mongo,
     configure_vector_db,
 )
+from deepfellow.server.utils.options import directory_option
 
 app = typer.Typer()
 
@@ -23,13 +24,7 @@ app = typer.Typer()
 @app.command()
 def install(
     ctx: typer.Context,
-    directory: Path = typer.Option(
-        DF_SERVER_DIRECTORY,
-        "--directory",
-        "--dir",
-        envvar="DF_SERVER_DIRECTORY",
-        help="Target directory for the DFServer installation.",
-    ),
+    directory: Path = directory_option("Target directory for the DFServer installation."),
     port: int = typer.Option(DF_SERVER_PORT, envvar="DF_INFRA_PORT", help="Port to use to serve the DFServer from."),
     image: str = typer.Option(DF_SERVER_IMAGE, envvar="DF_INFRA_IMAGE", help="DFServer docker image."),
 ) -> None:

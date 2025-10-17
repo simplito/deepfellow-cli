@@ -4,22 +4,18 @@ from pathlib import Path
 
 import typer
 
-from deepfellow.common.defaults import DF_SERVER_DIRECTORY
 from deepfellow.common.echo import echo
 from deepfellow.common.system import run
 from deepfellow.common.validation import validate_directory
+from deepfellow.server.utils.options import directory_option
 
 app = typer.Typer()
 
 
 @app.command()
 def stop(
-    directory: Path = typer.Option(
-        DF_SERVER_DIRECTORY,
-        "--directory",
-        "--dir",
-        envvar="DF_SERVER_DIRECTORY",
-        help="Target directory for the Sever installation.",
+    directory: Path = directory_option(
+        "Target directory for the server installation.",
         callback=validate_directory,
     ),
 ) -> None:
