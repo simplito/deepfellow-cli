@@ -13,7 +13,7 @@ app = typer.Typer()
 
 @app.command()
 def set(
-    directory: Path = directory_option("Directory of the Infra installation."),
+    directory: Path = directory_option(),
     env_name: str = typer.Argument(..., help="Name of the environment variable", callback=lambda x: x.upper()),
     env_value: str = typer.Argument("", help="Value of the environment variable"),
     df_prefix: bool = typer.Option(True, help="Add DF_ prefix if not provided?"),
