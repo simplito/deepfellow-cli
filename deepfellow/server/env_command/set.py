@@ -5,7 +5,7 @@ from pathlib import Path
 import typer
 
 from deepfellow.common.env import env_set
-from deepfellow.infra.utils.options import directory_option
+from deepfellow.server.utils.options import directory_option
 
 app = typer.Typer()
 

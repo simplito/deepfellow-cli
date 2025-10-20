@@ -6,7 +6,7 @@ import typer
 
 from deepfellow.common.echo import echo
 from deepfellow.common.env import get_envs_list
-from deepfellow.infra.utils.options import directory_option
+from deepfellow.server.utils.options import directory_option
 
 app = typer.Typer()
 
