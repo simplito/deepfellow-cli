@@ -25,8 +25,8 @@ app = typer.Typer()
 def install(
     ctx: typer.Context,
     directory: Path = directory_option("Target directory for the DFServer installation."),
-    port: int = typer.Option(DF_SERVER_PORT, envvar="DF_INFRA_PORT", help="Port to use to serve the DFServer from."),
-    image: str = typer.Option(DF_SERVER_IMAGE, envvar="DF_INFRA_IMAGE", help="DFServer docker image."),
+    port: int = typer.Option(DF_SERVER_PORT, envvar="DF_SERVER_PORT", help="Port to use to serve the DFServer from."),
+    image: str = typer.Option(DF_SERVER_IMAGE, envvar="DF_SERVER_IMAGE", help="DFServer docker image."),
 ) -> None:
     """Install DFServer with docker."""
     yes = ctx.obj.get("yes", False)
