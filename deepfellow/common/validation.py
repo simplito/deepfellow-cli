@@ -1,8 +1,11 @@
 """Common validations."""
 
 from pathlib import Path
+from urllib.parse import urlparse
 
 import typer
+from email_validator import EmailNotValidError
+from email_validator import validate_email as validate_email_lib
 from typer import BadParameter
 
 from .echo import echo
@@ -35,3 +38,34 @@ def validate_directory(directory: str | Path | None) -> Path:
         raise BadParameter(f"Directory {directory} does not exist")
 
     return directory
+
+
+def validate_email(value: str | None) -> str | None:
+    """Validate srting is an email."""
+    if value is None:
+        # We allow email collected via option to be None
+        return None
+
+    try:
+        validated = validate_email_lib(value)
+
+    except EmailNotValidError as exc:
+        raise typer.BadParameter("Invalid email address") from exc
+
+    return validated.email
+
+
+def validate_url(value: str | None) -> str | None:
+    """Validate the URL entry."""
+    if value is None:
+        return None
+
+    try:
+        result = urlparse(value)
+    except Exception as exc:
+        raise typer.BadParameter("Invalid URL") from exc
+
+    if not all([result.scheme, result.netloc]):
+        raise typer.BadParameter("Invalid URL - must include scheme and domain")
+
+    return value
