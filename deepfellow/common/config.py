@@ -228,7 +228,7 @@ def read_env_file(file_path: str | Path) -> dict[str, str]:
     return env_vars
 
 
-def save_env_file(env_file: Path, values: Mapping[str, str | int]) -> None:
+def save_env_file(env_file: Path, values: Mapping[str, str | int], docker_note: bool = True) -> None:
     """Creates or updates .env file with provided values."""
     # Load existing values if file exists
     existing_vars = {}
@@ -239,7 +239,7 @@ def save_env_file(env_file: Path, values: Mapping[str, str | int]) -> None:
     # Merge existing with new values (new values take precedence)
     final_vars = {**existing_vars, **values}
 
-    content = "# Docker Compose Environment Variables\n# Edit these values as needed\n\n"
+    content = "# Docker Compose Environment Variables\n# Edit these values as needed\n\n" if docker_note else ""
     for key, value in final_vars.items():
         content += f"{key}={value}\n"
 

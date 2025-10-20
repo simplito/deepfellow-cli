@@ -1,10 +1,13 @@
 """Echo the output."""
 
+from collections.abc import Callable
 from typing import Any
 
 import click
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
+
+type ValidationCallback = Callable[[str | None], str | None] | None
 
 
 def add_tabs(msg: str) -> str:
@@ -43,9 +46,13 @@ class Echo(Console):
 
         return Confirm.ask(prompt=f"❓\t[blue]{add_tabs(message)}[/]", **kwargs)
 
-    def prompt(self, message: str, **kwargs: Any) -> Any:
+    def prompt(self, message: str, validation: ValidationCallback = None, **kwargs: Any) -> Any:
         """Prompt the user for value."""
-        return Prompt.ask(prompt=f"❓\t[blue]{add_tabs(message)}[/]", show_default=True, **kwargs)
+        value = Prompt.ask(prompt=f"❓\t[blue]{add_tabs(message)}[/]", show_default=True, **kwargs)
+        if validation is not None:
+            value = validation(value)
+
+        return value
 
 
 echo = Echo()
