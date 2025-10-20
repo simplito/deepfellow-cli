@@ -2,7 +2,6 @@
 
 import typer
 
-from deepfellow.common.config import load_config
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import ConfigValidationError
 
