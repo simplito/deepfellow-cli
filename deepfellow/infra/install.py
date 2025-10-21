@@ -35,11 +35,24 @@ def install(
     storage: Path = typer.Option(
         DF_INFRA_STORAGE_DIR, envvar="DF_INFRA_STORAGE_DIR", help="Storage for the Infra services."
     ),
+    hugging_face_api_key: str | None = typer.Option(
+        None, envvar="DF_HUGGING_FACE_API_KEY", help="Hugging Face API Key"
+    ),
+    civitai_token: str | None = typer.Option(None, envvar="DF_CIVITAI_TOKEN", help="Civitai Token"),
 ) -> None:
     """Install infra with docker."""
     yes = ctx.obj.get("yes", False)
     echo.debug(f"{directory=},\n{yes=}")
+
+    # Retrieve the docker info to fail early in the process in docker is not running or configured differently
     docker_socket = get_socket()
+    try:
+        docker_config = find_docker_config(explicit_path=docker_config)
+    except FileNotFoundError as exc:
+        echo.error("Docker configuration file not found.\nUse --docker-config option to provide it.")
+        raise typer.Exit(1) from exc
+
+    # Check if overriding existing installation
     override_existing_installation = False
     directory_exists = False
     if directory.is_dir():
@@ -57,12 +70,14 @@ def install(
             echo.error("Unable to create infra directory.")
             reraise_if_debug(exc_info)
 
+    # Prepare the starting point for .env
     env_file = directory / ".env"
     original_env_content: dict[str, Any] = {}
     if env_file.exists():
         original_env_vars = read_env_file(env_file)
         original_env_content = env_to_dict(original_env_vars)
 
+    # Collect DF_INFRA_API_KEY
     echo.info("A DF Server or other infra needs to identify in DF Infra by providing an API Key.")
     api_key = configure_uuid_key("API Key", original_env_content.get("df_infra_api_key"))
 
@@ -96,14 +111,7 @@ def install(
         random_letters = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
         compose_prefix = f"df{random_letters}_"
 
-    # Find the docker config
-    try:
-        docker_config = find_docker_config(explicit_path=docker_config)
-    except FileNotFoundError as exc:
-        echo.error("Docker configuration file not found.\nUse --docker-config option to provide it.")
-        raise typer.Exit(1) from exc
-
-    # Dind out the infra storage dir
+    # Find out the infra storage dir
     original_storage = original_env_content.get("DF_INFRA_STORAGE_DIR")
     if (
         original_storage is not None
@@ -116,6 +124,7 @@ def install(
     ):
         storage = original_storage
 
+    # Save the envs to the .env file (existing envs are NOT overwritten)
     infra_values = {
         "DF_INFRA_PORT": port,
         "DF_INFRA_IMAGE": image,
@@ -125,13 +134,21 @@ def install(
         "DF_INFRA_COMPOSE_PREFIX": compose_prefix,
         "DF_INFRA_DOCKER_CONFIG": str(docker_config),
         "DF_INFRA_STORAGE_DIR": storage.expanduser().resolve().as_posix(),
+        "DF_HUGGING_FACE_API_KEY": (
+            hugging_face_api_key if hugging_face_api_key else echo.prompt("Provide an optional Hugging Face API Key")
+        ),
+        "DF_CIVITAI_TOKEN": (
+            civitai_token if civitai_token is not None else echo.prompt("Provide an optional Civitai Token")
+        ),
     }
     save_env_file(env_file, infra_values)
 
+    # Save the docker compose config
     compose_infra = COMPOSE_INFRA
     compose_infra["infra"]["volumes"].append(f"{docker_socket}:/run/docker.sock")
     save_compose_file(
         {"services": compose_infra, "networks": {docker_network: {"external": True}}},
         directory / "docker-compose.yml",
     )
+
     echo.success("DF Infra installed.\nCall `depfellow infra start`.")

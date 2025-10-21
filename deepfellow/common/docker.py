@@ -68,6 +68,8 @@ COMPOSE_INFRA = {
             "DF_DOCKER_SUBNET=${DF_INFRA_DOCKER_SUBNET}",
             "DF_COMPOSE_PREFIX=${DF_INFRA_COMPOSE_PREFIX}",
             "DF_STORAGE_DIR=${DF_INFRA_STORAGE_DIR}",
+            "DF_HUGGING_FACE_API_KEY=${DF_HUGGING_FACE_API_KEY}",
+            "DF_CIVITAI_TOKEN=${DF_CIVITAI_TOKEN}",
         ],
         "restart": "unless-stopped",
         "volumes": [
