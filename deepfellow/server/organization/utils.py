@@ -2,13 +2,11 @@
 
 from dataclasses import dataclass
 from datetime import datetime
-from json import JSONDecodeError
 
-import httpx
-import typer
 from tzlocal import get_localzone
 
 from deepfellow.common.echo import echo
+from deepfellow.server.utils.rest import get, post
 
 
 @dataclass
@@ -40,33 +38,7 @@ def get_organization(server: str | None, organization_id: str, token: str) -> Or
     """Return the organization dict."""
     url = f"{server}/v1/organization/{organization_id}"
     echo.debug(f"GET {url}")
-    try:
-        response = httpx.get(
-            url,
-            headers={"Authorization": f"Bearer {token}"},
-        )
-
-        if response.status_code in (404, 422):  # 422 might happen if user provides non UUID id
-            echo.error("Organization not found.")
-            raise typer.Exit(1)
-
-        if response.status_code == 403:
-            try:
-                data = response.json()
-                message = data["detail"]
-            except JSONDecodeError:
-                message = response.text
-
-            echo.error(f"Unable to get the organization. {message}.")
-            raise typer.Exit(1)
-
-        response.raise_for_status()
-    except httpx.HTTPError as exc:
-        echo.error("HTTP Exception")
-        echo.debug(exc)
-        raise typer.Exit(1) from exc
-
-    data = response.json()
+    data = get(f"{server}/v1/organization/{organization_id}", token, item_name="Organization")
     return Organization(**data["organization"])
 
 
@@ -74,80 +46,16 @@ def delete_organization(server: str | None, organization_id: str, token: str) ->
     """Delete the organization using DELETE."""
     url = f"{server}/v1/organization/{organization_id}"
     echo.debug(f"DELETE {url}")
-    try:
-        response = httpx.delete(
-            url,
-            headers={"Authorization": f"Bearer {token}"},
-        )
-
-        if response.status_code in (404, 422):  # 422 might happen if user provides non UUID id
-            echo.error("Organization not found.")
-            raise typer.Exit(1)
-
-        if response.status_code == 403:
-            try:
-                data = response.json()
-                message = data["detail"]
-            except JSONDecodeError:
-                message = response.text
-
-            echo.error(f"Unable to delete the organization. {message}.")
-            raise typer.Exit(1)
-
-        response.raise_for_status()
-    except httpx.HTTPError as exc:
-        echo.error("HTTP Exception")
-        echo.debug(exc)
-        raise typer.Exit(1) from exc
 
 
 def list_organizations(server: str | None, token: str) -> list[Organization]:
     """List organizations."""
-    url = f"{server}/v1/organization/"
-    echo.debug(f"GET {url}")
-    try:
-        response = httpx.get(
-            url,
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        response.raise_for_status()
-    except httpx.HTTPError as exc:
-        echo.error("HTTP Exception")
-        echo.debug(exc)
-        raise typer.Exit(1) from exc
-
-    # Response
-    data = response.json()
+    data = get(f"{server}/v1/organization/", token, item_name="Organizations")
     return [Organization(**org) for org in data["data"]]
 
 
 def create_organization(server: str | None, token: str, name: str) -> Organization:
     """Create organization."""
     url = f"{server}/v1/organization/"
-    data = {"name": name}
-    echo.debug(f"POST {url} {data=}")
-    try:
-        response = httpx.post(
-            f"{server}/v1/organization/",
-            headers={"Authorization": f"Bearer {token}"},
-            json=data,
-        )
-
-        if response.status_code in (401, 403):
-            try:
-                data = response.json()
-                message = data["detail"]
-            except JSONDecodeError:
-                message = response.text
-
-            echo.error(f"Unable to create the organization. {message}.")
-            raise typer.Exit(1)
-        response.raise_for_status()
-    except httpx.HTTPError as exc:
-        echo.error("HTTP Exception")
-        echo.debug(exc)
-        raise typer.Exit(1) from exc
-
-    # Response
-    data = response.json()
+    data = post(url, token, item_name="Organization", data={"name": name})
     return Organization(**data["organization"])
