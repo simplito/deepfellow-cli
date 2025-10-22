@@ -236,6 +236,8 @@ def save_env_file(env_file: Path, values: Mapping[str, str | int], docker_note: 
     if file_existed:
         existing_vars = read_env_file(env_file)
 
+    env_file.parent.mkdir(exist_ok=True)
+
     # Merge existing with new values (new values take precedence)
     final_vars = {**existing_vars, **values}
 

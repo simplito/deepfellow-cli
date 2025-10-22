@@ -1,6 +1,7 @@
 """Common validations."""
 
 from pathlib import Path
+from typing import cast
 from urllib.parse import urlparse
 
 import typer
@@ -69,3 +70,11 @@ def validate_url(value: str | None) -> str | None:
         raise typer.BadParameter("Invalid URL - must include scheme and domain")
 
     return value
+
+
+def validate_server(value: str | None) -> str | None:
+    """Validate the server entry. Strinp the last slash."""
+    if value is None:
+        return None
+
+    return cast("str", validate_url(value)).rstrip("/")
