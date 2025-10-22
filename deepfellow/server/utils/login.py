@@ -8,7 +8,7 @@ import typer
 
 from deepfellow.common.config import read_env_file, save_env_file
 from deepfellow.common.echo import echo
-from deepfellow.common.validation import validate_email, validate_url
+from deepfellow.common.validation import validate_email, validate_server
 
 
 def get_token(secrets_file: Path, server: str | None, email: str | None) -> str:
@@ -33,10 +33,13 @@ def get_token(secrets_file: Path, server: str | None, email: str | None) -> str:
         echo.info("Token not found in secrets file or it does not exist. Falling back to login.")
         return get_token_from_login(secrets_file, server, email)
 
-    # Authenticate to check if its legit.
+    # Authenticate to check if user is able to log in.
+    server = cast("str", server)
+    url = f"{server}/auth/me"
+    echo.debug(f"GET {url}")
     try:
         response = httpx.get(
-            f"{server}/auth/me",
+            url,
             headers={"Authorization": f"Bearer {token}"},
         )
         if response.status_code == 401:
@@ -83,15 +86,15 @@ def get_token_from_login(secrets_file: Path, server: str | None, email: str | No
         server_collected = False
         while server_collected is False:
             try:
-                server = echo.prompt("Provide DF Server address", validation=validate_url)
+                server = echo.prompt("Provide DF Server address", validation=validate_server)
                 server_collected = True
             except typer.BadParameter:
                 echo.error("Invalid server address. Please try again.")
 
     # Authorize the user (we need the server's URL)
     server = cast("str", server)
-    server.rstrip("/")
     url = f"{server}/auth/login"
+    echo.debug(f"POST {url}")
     try:
         response = httpx.post(url, json={"email": email, "password": password}, timeout=10.0)
         if response.status_code == 401:
