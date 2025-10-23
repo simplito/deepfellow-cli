@@ -9,6 +9,7 @@ from .env_command import app as env_app
 from .install import app as install_app
 from .login import app as login_app
 from .organization import app as organization_app
+from .project import app as project_app
 from .start import app as start_app
 from .stop import app as stop_app
 
@@ -44,3 +45,4 @@ app.add_typer(stop_app)
 app.add_typer(env_app, name="env")
 app.add_typer(login_app)
 app.add_typer(organization_app, name="organization")
+app.add_typer(project_app, name="project")

@@ -1,12 +1,10 @@
 """Utils for the organization requests."""
 
 from dataclasses import dataclass
-from datetime import datetime
-
-from tzlocal import get_localzone
 
 from deepfellow.common.echo import echo
 from deepfellow.server.utils.rest import get, post
+from deepfellow.server.utils.time import datetime_to_str
 
 
 @dataclass
@@ -18,7 +16,7 @@ class Organization:
 
     def created_at_to_str(self) -> str:
         """Convert created_at to a localized date string."""
-        return str(datetime.fromtimestamp(self.created_at, tz=get_localzone()))
+        return datetime_to_str(self.created_at)
 
     def as_dict(self) -> dict[str, str]:
         """Dictionary representation of Organization."""
@@ -36,8 +34,6 @@ class Organization:
 
 def get_organization(server: str | None, organization_id: str, token: str) -> Organization:
     """Return the organization dict."""
-    url = f"{server}/v1/organization/{organization_id}"
-    echo.debug(f"GET {url}")
     data = get(f"{server}/v1/organization/{organization_id}", token, item_name="Organization")
     return Organization(**data["organization"])
 
