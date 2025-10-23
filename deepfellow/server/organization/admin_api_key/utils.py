@@ -1,17 +1,10 @@
 """Utils for the organization requests."""
 
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any, Literal
 
-from tzlocal import get_localzone
-
 from deepfellow.server.utils.rest import delete, get, post
-
-
-def datetime_to_str(value: float) -> str:
-    """Convert float representing datetime to a localized date string."""
-    return str(datetime.fromtimestamp(value, tz=get_localzone()))
+from deepfellow.server.utils.time import datetime_to_str
 
 
 @dataclass
