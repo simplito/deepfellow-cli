@@ -2,6 +2,7 @@
 
 import typer
 
+from .api_key import app as api_key_app
 from .archive import app as archive_app
 from .create import app as create_app
 from .get import app as get_app
@@ -14,3 +15,4 @@ app.add_typer(get_app)
 app.add_typer(list_app)
 app.add_typer(create_app)
 app.add_typer(archive_app)
+app.add_typer(api_key_app, name="api-key")
