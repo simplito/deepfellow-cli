@@ -56,15 +56,15 @@ def install(
 
     echo.info("DF Server requires a MongoDB to be installed.")
     custom_mongo_db_server = echo.confirm("Do you have MongoDB installed for DF Server?")
-    mongo_env = configure_mongo(custom_mongo_db_server)
+    mongo_env = configure_mongo(custom_mongo_db_server, original_env_content)
 
     echo.info("DF Server is communicating with infra. At least one needs to exist.")
-    api_endpoints = configure_infras()
+    api_endpoints = configure_infras(original_env_content)
     api_endpoints_env = api_endpoints.envs
 
     echo.info("DF Server might use a vector DB. If not provided some features will not work.")
     custom_vector_db_server = echo.confirm("Do you have a vector DB ready?")
-    vector_db_envs = configure_vector_db(custom_vector_db_server, api_endpoints.names)
+    vector_db_envs = configure_vector_db(custom_vector_db_server, api_endpoints.names, original_env_content)
     vector_db_active = vector_db_envs.get("DF_VECTOR_DATABASE__PROVIDER__ACTIVE") == "1"
 
     echo.info("An Admin needs to identify in DF Server by providing an Admin Key.")

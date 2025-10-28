@@ -8,15 +8,19 @@ from deepfellow.common.defaults import DF_MONGO_DB, DF_MONGO_PASSWORD, DF_MONGO_
 from deepfellow.common.echo import echo
 
 
-def configure_vector_db(custom: bool, api_endpoints: list[str]) -> dict[str, str]:
+def configure_vector_db(
+    custom: bool, api_endpoints: list[str], original_env: dict[str, Any] | None = None
+) -> dict[str, str]:
     """Collect info about vector db."""
+    original_env = original_env or {}
+    original_provider = original_env.get("df_vector_database", {}).get("provider", {})
     vector_db_config = VECTOR_DATABASE
     if custom:
         vector_db_config["provider"].update(
             {
-                "url": echo.prompt("Provide Milvus provider URL"),
-                "db": echo.prompt("Provide Milvus provider database name"),
-                "user": echo.prompt("Provide Milvus provider user"),
+                "url": echo.prompt("Provide Milvus provider URL", default=original_provider.get("url")),
+                "db": echo.prompt("Provide Milvus provider database name", default=original_provider.get("db")),
+                "user": echo.prompt("Provide Milvus provider user", default=original_provider.get("user")),
                 "password": echo.prompt("Provide Milvus provider password", password=True),
             }
         )
@@ -40,10 +44,10 @@ def configure_vector_db(custom: bool, api_endpoints: list[str]) -> dict[str, str
     return dict_to_env(vector_db_config, parent_key="DF_VECTOR_DATABASE")
 
 
-def configure_infra(name: str) -> dict[str, Any]:
+def configure_infra(name: str, original_env: dict[str, Any]) -> dict[str, Any]:
     """Configure single infra."""
     infra = {"name": name}
-    infra["url"] = echo.prompt("Provide API Endpoint URL")
+    infra["url"] = echo.prompt("Provide API Endpoint URL", default=original_env.get("url"))
     infra["api_key"] = echo.prompt("Provide API Endpoint API KEY", password=True)
     return infra
 
@@ -54,22 +58,26 @@ class Infras:
     names: list[str]
 
 
-def configure_infras() -> Infras:
+def configure_infras(original_env: dict[str, Any] | None = None) -> Infras:
     """Collect info about infra."""
+    original_env = original_env or {}
     all_infras_configured = False
     api_endpoints = {}
 
     while not all_infras_configured:
         api_endpoint_name = echo.prompt("Provide the name of your API Endpoint")
-        api_endpoints[api_endpoint_name] = configure_infra(api_endpoint_name)
+        api_endpoints[api_endpoint_name] = configure_infra(
+            api_endpoint_name, original_env.get("df_api_endpoints", {}).get(api_endpoint_name, {})
+        )
         all_infras_configured = not echo.confirm("Do you want to configure additional API Endpoint?")
 
     envs = dict_to_env(api_endpoints, parent_key="DF_API_ENDPOINTS")
     return Infras(envs=envs, names=list(api_endpoints.keys()))
 
 
-def configure_mongo(custom: bool) -> dict[str, str]:
+def configure_mongo(custom: bool, original_env: dict[str, Any] | None = None) -> dict[str, str]:
     """Collect info about MongoDB."""
+    original_env = original_env or {}
     mongo_config = {
         "DF_MONGO_URL": DF_MONGO_URL,
         "DF_MONGO_USER": DF_MONGO_USER,
@@ -77,9 +85,13 @@ def configure_mongo(custom: bool) -> dict[str, str]:
         "DF_MONGO_DB": DF_MONGO_DB,
     }
     if custom:
-        mongo_config["DF_MONGO_URL"] = echo.prompt("Provide URL for MongoDB")
-        mongo_config["DF_MONGO_DB"] = echo.prompt("Provide database name for MongoDB")
-        mongo_config["DF_MONGO_USER"] = echo.prompt("Provide username for MongoDB")
+        mongo_config["DF_MONGO_URL"] = echo.prompt("Provide URL for MongoDB", default=original_env.get("df_mongo_url"))
+        mongo_config["DF_MONGO_DB"] = echo.prompt(
+            "Provide database name for MongoDB", default=original_env.get("df_mongo_db")
+        )
+        mongo_config["DF_MONGO_USER"] = echo.prompt(
+            "Provide username for MongoDB", default=original_env.get("df_mongo_user")
+        )
         mongo_config["DF_MONGO_PASSWORD"] = echo.prompt("Provide password for MongoDB", password=True)
     else:
         echo.info("A default MongoDB setup is created.")
