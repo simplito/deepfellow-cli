@@ -11,6 +11,7 @@ from deepfellow.common.defaults import DF_SERVER_IMAGE, DF_SERVER_PORT
 from deepfellow.common.docker import COMPOSE_MONGO_DB, COMPOSE_SERVER, COMPOSE_VECTOR_DB, save_compose_file
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
+from deepfellow.common.system import run
 from deepfellow.server.utils.configure import (
     configure_infras,
     configure_mongo,
@@ -106,4 +107,5 @@ def install(
     services.update(compose_server)
 
     save_compose_file({"services": services, "volumes": volumes}, directory / "docker-compose.yml")
+    run("docker compose pull", directory)
     echo.success("DF Server Installed.\nCall `deepfellow server start`.")
