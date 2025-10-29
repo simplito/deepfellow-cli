@@ -9,7 +9,9 @@ from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
 
 
-def run(command: str, cwd: Path | str | None = None, uv: bool = False, raises: Exception | None = None) -> str | None:
+def run(
+    command: str, cwd: Path | str | None = None, uv: bool = False, raises: Exception | None = None, **kwargs
+) -> str | None:
     """Run subbrocess command.
 
     Args:
@@ -17,6 +19,7 @@ def run(command: str, cwd: Path | str | None = None, uv: bool = False, raises: E
         cwd: directory to run from
         uv: should we call from uv
         raises: exception to be raised if failed
+        kwargs: pass additional kwargs to subrocess.run
     """
     cmd = command
     if uv:
@@ -33,6 +36,7 @@ def run(command: str, cwd: Path | str | None = None, uv: bool = False, raises: E
             check=True,
             text=True,
             env=clean_env,
+            **kwargs,
         )
     except subprocess.CalledProcessError as exc_info:
         echo.debug(f"Failed to run command {command} {cwd=} {uv=}")
