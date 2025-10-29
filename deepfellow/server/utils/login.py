@@ -117,7 +117,7 @@ def get_token_from_login(secrets_file: Path, server: str | None, email: str | No
     # Store token
     secrets = read_env_file(secrets_file) if secrets_file.is_file() else {}
     secrets["DF_USER_TOKEN"] = token
-    secrets["DF_USER_TOKEN_EXPIRY"] = data["expired_at"]
+    secrets["DF_USER_TOKEN_EXPIRY"] = data["expires_at"]
 
     save_env_file(secrets_file, secrets, docker_note=False)
 
