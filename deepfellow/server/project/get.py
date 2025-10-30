@@ -16,7 +16,7 @@ app = typer.Typer()
 @app.command()
 def get(
     directory: Path = directory_option("Target directory for the DeepFellow Server installation."),
-    server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow server address"),
+    server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Server address"),
     organization_id: str = typer.Argument(...),
     project_id: str = typer.Argument(...),
 ) -> None:

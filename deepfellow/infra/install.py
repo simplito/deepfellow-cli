@@ -25,15 +25,17 @@ app = typer.Typer()
 @app.command()
 def install(
     ctx: typer.Context,
-    directory: Path = directory_option("Target directory for the Infra installation."),
-    port: int = typer.Option(DF_INFRA_PORT, envvar="DF_INFRA_PORT", help="Port to use to serve the Infra from."),
-    image: str = typer.Option(DF_INFRA_IMAGE, envvar="DF_INFRA_IMAGE", help="Infra docker image."),
+    directory: Path = directory_option("Target directory for the DeepFellow Infra installation."),
+    port: int = typer.Option(
+        DF_INFRA_PORT, envvar="DF_INFRA_PORT", help="Port to use to serve the DeepFellow Infra from."
+    ),
+    image: str = typer.Option(DF_INFRA_IMAGE, envvar="DF_INFRA_IMAGE", help="DeepFellow Infra docker image."),
     docker_network: str = typer.Option(
-        DF_INFRA_DOCKER_NETWORK, envvar="DF_INFRA_DOCKER_NETWORK", help="Infra docker network."
+        DF_INFRA_DOCKER_NETWORK, envvar="DF_INFRA_DOCKER_NETWORK", help="DeepFellow Infra docker network."
     ),
     docker_config: Path | None = typer.Option(None, envvar="DF_INFRA_DOCKER_CONFIG", help="Path to the docker config."),
     storage: Path = typer.Option(
-        DF_INFRA_STORAGE_DIR, envvar="DF_INFRA_STORAGE_DIR", help="Storage for the Infra services."
+        DF_INFRA_STORAGE_DIR, envvar="DF_INFRA_STORAGE_DIR", help="Storage for the DeepFellow Infra services."
     ),
     hugging_face_api_key: str | None = typer.Option(
         None, envvar="DF_HUGGING_FACE_API_KEY", help="Hugging Face API Key"
@@ -78,7 +80,9 @@ def install(
         original_env_content = env_to_dict(original_env_vars)
 
     # Collect DF_INFRA_API_KEY
-    echo.info("A DeepFellow Server or other infra needs to identify in DeepFellow Infra by providing an API Key.")
+    echo.info(
+        "A DeepFellow Server or other DeepFellow Infra needs to identify in DeepFellow Infra by providing an API Key."
+    )
     api_key = configure_uuid_key("API Key", original_env_content.get("df_infra_api_key"))
 
     echo.info("An Admin needs to identify itself in DeepFellow Infra to perform actions.")

@@ -45,7 +45,7 @@ def configure_vector_db(
 
 
 def configure_infra(name: str, original_env: dict[str, Any]) -> dict[str, Any]:
-    """Configure single infra."""
+    """Configure single DeepFellow Infra."""
     infra = {"name": name}
     infra["url"] = echo.prompt("Provide API Endpoint URL", default=original_env.get("url"))
     infra["api_key"] = echo.prompt("Provide API Endpoint API KEY", password=True)

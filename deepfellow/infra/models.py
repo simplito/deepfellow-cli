@@ -12,5 +12,5 @@ app = typer.Typer()
 def models() -> None:
     """Models list."""
     config = get_config_path()
-    echo.warning(f"Infra models using config: {config}")
-    echo.info("Infra list models")
+    echo.warning(f"DeepFellow Infra models using config: {config}")
+    echo.info("DeepFellow Infra list models")

@@ -73,7 +73,7 @@ def validate_url(value: str | None) -> str | None:
 
 
 def validate_server(value: str | None) -> str | None:
-    """Validate the server entry. Strinp the last slash."""
+    """Validate the server entry. Strip the last slash."""
     if value is None:
         return None
 

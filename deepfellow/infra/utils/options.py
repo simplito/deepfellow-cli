@@ -8,7 +8,7 @@ import typer
 from deepfellow.common.defaults import DF_INFRA_DIRECTORY
 
 
-def directory_option(help: str = "Directory of the Infra installation.", **kwargs: Any) -> Path:
+def directory_option(help: str = "Directory of the DeepFellow Infra installation.", **kwargs: Any) -> Path:
     """Directory option fot infra commands."""
     return typer.Option(
         DF_INFRA_DIRECTORY,

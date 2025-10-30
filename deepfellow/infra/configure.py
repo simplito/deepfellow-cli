@@ -10,8 +10,8 @@ app = typer.Typer()
 
 @app.command()
 def configure() -> None:
-    """Configure infra."""
+    """Configure DeepFellow Infra."""
     config = get_config_path()
-    typer.echo(f"Infra configure using config: {config}")
-    echo.info("Configuring infra")
+    typer.echo(f"DeepFellow Infra configure using config: {config}")
+    echo.info("Configuring DeepFellow Infra")
     echo.info("Ask for admin API Key, or create a new one.")
