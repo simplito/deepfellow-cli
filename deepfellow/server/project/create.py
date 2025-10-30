@@ -22,7 +22,7 @@ class Status(str, Enum):
 @app.command()
 def create(
     directory: Path = directory_option("Target directory for the DeepFellow Server installation."),
-    server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow server address"),
+    server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Server address"),
     organization_id: str = typer.Argument(...),
     name: str = typer.Argument(...),
     status: Status = typer.Option(Status.active, help="Status of the Project"),

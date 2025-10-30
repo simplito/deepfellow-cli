@@ -14,7 +14,7 @@ app = typer.Typer()
 @app.command()
 def login(
     directory: Path = directory_option("Target directory for the DeepFellow Server installation."),
-    server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow server address"),
+    server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Server address"),
     email: str | None = typer.Option(None, callback=validate_email, help="User email"),
 ) -> None:
     """Login user and store the token in the secrets file.

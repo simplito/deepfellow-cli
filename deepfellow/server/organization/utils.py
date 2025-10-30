@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 
-from deepfellow.common.echo import echo
 from deepfellow.server.utils.rest import get, post
 from deepfellow.server.utils.time import datetime_to_str
 
@@ -41,8 +40,8 @@ def get_organization(server: str | None, organization_id: str, token: str) -> Or
 def delete_organization(server: str | None, organization_id: str, _token: str) -> None:
     """Delete the organization using DELETE."""
     raise NotImplementedError("Organization can't be deleted")
-    url = f"{server}/v1/organization/{organization_id}"
-    echo.debug(f"DELETE {url}")
+    # url = f"{server}/v1/organization/{organization_id}"
+    # echo.debug(f"DELETE {url}")
 
 
 def list_organizations(server: str | None, token: str) -> list[Organization]:

@@ -17,7 +17,7 @@ app = typer.Typer()
 def revoke(
     ctx: typer.Context,
     directory: Path = directory_option("Target directory for the DeepFellow Server installation."),
-    server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow server address"),
+    server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Server address"),
     organization_id: str = typer.Argument(..., help="Organization ID to add the API Key"),
     api_key_id: str = typer.Argument(..., help="Organization API Key to revoke"),
 ) -> None:

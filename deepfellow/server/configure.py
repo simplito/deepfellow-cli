@@ -12,7 +12,7 @@ app = typer.Typer()
 def configure() -> None:
     """Configure server."""
     config = get_config_path()
-    typer.echo(f"Server configure using config: {config}")
-    echo.info("Configuring server")
+    typer.echo(f"Deepfellow Server configure using config: {config}")
+    echo.info("Configuring Deepfellow Server")
     echo.info("Ask for admin API Key, or create a new one.")
-    echo.info("Retrive info about access to infra, database.")
+    echo.info("Retrive info about access to DeepFellow Infra, database.")

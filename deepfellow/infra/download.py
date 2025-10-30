@@ -12,5 +12,5 @@ app = typer.Typer()
 def download(model: str) -> None:
     """Download model."""
     config = get_config_path()
-    typer.echo(f"Infra download using config: {config}")
-    echo.info(f"Infra download {model}")
+    typer.echo(f"DeepFellow Infra download using config: {config}")
+    echo.info(f"DeepFellow Infra download {model}")
