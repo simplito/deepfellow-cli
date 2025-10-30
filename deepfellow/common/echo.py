@@ -7,7 +7,7 @@ import click
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
 
-type ValidationCallback = Callable[[str | None], str | None] | None
+ValidationCallback = Callable[[str | None], str | None] | None
 
 
 def add_tabs(msg: str) -> str:

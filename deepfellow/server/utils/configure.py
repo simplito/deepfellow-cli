@@ -26,7 +26,7 @@ def configure_vector_db(
         )
     else:
         if not echo.confirm("Do you want to run Milvus from this machine?", default=True):
-            vector_db_config = {"provider": {"active": 0}, "embedding": {"active": 0}}
+            vector_db_config: dict[str, Any] = {"provider": {"active": 0}, "embedding": {"active": 0}}
 
     if int(vector_db_config["embedding"]["active"]) == 1:
         vector_db_config["embedding"]["endpoint"] = (
