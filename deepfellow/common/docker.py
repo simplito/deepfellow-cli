@@ -151,7 +151,7 @@ COMPOSE_VECTOR_DB = {
     },
     "milvus": {
         "container_name": "milvus",
-        "image": "milvusdb/milvus:v2.6.0",
+        "image": "milvusdb/milvus:v2.6.2",
         "command": "milvus run standalone",
         "security_opt": ["seccomp:unconfined"],
         "environment": [
