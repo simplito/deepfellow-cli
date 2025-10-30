@@ -15,7 +15,7 @@ app = typer.Typer()
 
 @app.command()
 def create(
-    directory: Path = directory_option("Target directory for the DFServer installation."),
+    directory: Path = directory_option("Target directory for the DeepFellow Server installation."),
     server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow server address"),
     name: str = typer.Argument(...),
 ) -> None:

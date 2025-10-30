@@ -62,7 +62,7 @@ def install(
         if not override_existing_installation:
             raise typer.Exit(1)
 
-    echo.info("Installing DF Infra.")
+    echo.info("Installing DeepFellow Infra.")
     if not directory_exists:
         try:
             directory.mkdir(parents=True)
@@ -78,10 +78,10 @@ def install(
         original_env_content = env_to_dict(original_env_vars)
 
     # Collect DF_INFRA_API_KEY
-    echo.info("A DF Server or other infra needs to identify in DF Infra by providing an API Key.")
+    echo.info("A DeepFellow Server or other infra needs to identify in DeepFellow Infra by providing an API Key.")
     api_key = configure_uuid_key("API Key", original_env_content.get("df_infra_api_key"))
 
-    echo.info("An Admin needs to identify itself in DF Infra to perform actions.")
+    echo.info("An Admin needs to identify itself in DeepFellow Infra to perform actions.")
     admin_api_key = configure_uuid_key("Admin API Key", original_env_content.get("df_infra_admin_api_key"))
 
     # Find out which docker network to use
@@ -151,4 +151,4 @@ def install(
         directory / "docker-compose.yml",
     )
 
-    echo.success("DF Infra installed.\nCall `depfellow infra start`.")
+    echo.success("DeepFellow Infra installed.\nCall `depfellow infra start`.")

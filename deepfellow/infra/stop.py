@@ -14,11 +14,9 @@ app = typer.Typer()
 
 @app.command()
 def stop(
-    directory: Path = directory_option(
-        callback=validate_directory,
-    ),
+    directory: Path = directory_option(callback=validate_directory),
 ) -> None:
-    """Start infra."""
-    echo.debug("Stopping DF Infra")
+    """Stop DeepFellow Infra."""
+    echo.debug("Stopping DeepFellow Infra")
     run("docker compose down", cwd=directory)
-    echo.success("DF Infra is down")
+    echo.success("DeepFellow Infra is down")

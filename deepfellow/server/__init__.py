@@ -4,7 +4,7 @@ import typer
 
 from deepfellow.common.config import load_config
 
-from .configure import app as configure_app
+# from .configure import app as configure_app
 from .create_admin import app as create_admin_app
 from .env_command import app as env_app
 from .install import app as install_app
@@ -26,7 +26,8 @@ def callback(
         DEFAULT_CONFIG, "--config", "-c", envvar="DF_SERVER_CONFIG", help="Path to the config file."
     ),
 ) -> None:
-    """Infra common for all commands.
+    """DeepFellow Server commands.
+    \f
 
     This method is run before any server subcommand.
 
@@ -40,11 +41,11 @@ def callback(
 
 
 app.add_typer(install_app)
-app.add_typer(configure_app)
+# app.add_typer(configure_app)
 app.add_typer(create_admin_app)
 app.add_typer(start_app)
 app.add_typer(stop_app)
-app.add_typer(env_app, name="env")
+app.add_typer(env_app, name="env", help="Manage DeepFellow Server environment variables.")
 app.add_typer(login_app)
-app.add_typer(organization_app, name="organization")
-app.add_typer(project_app, name="project")
+app.add_typer(organization_app, name="organization", help="Manage Organizations.")
+app.add_typer(project_app, name="project", help="Manage Projects.")

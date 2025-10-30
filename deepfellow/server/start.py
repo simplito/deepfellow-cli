@@ -19,7 +19,7 @@ def start(
         callback=validate_directory,
     ),
 ) -> None:
-    """Start server."""
-    echo.info("Starting DF server")
+    """Start DeepFellow Server."""
+    echo.info("Starting DeepFellow Server")
     run("docker compose up -d", cwd=directory)
-    echo.info("DF Server started.")
+    echo.info("DeepFellow Server started.")

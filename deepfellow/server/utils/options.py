@@ -8,7 +8,7 @@ import typer
 from deepfellow.common.defaults import DF_SERVER_DIRECTORY
 
 
-def directory_option(help: str = "Directory of the DFServer installation.", **kwargs: Any) -> Path:
+def directory_option(help: str = "Directory of the DeepFellow Server installation.", **kwargs: Any) -> Path:
     """Directory option fot server commands."""
     return typer.Option(
         DF_SERVER_DIRECTORY,

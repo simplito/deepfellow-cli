@@ -13,7 +13,7 @@ app = typer.Typer()
 
 @app.command()
 def create_admin(
-    directory: Path = directory_option("Target directory for the DFServer installation."),
+    directory: Path = directory_option("Target directory for the DeepFellow Server installation."),
     email: str | None = typer.Option(None, callback=validate_email, help="Admin email"),
     password: str | None = typer.Option(None, help="Admin password"),
 ) -> None:

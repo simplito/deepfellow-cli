@@ -1,16 +1,13 @@
 """Main typer module."""
 
-import json
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as get_version
-from pathlib import Path
 
 import typer
 
 from deepfellow.common.validation import validate_system
 
 from .common.colors import COLORS, RESET
-from .common.defaults import DF_CLI_CONFIG_PATH
 from .common.echo import echo
 from .infra import app as infra_app
 from .server import app as server_app
@@ -43,13 +40,13 @@ def print_name() -> None:
 @app.callback()
 def main(
     ctx: typer.Context,
-    config: Path = typer.Option(
-        DF_CLI_CONFIG_PATH, "--config", "-c", envvar="DF_CLI_CONFIG_PATH", help="Path to the CLI config file."
-    ),
+    # config: Path = typer.Option(
+    #     DF_CLI_CONFIG_PATH, "--config", "-c", envvar="DF_CLI_CONFIG_PATH", help="Path to the CLI config file."
+    # ),
     debug: bool = typer.Option(False, "-v", "-vv", "--verbose", "--debug", help="Display debug information"),
     yes: bool = typer.Option(False, "-y", "--yes", help="Automatically answer to all questions"),
 ) -> None:
-    """Display callback function."""
+    """DeepFellow Command Line Interface."""
     if ctx.invoked_subcommand is None:
         print_name()
         raise typer.Exit(0)
@@ -58,12 +55,12 @@ def main(
     ctx.obj["debug"] = debug
     ctx.obj["yes"] = yes
     ctx.obj["cli-config"] = {}
-    echo.debug(f"{config=}")
-    if config.is_file():
-        cli_config = json.loads(config.read_text(encoding="utf-8"))
-        ctx.obj["cli-config"] = cli_config
-        echo.debug(f"{cli_config=}")
-        # TODO Store and reuse CLI config
+    # echo.debug(f"{config=}")
+    # if config.is_file():
+    #     cli_config = json.loads(config.read_text(encoding="utf-8"))
+    #     ctx.obj["cli-config"] = cli_config
+    #     echo.debug(f"{cli_config=}")
+    #     # TODO Store and reuse CLI config
 
     # Check environment if all commands are installed
     validate_system()
@@ -76,16 +73,6 @@ def version() -> None:
         echo.success(get_version("deepfellow-cli"))
     except PackageNotFoundError:
         echo.error("No version information available. Have you installed the command?")
-
-
-@app.command()
-def log_check() -> None:
-    """Log check - a temporary function."""
-    echo.debug("Debug")
-    echo.info("Info")
-    echo.success("Success")
-    echo.warning("Warning")
-    echo.error("Error")
 
 
 # Add object-based command groups

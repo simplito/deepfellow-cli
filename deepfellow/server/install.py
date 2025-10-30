@@ -25,11 +25,13 @@ app = typer.Typer()
 @app.command()
 def install(
     ctx: typer.Context,
-    directory: Path = directory_option("Target directory for the DFServer installation."),
-    port: int = typer.Option(DF_SERVER_PORT, envvar="DF_SERVER_PORT", help="Port to use to serve the DFServer from."),
-    image: str = typer.Option(DF_SERVER_IMAGE, envvar="DF_SERVER_IMAGE", help="DFServer docker image."),
+    directory: Path = directory_option("Target directory for the DeepFellow Server installation."),
+    port: int = typer.Option(
+        DF_SERVER_PORT, envvar="DF_SERVER_PORT", help="Port to use to serve the DeepFellow Server from."
+    ),
+    image: str = typer.Option(DF_SERVER_IMAGE, envvar="DF_SERVER_IMAGE", help="DeepFellow Server docker image."),
 ) -> None:
-    """Install DFServer with docker."""
+    """Install DeepFellow Server with docker."""
     yes = ctx.obj.get("yes", False)
     echo.debug(f"{directory=},\n{yes=}")
     override_existing_installation = False
@@ -41,12 +43,12 @@ def install(
         if not override_existing_installation:
             raise typer.Exit(1)
 
-    echo.info("Installing DF Server.")
+    echo.info("Installing DeepFellow Server.")
     if not directory_exists:
         try:
             directory.mkdir(parents=True)
         except Exception as exc_info:
-            echo.error("Unable to create DF Server directory.")
+            echo.error("Unable to create DeepFellow Server directory.")
             reraise_if_debug(exc_info)
 
     env_file = directory / ".env"
@@ -55,20 +57,20 @@ def install(
         original_env_vars = read_env_file(env_file)
         original_env_content = env_to_dict(original_env_vars)
 
-    echo.info("DF Server requires a MongoDB to be installed.")
-    custom_mongo_db_server = echo.confirm("Do you have MongoDB installed for DF Server?")
+    echo.info("DeepFellow Server requires a MongoDB to be installed.")
+    custom_mongo_db_server = echo.confirm("Do you have MongoDB installed for DeepFellow Server?")
     mongo_env = configure_mongo(custom_mongo_db_server, original_env_content)
 
-    echo.info("DF Server is communicating with infra. At least one needs to exist.")
+    echo.info("DeepFellow Server is communicating with infra. At least one needs to exist.")
     api_endpoints = configure_infras(original_env_content)
     api_endpoints_env = api_endpoints.envs
 
-    echo.info("DF Server might use a vector DB. If not provided some features will not work.")
+    echo.info("DeepFellow Server might use a vector DB. If not provided some features will not work.")
     custom_vector_db_server = echo.confirm("Do you have a vector DB ready?")
     vector_db_envs = configure_vector_db(custom_vector_db_server, api_endpoints.names, original_env_content)
     vector_db_active = vector_db_envs.get("DF_VECTOR_DATABASE__PROVIDER__ACTIVE") == "1"
 
-    echo.info("An Admin needs to identify in DF Server by providing an Admin Key.")
+    echo.info("An Admin needs to identify in DeepFellow Server by providing an Admin Key.")
     admin_key_env = configure_uuid_key("Admin Key", original_env_content.get("df_admin_key"))
 
     save_env_file(
@@ -108,4 +110,4 @@ def install(
 
     save_compose_file({"services": services, "volumes": volumes}, directory / "docker-compose.yml")
     run("docker compose pull", directory)
-    echo.success("DF Server Installed.\nCall `deepfellow server start`.")
+    echo.success("DeepFellow Server Installed.\nCall `deepfellow server start`.")

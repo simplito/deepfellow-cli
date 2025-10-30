@@ -18,6 +18,6 @@ def start(
         callback=validate_directory,
     ),
 ) -> None:
-    """Start infra."""
-    echo.info("Starting DF Infra")
+    """Start DeepFellow Infra."""
+    echo.info("Starting DeepFellow Infra")
     run("docker compose up -d", cwd=directory)
