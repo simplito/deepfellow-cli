@@ -3,7 +3,7 @@ name = "deepfellow-cli"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dependencies = [
     "email-validator>=2.3.0",
     "httpx>=0.28.1",
@@ -16,7 +16,13 @@ dependencies = [
 deepfellow = "deepfellow.main:app"
 
 [dependency-groups]
-dev = ["mypy>=1.17.1", "pytest>=8.4.1", "pytest-cov>=6.2.1", "ruff>=0.12.3"]
+dev = [
+    "mypy>=1.17.1",
+    "pyright>=1.1.407",
+    "pytest>=8.4.1",
+    "pytest-cov>=6.2.1",
+    "ruff>=0.12.3",
+]
 
 
 [tool.ruff]

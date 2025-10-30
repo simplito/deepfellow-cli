@@ -4,13 +4,14 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
 
 
 def run(
-    command: str, cwd: Path | str | None = None, uv: bool = False, raises: Exception | None = None, **kwargs
+    command: str, cwd: Path | str | None = None, uv: bool = False, raises: Exception | None = None, **kwargs: Any
 ) -> str | None:
     """Run subbrocess command.
 
