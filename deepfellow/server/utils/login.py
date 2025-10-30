@@ -17,8 +17,8 @@ def get_token(secrets_file: Path, server: str | None, email: str | None) -> str:
     Fallback to get_token_from login if not stored yet or expired.
 
     Args:
-        secrets_file (Path): DF Server secrets
-        server (str): DF Server URL
+        secrets_file (Path): DeepFellow Server secrets
+        server (str): DeepFellow Server URL
         email (str): User email
 
     Returns:
@@ -59,8 +59,8 @@ def get_token_from_login(secrets_file: Path, server: str | None, email: str | No
     """Login User and return the config.
 
     Args:
-        secrets_file (Path): DF Server secrets
-        server (str): DF Server URL
+        secrets_file (Path): DeepFellow Server secrets
+        server (str): DeepFellow Server URL
         email (str): User email
 
     Returns:
@@ -86,7 +86,7 @@ def get_token_from_login(secrets_file: Path, server: str | None, email: str | No
         server_collected = False
         while server_collected is False:
             try:
-                server = echo.prompt("Provide DF Server address", validation=validate_server)
+                server = echo.prompt("Provide DeepFellow Server address", validation=validate_server)
                 server_collected = True
             except typer.BadParameter:
                 echo.error("Invalid server address. Please try again.")

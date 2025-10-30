@@ -19,7 +19,7 @@ def stop(
         callback=validate_directory,
     ),
 ) -> None:
-    """Start server."""
-    echo.debug("Stopping DF Server")
+    """Stop DeepFellow Server."""
+    echo.debug("Stopping DeepFellow Server")
     run("docker compose down", cwd=directory)
-    echo.success("DF Server is down")
+    echo.success("DeepFellow Server is down")

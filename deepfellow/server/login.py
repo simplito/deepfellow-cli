@@ -13,17 +13,14 @@ app = typer.Typer()
 
 @app.command()
 def login(
-    directory: Path = directory_option("Target directory for the DFServer installation."),
+    directory: Path = directory_option("Target directory for the DeepFellow Server installation."),
     server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow server address"),
     email: str | None = typer.Option(None, callback=validate_email, help="User email"),
-) -> str:
-    """Login user and return the token.
-
-    Returns:
-        token string
+) -> None:
+    """Login user and store the token in the secrets file.
 
     Raises:
         typer.Exit if invalid credentials.
     """
     secrets_file = directory / ".secrets"
-    return get_token_from_login(secrets_file, server, email)
+    get_token_from_login(secrets_file, server, email)
