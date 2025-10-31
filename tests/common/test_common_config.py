@@ -1260,7 +1260,7 @@ def test_save_env_file_new_file(
     assert mock_env_file.write_text.call_count == 1
     assert mock_env_file.write_text.call_args == mock.call(expected_content)
     assert mock_echo.info.call_count == 1
-    assert mock_echo.info.call_args == mock.call("Generated /fake/path/.env with environment variables")
+    assert mock_echo.info.call_args == mock.call("Generated /fake/path/.env.")
 
 
 @pytest.mark.parametrize(
@@ -1314,7 +1314,7 @@ def test_save_env_file_existing_file_merge(
     assert mock_env_file.write_text.call_count == 1
     assert mock_env_file.write_text.call_args == mock.call(expected_content)
     assert mock_echo.info.call_count == 1
-    assert mock_echo.info.call_args == mock.call("Updated /fake/path/.env with environment variables")
+    assert mock_echo.info.call_args == mock.call("Updated /fake/path/.env.")
 
 
 @mock.patch("deepfellow.common.config.echo")
@@ -1349,7 +1349,7 @@ def test_save_env_file_empty_existing_file(mock_read_env_file: mock.Mock, mock_e
     expected_content = "# Docker Compose Environment Variables\n# Edit these values as needed\n\nKEY=value\n"
     assert mock_read_env_file.call_count == 1
     assert mock_env_file.write_text.call_args == mock.call(expected_content)
-    assert mock_echo.info.call_args == mock.call("Updated /fake/path/.env with environment variables")
+    assert mock_echo.info.call_args == mock.call("Updated /fake/path/.env.")
 
 
 @mock.patch("deepfellow.common.config.echo")
@@ -1412,13 +1412,13 @@ def test_save_env_file_echo_messages(mock_read_env_file: mock.Mock, mock_echo: m
 
     mock_env_file.exists.return_value = False
     save_env_file(mock_env_file, values)
-    assert mock_echo.info.call_args == mock.call("Generated /test/path/.env with environment variables")
+    assert mock_echo.info.call_args == mock.call("Generated /test/path/.env.")
 
     mock_echo.reset_mock()
     mock_env_file.exists.return_value = True
     mock_read_env_file.return_value = {}
     save_env_file(mock_env_file, values)
-    assert mock_echo.info.call_args == mock.call("Updated /test/path/.env with environment variables")
+    assert mock_echo.info.call_args == mock.call("Updated /test/path/.env.")
 
 
 @mock.patch("deepfellow.common.config.echo")

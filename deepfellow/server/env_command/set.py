@@ -18,4 +18,4 @@ def set(
     df_prefix: bool = typer.Option(True, help="Add DF_ prefix if not provided?"),
 ) -> None:
     """Set environment configuration."""
-    env_set(directory, env_name, env_value, df_prefix)
+    env_set(directory / ".env", env_name, env_value, df_prefix)

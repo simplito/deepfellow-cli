@@ -2,9 +2,12 @@
 
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as get_version
+from pathlib import Path
 
 import typer
 
+from deepfellow.common.config import EnvDict, env_to_dict, read_env_file
+from deepfellow.common.defaults import DF_CLI_CONFIG_PATH, DF_CLI_SECRETS_PATH
 from deepfellow.common.validation import validate_system
 
 from .common.colors import COLORS, RESET
@@ -40,9 +43,12 @@ def print_name() -> None:
 @app.callback()
 def main(
     ctx: typer.Context,
-    # config: Path = typer.Option(
-    #     DF_CLI_CONFIG_PATH, "--config", "-c", envvar="DF_CLI_CONFIG_PATH", help="Path to the CLI config file."
-    # ),
+    config: Path = typer.Option(
+        DF_CLI_CONFIG_PATH, "--config", "-c", envvar="DF_CLI_CONFIG_PATH", help="Path to the CLI config file."
+    ),
+    secrets: Path = typer.Option(
+        DF_CLI_SECRETS_PATH, envvar="DF_CLI_SECRETS_PATH", help="Path to the CLI secrets file."
+    ),
     debug: bool = typer.Option(False, "-v", "-vv", "--verbose", "--debug", help="Display debug information"),
     yes: bool = typer.Option(False, "-y", "--yes", help="Automatically answer to all questions"),
 ) -> None:
@@ -54,13 +60,16 @@ def main(
     ctx.ensure_object(dict)
     ctx.obj["debug"] = debug
     ctx.obj["yes"] = yes
-    ctx.obj["cli-config"] = {}
-    # echo.debug(f"{config=}")
-    # if config.is_file():
-    #     cli_config = json.loads(config.read_text(encoding="utf-8"))
-    #     ctx.obj["cli-config"] = cli_config
-    #     echo.debug(f"{cli_config=}")
-    #     # TODO Store and reuse CLI config
+    ctx.obj["cli-secrets-file"] = secrets
+    ctx.obj["cli-config-file"] = config
+    echo.debug(f"{config=}")
+    cli_config: EnvDict = {}
+    if config.is_file():
+        envs = read_env_file(config)
+        cli_config = env_to_dict(envs)
+
+    ctx.obj["cli-config"] = cli_config
+    echo.debug(f"{cli_config=}")
 
     # Check environment if all commands are installed
     validate_system()
