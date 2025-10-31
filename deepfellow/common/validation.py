@@ -78,3 +78,13 @@ def validate_server(value: str | None) -> str | None:
         return None
 
     return cast("str", validate_url(value)).rstrip("/")
+
+
+def validate_df_name(value: str | None) -> str | None:
+    """Validate the value for DF_NAME env. It must be non-empty string."""
+    if not value:
+        raise typer.BadParameter("Invalid DF_NAME - cannot be empty")
+    if not isinstance(value, str):
+        raise typer.BadParameter("Invalid DF_NAME - must be str")
+
+    return value
