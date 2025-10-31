@@ -177,3 +177,7 @@ Thumbs.db
 
 # RUFF
 .ruff_cache
+
+# AI
+.continue/
+tasks/
