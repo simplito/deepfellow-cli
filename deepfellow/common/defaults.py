@@ -5,7 +5,8 @@ from typing import Any
 
 DF_DEEPFELLOW_DIRECTORY = Path.home() / ".deepfellow"
 
-DF_CLI_CONFIG_PATH = DF_DEEPFELLOW_DIRECTORY / "config-cli.json"
+DF_CLI_CONFIG_PATH = DF_DEEPFELLOW_DIRECTORY / "config"  # env style config file
+DF_CLI_SECRETS_PATH = DF_DEEPFELLOW_DIRECTORY / "secrets"  # env style secrets file
 
 DF_INFRA_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / "infra"
 DF_INFRA_REPO = "ssh://git@gitlab2.simplito.com:1022/df/deepfellow-infra.git"

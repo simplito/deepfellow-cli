@@ -136,7 +136,10 @@ def dict_to_env(data: dict[str, Any], prefix: str = "DF_", parent_key: str = "")
     return env_vars
 
 
-def env_to_dict(env_vars: dict[str, str], prefix: str = "") -> dict[str, str | int | dict]:
+EnvDict = dict[str, str | int | dict[str, Any]]
+
+
+def env_to_dict(env_vars: dict[str, str], prefix: str = "") -> EnvDict:
     """Convert environment variables back to nested dictionary format.
 
     Args:
@@ -248,7 +251,7 @@ def save_env_file(env_file: Path, values: Mapping[str, str | int], docker_note: 
     env_file.write_text(content)
 
     action = "Updated" if file_existed else "Generated"
-    echo.info(f"{action} {env_file.as_posix()} with environment variables")
+    echo.info(f"{action} {env_file.as_posix()}.")
 
 
 def configure_uuid_key(name: str, existing: str | None) -> str:
