@@ -86,7 +86,7 @@ COMPOSE_SERVER = {
     "server": {
         "container_name": "server",
         "image": "${DF_SERVER_IMAGE}",
-        "ports": ["${DF_SERVER_PORT}:8086"],
+        "ports": ["${DF_SERVER_PORT}:8000"],
         "environment": [
             "DF_MONGO_URL=${DF_MONGO_URL}",
             "DF_MONGO_USER=${DF_MONGO_USER}",
