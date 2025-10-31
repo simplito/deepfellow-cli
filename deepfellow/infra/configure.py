@@ -14,4 +14,3 @@ def configure() -> None:
     config = get_config_path()
     typer.echo(f"DeepFellow Infra configure using config: {config}")
     echo.info("Configuring DeepFellow Infra")
-    echo.info("Ask for admin API Key, or create a new one.")

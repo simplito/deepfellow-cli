@@ -70,13 +70,9 @@ def install(
     vector_db_envs = configure_vector_db(custom_vector_db_server, api_endpoints.names, original_env_content)
     vector_db_active = vector_db_envs.get("DF_VECTOR_DATABASE__PROVIDER__ACTIVE") == "1"
 
-    echo.info("An Admin needs to identify in DeepFellow Server by providing an Admin Key.")
-    admin_key_env = configure_uuid_key("Admin Key", original_env_content.get("df_admin_key"))
-
     save_env_file(
         env_file,
         {
-            "DF_SERVER_ADMIN_KEY": admin_key_env,
             "DF_SERVER_PORT": port,
             "DF_SERVER_IMAGE": image,
             **mongo_env,
