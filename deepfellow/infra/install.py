@@ -17,6 +17,8 @@ from deepfellow.common.defaults import (
 from deepfellow.common.docker import COMPOSE_INFRA, ensure_network, find_docker_config, get_socket, save_compose_file
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
+from deepfellow.common.system import run
+from deepfellow.common.validation import validate_df_name, validate_url
 from deepfellow.infra.utils.options import directory_option
 
 app = typer.Typer()
@@ -79,7 +81,29 @@ def install(
         original_env_vars = read_env_file(env_file)
         original_env_content = env_to_dict(original_env_vars)
 
-    # Collect DF_MESH_KEY
+    # Collect DF_NAME
+    df_name = ""
+    while not df_name:
+        try:
+            df_name = echo.prompt("Provide a DF_NAME for this Infra", validation=validate_df_name)
+        except typer.BadParameter:
+            echo.error("Invalid DF_NAME. Please try again.")
+            df_name = ""
+
+    echo.debug(f"{df_name=}")
+
+    # Collect DF_URL
+    df_url = ""
+    while not df_url:
+        try:
+            df_url = echo.prompt("Provide a DF_URL for this Infra", validation=validate_url)
+        except typer.BadParameter:
+            echo.error("Invalid DF_URL. Please try again.")
+            df_url = ""
+
+    echo.debug(f"{df_url=}")
+
+    # Collect DF_INFRA_ADMIN_API_KEY
     echo.info(
         "An Admin needs to identify itself in DeepFellow Infra to perform actions by providing DF_INFRA_ADMIN_API_KEY."
     )
@@ -87,11 +111,13 @@ def install(
         "DF_INFRA_ADMIN_API_KEY", original_env_content.get("df_infra_admin_api_key")
     )
 
+    # Collect DF_INFRA_API_KEY
     echo.info(
         "Configuration of DF_INFRA_API_KEY - key needed to communication between DeepFellow Infra and DeepFellow Server."
     )
     df_infra_api_key = configure_uuid_key("DF_INFRA_API_KEY", original_env_content.get("df_infra_api_key"))
 
+    # Collect DF_MESH_KEY
     echo.info(
         "Configuration of DF_MESH_KEY - key needed by other DeepFellow Infra to attach to this DeepFellow Infra and thus extend the Mesh."
     )
@@ -139,6 +165,8 @@ def install(
 
     # Save the envs to the .env file (existing envs are NOT overwritten)
     infra_values = {
+        "DF_NAME": df_name,
+        "DF_INFRA_URL": df_url,
         "DF_INFRA_PORT": port,
         "DF_INFRA_IMAGE": image,
         "DF_MESH_KEY": df_mesh_key,
@@ -167,4 +195,5 @@ def install(
         directory / "docker-compose.yml",
     )
 
+    run("docker compose pull", directory)
     echo.success("DeepFellow Infra installed.\nCall `depfellow infra start`.")

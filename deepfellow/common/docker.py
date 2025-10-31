@@ -63,9 +63,10 @@ COMPOSE_INFRA = {
         "image": "${DF_INFRA_IMAGE}",
         "ports": ["${DF_INFRA_PORT}:8086"],
         "environment": [
+            "DF_NAME=${DF_NAME}",
             "DF_INFRA_ADMIN_API_KEY=${DF_INFRA_ADMIN_API_KEY}",
             "DF_INFRA_API_KEY=${DF_INFRA_API_KEY}",
-            "DF_INFRA_URL=${DF_INFRA_URL}",
+            "DF_URL=${DF_INFRA_URL}",  # NOTE: at the moment DF Infra has DF_URL not DF_INFRA_URL - task df-infra #163
             "DF_MESH_KEY=${DF_MESH_KEY}",
             "DF_CONNECT_TO_MESH_URL=${DF_CONNECT_TO_MESH_URL}",
             "DF_CONNECT_TO_MESH_KEY=${DF_CONNECT_TO_MESH_KEY}",
@@ -326,6 +327,7 @@ def create_network(network_name: str, driver: str = "bridge") -> None:
         DockerNetworkError: When unable to create network
     """
     try:
+        print(f"{network_name=}")
         subprocess.run(
             ["docker", "network", "create", "--driver", driver, network_name],
             capture_output=True,
