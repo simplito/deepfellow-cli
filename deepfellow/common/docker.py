@@ -47,8 +47,8 @@ COMPOSE_SAMPLE = {
             "&& echo 'Test completed' && sleep 10",
         ],
         "environment": [
-            "TEST_INFRA_KEY=${DF_INFRA_API_KEY}",
-            "TEST_SERVER_KEY=${DF_SERVER_API_KEY}",
+            "TEST_DF_INFRA_API_KEY=${DF_INFRA_API_KEY}",
+            "TEST_DF_INFRA_URL=${DF_INFRA_URL}",
             "TEST_INFRA_PORT=${DF_INFRA_PORT}",
             "TEST_SERVER_PORT=${DF_SERVER_PORT}",
             "TEST_DB_PASSWORD=${DF_DB_PASSWORD}",
@@ -63,8 +63,12 @@ COMPOSE_INFRA = {
         "image": "${DF_INFRA_IMAGE}",
         "ports": ["${DF_INFRA_PORT}:8086"],
         "environment": [
-            "API_KEY=${DF_INFRA_API_KEY}",
-            "ADMIN_API_KEY=${DF_INFRA_ADMIN_API_KEY}",
+            "DF_INFRA_ADMIN_API_KEY=${DF_INFRA_ADMIN_API_KEY}",
+            "DF_INFRA_API_KEY=${DF_INFRA_API_KEY}",
+            "DF_INFRA_URL=${DF_INFRA_URL}",
+            "DF_MESH_KEY=${DF_MESH_KEY}",
+            "DF_CONNECT_TO_MESH_URL=${DF_CONNECT_TO_MESH_URL}",
+            "DF_CONNECT_TO_MESH_KEY=${DF_CONNECT_TO_MESH_KEY}",
             "DF_DOCKER_SUBNET=${DF_INFRA_DOCKER_SUBNET}",
             "DF_COMPOSE_PREFIX=${DF_INFRA_COMPOSE_PREFIX}",
             "DF_STORAGE_DIR=${DF_INFRA_STORAGE_DIR}",
@@ -84,7 +88,6 @@ COMPOSE_SERVER = {
         "image": "${DF_SERVER_IMAGE}",
         "ports": ["${DF_SERVER_PORT}:8086"],
         "environment": [
-            "DF_ADMIN_KEY=${DF_SERVER_ADMIN_KEY}",
             "DF_MONGO_URL=${DF_MONGO_URL}",
             "DF_MONGO_USER=${DF_MONGO_USER}",
             "DF_MONGO_PASSWORD=${DF_MONGO_PASSWORD}",

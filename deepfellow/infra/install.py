@@ -79,14 +79,23 @@ def install(
         original_env_vars = read_env_file(env_file)
         original_env_content = env_to_dict(original_env_vars)
 
-    # Collect DF_INFRA_API_KEY
+    # Collect DF_MESH_KEY
     echo.info(
-        "A DeepFellow Server or other DeepFellow Infra needs to identify in DeepFellow Infra by providing an API Key."
+        "An Admin needs to identify itself in DeepFellow Infra to perform actions by providing DF_INFRA_ADMIN_API_KEY."
     )
-    api_key = configure_uuid_key("API Key", original_env_content.get("df_infra_api_key"))
+    df_infra_admin_api_key = configure_uuid_key(
+        "DF_INFRA_ADMIN_API_KEY", original_env_content.get("df_infra_admin_api_key")
+    )
 
-    echo.info("An Admin needs to identify itself in DeepFellow Infra to perform actions.")
-    admin_api_key = configure_uuid_key("Admin API Key", original_env_content.get("df_infra_admin_api_key"))
+    echo.info(
+        "Configuration of DF_INFRA_API_KEY - key needed to communication between DeepFellow Infra and DeepFellow Server."
+    )
+    df_infra_api_key = configure_uuid_key("DF_INFRA_API_KEY", original_env_content.get("df_infra_api_key"))
+
+    echo.info(
+        "Configuration of DF_MESH_KEY - key needed by other DeepFellow Infra to attach to this DeepFellow Infra and thus extend the Mesh."
+    )
+    df_mesh_key = configure_uuid_key("DF_MESH_KEY", original_env_content.get("df_mesh_key"))
 
     # Find out which docker network to use
     original_docker_network = original_env_content.get("df_infra_docker_subnet")
@@ -132,8 +141,11 @@ def install(
     infra_values = {
         "DF_INFRA_PORT": port,
         "DF_INFRA_IMAGE": image,
-        "DF_INFRA_API_KEY": api_key,
-        "DF_INFRA_ADMIN_API_KEY": admin_api_key,
+        "DF_MESH_KEY": df_mesh_key,
+        "DF_INFRA_API_KEY": df_infra_api_key,
+        "DF_INFRA_ADMIN_API_KEY": df_infra_admin_api_key,
+        "DF_CONNECT_TO_MESH_URL": "",
+        "DF_CONNECT_TO_MESH_KEY": "",
         "DF_INFRA_DOCKER_SUBNET": docker_network,
         "DF_INFRA_COMPOSE_PREFIX": compose_prefix,
         "DF_INFRA_DOCKER_CONFIG": str(docker_config),
