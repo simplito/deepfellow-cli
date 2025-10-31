@@ -49,7 +49,8 @@ def configure_infra(name: str, original_env: dict[str, Any]) -> dict[str, Any]:
     infra = {"name": name}
     infra["url"] = echo.prompt("Provide DF_INFRA_URL - URL of this Infra", default=original_env.get("df_infra_url"))
     infra["api_key"] = echo.prompt(
-        "Provide DF_MESH_KEY - key needed by other Infra to be connected to this Infra in Mesh", password=True
+        "Provide DF_INFRA_API_KEY - key which DeepFellow Server needs to communicate with DeepFellow Infra",
+        password=True,
     )
     return infra
 
