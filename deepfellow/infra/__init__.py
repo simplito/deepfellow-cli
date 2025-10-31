@@ -3,6 +3,7 @@
 import typer
 
 from .env_command import app as env_app
+from .env_command.info import app as info_app
 from .install import app as install_app
 from .start import app as start_app
 from .stop import app as stop_app
@@ -36,6 +37,7 @@ def callback(
     #         raise typer.Exit(1) from err
 
 
+app.add_typer(info_app)
 app.add_typer(install_app)
 # app.add_typer(models_app)
 # app.add_typer(download_app)

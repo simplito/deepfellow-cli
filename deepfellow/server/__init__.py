@@ -7,6 +7,7 @@ from deepfellow.common.config import load_config
 # from .configure import app as configure_app
 from .create_admin import app as create_admin_app
 from .env_command import app as env_app
+from .env_command.info import app as info_app
 from .install import app as install_app
 from .login import app as login_app
 from .organization import app as organization_app
@@ -40,6 +41,7 @@ def callback(
     ctx.obj["config"] = load_config()
 
 
+app.add_typer(info_app)
 app.add_typer(install_app)
 # app.add_typer(configure_app)
 app.add_typer(create_admin_app)
