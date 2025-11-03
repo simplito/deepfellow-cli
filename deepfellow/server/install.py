@@ -13,7 +13,7 @@ from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
 from deepfellow.common.system import run
 from deepfellow.server.utils.configure import (
-    configure_infras,
+    configure_infra,
     configure_mongo,
     configure_vector_db,
 )
@@ -61,13 +61,12 @@ def install(
     custom_mongo_db_server = echo.confirm("Do you have MongoDB installed for DeepFellow Server?")
     mongo_env = configure_mongo(custom_mongo_db_server, original_env_content)
 
-    echo.info("DeepFellow Server is communicating with infra. At least one needs to exist.")
-    api_endpoints = configure_infras(original_env_content)
-    api_endpoints_env = api_endpoints.envs
+    echo.info("DeepFellow Server is communicating with DeepFellow Infra.")
+    infra_env = configure_infra(original_env_content)
 
     echo.info("DeepFellow Server might use a vector DB. If not provided some features will not work.")
     custom_vector_db_server = echo.confirm("Do you have a vector DB ready?")
-    vector_db_envs = configure_vector_db(custom_vector_db_server, api_endpoints.names, original_env_content)
+    vector_db_envs = configure_vector_db(custom_vector_db_server, infra_env["DF_INFRA__URL"], original_env_content)
     vector_db_active = vector_db_envs.get("DF_VECTOR_DATABASE__PROVIDER__ACTIVE") == "1"
 
     save_env_file(
@@ -76,7 +75,7 @@ def install(
             "DF_SERVER_PORT": port,
             "DF_SERVER_IMAGE": image,
             **mongo_env,
-            **api_endpoints_env,
+            **infra_env,
             **vector_db_envs,
         },
     )
@@ -96,7 +95,7 @@ def install(
         depends_on.update({"mongo": {"condition": "service_healthy"}})
 
     compose_server = deepcopy(COMPOSE_SERVER)
-    for api_endpoint_key in api_endpoints_env:
+    for api_endpoint_key in infra_env:
         compose_server["server"]["environment"].append(api_endpoint_key + "=${" + api_endpoint_key + "}")
 
     if depends_on:
