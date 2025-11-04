@@ -3,15 +3,15 @@
 from dataclasses import dataclass
 from typing import Any
 
+import typer
+
 from deepfellow.common.config import dict_to_env
 from deepfellow.common.defaults import DF_MONGO_DB, DF_MONGO_PASSWORD, DF_MONGO_URL, DF_MONGO_USER, VECTOR_DATABASE
 from deepfellow.common.echo import echo
 from deepfellow.common.validation import validate_url
 
 
-def configure_vector_db(
-    custom: bool, infra_url: str, original_env: dict[str, Any] | None = None
-) -> dict[str, str]:
+def configure_vector_db(custom: bool, infra_url: str, original_env: dict[str, Any] | None = None) -> dict[str, str]:
     """Collect info about vector db."""
     original_env = original_env or {}
     original_provider = original_env.get("df_vector_database", {}).get("provider", {})
@@ -44,7 +44,18 @@ def configure_vector_db(
 def configure_infra(original_env: dict[str, Any]) -> dict[str, Any]:
     """Configure single infra."""
     infra = {}
-    infra["DF_INFRA__URL"] = echo.prompt("Provide DeepFellow Infra URL", default=original_env.get("url"))
+
+    correct = False
+    while not correct:
+        try:
+            infra["DF_INFRA__URL"] = echo.prompt(
+                "Provide DeepFellow Infra URL", default="http://infra:8086", validation=validate_url
+            )
+            correct = True
+        except typer.BadParameter:
+            echo.error("Invalid DeepFellow Infra URL. Please try again.")
+            correct = False
+
     infra["DF_INFRA__API_KEY"] = echo.prompt("Provide Deepfellow Infra API KEY", password=True)
     return infra
 

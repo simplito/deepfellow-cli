@@ -356,6 +356,21 @@ def ensure_network(network_name: str, driver: str = "bridge") -> None:
         create_network(network_name, driver)
 
 
+def add_network_to_service(service: dict, network_name: str) -> None:
+    """Add a Docker network to a docker service's \"networks\" field.
+
+    Args:
+        service: Dictionary containing service configuration
+        network_name: Name of the network
+
+    Returns:
+        None
+    """
+    service["networks"] = service.get("networks", [network_name])
+    if network_name not in service["networks"]:
+        service["networks"].append(network_name)
+
+
 def find_docker_config(explicit_path: Path | None = None) -> Path:
     """Finds Docker config.json file.
 
