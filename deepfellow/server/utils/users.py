@@ -12,15 +12,19 @@ class CreateAdminError(Exception):
     """Raised if create exception failes on docker."""
 
 
-def create_admin(directory: Path, email: str | None, password: str | None) -> None:
+def create_admin(directory: Path, name: str | None, email: str | None, password: str | None) -> None:
     """Create admin."""
+    name = name or echo.prompt("Provide admin name")
     email = email or echo.prompt("Provide admin email")
     password = password or echo.prompt("Provide admin password", password=True)
 
     response: str | None = None
     try:
         response = run(
-            f"docker compose run --rm server ./.venv/bin/python -m server.scripts.create_admin {email} {password}",
+            (
+                "docker compose run --rm server ./.venv/bin/python -m server.scripts.create_admin "
+                f"{name} {email} {password}"
+            ),
             cwd=directory,
             raises=CreateAdminError(),
             capture_output=True,
