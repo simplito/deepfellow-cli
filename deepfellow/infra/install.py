@@ -196,4 +196,8 @@ def install(
     )
 
     run("docker compose pull", directory)
-    echo.success("DeepFellow Infra installed.\nCall `depfellow infra start`.")
+    echo.success(
+        "DeepFellow Infra installed.\n"
+        "To start the docker image - `depfellow infra start`.\n"
+        "For info about installation - `deepfellow infra info`."
+    )
