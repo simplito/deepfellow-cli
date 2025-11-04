@@ -190,6 +190,10 @@ def install(
     # Save the docker compose config
     compose_infra = COMPOSE_INFRA
     compose_infra["infra"]["volumes"].append(f"{docker_socket}:/run/docker.sock")
+    compose_infra["infra"]["networks"] = compose_infra["infra"].get("networks", [docker_network])
+    if docker_network not in compose_infra["infra"]["networks"]:
+        compose_infra["infra"]["networks"].append(docker_network)
+
     save_compose_file(
         {"services": compose_infra, "networks": {docker_network: {"external": True}}},
         directory / "docker-compose.yml",
