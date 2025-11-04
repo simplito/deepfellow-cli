@@ -2,6 +2,7 @@
 
 import random
 import string
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,14 @@ from deepfellow.common.defaults import (
     DF_INFRA_PORT,
     DF_INFRA_STORAGE_DIR,
 )
-from deepfellow.common.docker import COMPOSE_INFRA, ensure_network, find_docker_config, get_socket, save_compose_file
+from deepfellow.common.docker import (
+    COMPOSE_INFRA,
+    add_network_to_service,
+    ensure_network,
+    find_docker_config,
+    get_socket,
+    save_compose_file,
+)
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
 from deepfellow.common.system import run
@@ -29,12 +37,9 @@ def install(
     ctx: typer.Context,
     directory: Path = directory_option("Target directory for the DeepFellow Infra installation."),
     port: int = typer.Option(
-        DF_INFRA_PORT, envvar="DF_INFRA_PORT", help="Port to use to serve the DeepFellow Infra from."
+        DF_INFRA_PORT, envvar="DF_INFRA_PORT", help="Published port to serve the DeepFellow Infra from."
     ),
     image: str = typer.Option(DF_INFRA_IMAGE, envvar="DF_INFRA_IMAGE", help="DeepFellow Infra docker image."),
-    docker_network: str = typer.Option(
-        DF_INFRA_DOCKER_NETWORK, envvar="DF_INFRA_DOCKER_NETWORK", help="DeepFellow Infra docker network."
-    ),
     docker_config: Path | None = typer.Option(None, envvar="DF_INFRA_DOCKER_CONFIG", help="Path to the docker config."),
     storage: Path = typer.Option(
         DF_INFRA_STORAGE_DIR, envvar="DF_INFRA_STORAGE_DIR", help="Storage for the DeepFellow Infra services."
@@ -96,7 +101,9 @@ def install(
     df_url = ""
     while not df_url:
         try:
-            df_url = echo.prompt("Provide a DF_URL for this Infra", validation=validate_url)
+            df_url = echo.prompt(
+                "Provide a DF_URL for this Infra", validation=validate_url, default="http://infra:8086"
+            )
         except typer.BadParameter:
             echo.error("Invalid DF_URL. Please try again.")
             df_url = ""
@@ -124,17 +131,7 @@ def install(
     df_mesh_key = configure_uuid_key("DF_MESH_KEY", original_env_content.get("df_mesh_key"))
 
     # Find out which docker network to use
-    original_docker_network = original_env_content.get("df_infra_docker_subnet")
-    if (
-        original_docker_network is not None
-        and original_docker_network != DF_INFRA_DOCKER_NETWORK
-        and docker_network == DF_INFRA_DOCKER_NETWORK
-        and echo.confirm(
-            f"Would you like to keep the previously configured docker network '{original_docker_network}'?",
-            default=True,
-        )
-    ):
-        docker_network = original_docker_network
+    docker_network = echo.prompt("Provide a docker network name", default=DF_INFRA_DOCKER_NETWORK)
 
     # Create the network if needed
     ensure_network(docker_network)
@@ -188,14 +185,14 @@ def install(
     save_env_file(env_file, infra_values)
 
     # Save the docker compose config
-    compose_infra = COMPOSE_INFRA
-    compose_infra["infra"]["volumes"].append(f"{docker_socket}:/run/docker.sock")
-    compose_infra["infra"]["networks"] = compose_infra["infra"].get("networks", [docker_network])
-    if docker_network not in compose_infra["infra"]["networks"]:
-        compose_infra["infra"]["networks"].append(docker_network)
+    compose = deepcopy(COMPOSE_INFRA)
+    infra_service = compose["infra"]
+    add_network_to_service(infra_service, docker_network)
+
+    infra_service["volumes"].append(f"{docker_socket}:/run/docker.sock")
 
     save_compose_file(
-        {"services": compose_infra, "networks": {docker_network: {"external": True}}},
+        {"services": compose, "networks": {docker_network: {"external": True}}},
         directory / "docker-compose.yml",
     )
 

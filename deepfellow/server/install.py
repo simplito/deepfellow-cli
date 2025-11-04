@@ -6,9 +6,16 @@ from typing import Any
 
 import typer
 
+from deepfellow.common import docker
 from deepfellow.common.config import configure_uuid_key, env_to_dict, read_env_file, save_env_file
-from deepfellow.common.defaults import DF_SERVER_IMAGE, DF_SERVER_PORT
-from deepfellow.common.docker import COMPOSE_MONGO_DB, COMPOSE_SERVER, COMPOSE_VECTOR_DB, save_compose_file
+from deepfellow.common.defaults import DF_INFRA_DOCKER_NETWORK, DF_SERVER_IMAGE, DF_SERVER_PORT
+from deepfellow.common.docker import (
+    COMPOSE_MONGO_DB,
+    COMPOSE_SERVER,
+    COMPOSE_VECTOR_DB,
+    add_network_to_service,
+    save_compose_file,
+)
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
 from deepfellow.common.system import run
@@ -64,6 +71,9 @@ def install(
     echo.info("DeepFellow Server is communicating with DeepFellow Infra.")
     infra_env = configure_infra(original_env_content)
 
+    # Find out which docker network to use
+    docker_network = echo.prompt("Provide a docker network name", default=DF_INFRA_DOCKER_NETWORK)
+
     echo.info("DeepFellow Server might use a vector DB. If not provided some features will not work.")
     custom_vector_db_server = echo.confirm("Do you have a vector DB ready?")
     vector_db_envs = configure_vector_db(custom_vector_db_server, infra_env["DF_INFRA__URL"], original_env_content)
@@ -103,6 +113,12 @@ def install(
 
     services.update(compose_server)
 
-    save_compose_file({"services": services, "volumes": volumes}, directory / "docker-compose.yml")
+    for _, service in services.items():
+        add_network_to_service(service, docker_network)
+
+    save_compose_file(
+        {"services": services, "volumes": volumes, "networks": {docker_network: {"external": True}}},
+        directory / "docker-compose.yml",
+    )
     run("docker compose pull", directory)
     echo.success("DeepFellow Server Installed.\nCall `deepfellow server start`.")
