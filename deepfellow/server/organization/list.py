@@ -1,26 +1,23 @@
 """server organization list command."""
 
-from pathlib import Path
-
 import typer
 
 from deepfellow.common.echo import echo
 from deepfellow.common.validation import validate_server
 from deepfellow.server.organization.utils import list_organizations
 from deepfellow.server.utils.login import get_token
-from deepfellow.server.utils.options import directory_option
 
 app = typer.Typer()
 
 
 @app.command()
 def list(
-    directory: Path = directory_option("Target directory for the DeepFellow Server installation."),
+    ctx: typer.Context,
     server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Server address"),
 ) -> None:
     """Display list of organizations."""
     # Get token for the server
-    secrets_file = directory / ".secrets"
+    secrets_file = ctx.obj.get("cli-secrets-file")
     token = get_token(secrets_file, server, None)
 
     organizations = list_organizations(server, token)
