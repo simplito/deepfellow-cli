@@ -93,22 +93,18 @@ def install(
             df_name = echo.prompt("Provide a DF_NAME for this Infra", validation=validate_df_name)
         except typer.BadParameter:
             echo.error("Invalid DF_NAME. Please try again.")
-            df_name = ""
 
     echo.debug(f"{df_name=}")
 
-    # Collect DF_URL
-    df_url = ""
-    while not df_url:
+    # Collect DF_INFRA_URL
+    df_infra_url = ""
+    while not df_infra_url:
         try:
-            df_url = echo.prompt(
-                "Provide a DF_URL for this Infra", validation=validate_url, default="http://infra:8086"
+            df_infra_url = echo.prompt(
+                "Provide a DF_INFRA_URL for this Infra", validation=validate_url, default="http://infra:8086"
             )
         except typer.BadParameter:
-            echo.error("Invalid DF_URL. Please try again.")
-            df_url = ""
-
-    echo.debug(f"{df_url=}")
+            echo.error("Invalid DF_INFRA_URL. Please try again.")
 
     # Collect DF_INFRA_ADMIN_API_KEY
     echo.info(
@@ -163,7 +159,7 @@ def install(
     # Save the envs to the .env file (existing envs are NOT overwritten)
     infra_values = {
         "DF_NAME": df_name,
-        "DF_INFRA_URL": df_url,
+        "DF_INFRA_URL": df_infra_url,
         "DF_INFRA_PORT": port,
         "DF_INFRA_IMAGE": image,
         "DF_MESH_KEY": df_mesh_key,
