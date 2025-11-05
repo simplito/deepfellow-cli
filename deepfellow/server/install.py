@@ -6,14 +6,14 @@ from typing import Any
 
 import typer
 
-from deepfellow.common import docker
-from deepfellow.common.config import configure_uuid_key, env_to_dict, read_env_file, save_env_file
+from deepfellow.common.config import env_to_dict, read_env_file, save_env_file
 from deepfellow.common.defaults import DF_INFRA_DOCKER_NETWORK, DF_SERVER_IMAGE, DF_SERVER_PORT
 from deepfellow.common.docker import (
     COMPOSE_MONGO_DB,
     COMPOSE_SERVER,
     COMPOSE_VECTOR_DB,
     add_network_to_service,
+    ensure_network,
     save_compose_file,
 )
 from deepfellow.common.echo import echo
@@ -74,6 +74,9 @@ def install(
     # Find out which docker network to use
     docker_network = echo.prompt("Provide a docker network name", default=DF_INFRA_DOCKER_NETWORK)
 
+    # Create the network if needed
+    ensure_network(docker_network)
+
     echo.info("DeepFellow Server might use a vector DB. If not provided some features will not work.")
     custom_vector_db_server = echo.confirm("Do you have a vector DB ready?")
     vector_db_envs = configure_vector_db(custom_vector_db_server, infra_env["DF_INFRA__URL"], original_env_content)
@@ -84,6 +87,7 @@ def install(
         {
             "DF_SERVER_PORT": port,
             "DF_SERVER_IMAGE": image,
+            "DF_INFRA_DOCKER_SUBNET": docker_network,
             **mongo_env,
             **infra_env,
             **vector_db_envs,
