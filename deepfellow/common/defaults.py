@@ -20,6 +20,8 @@ DF_SERVER_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / "server"
 DF_SERVER_REPO = "ssh://git@gitlab2.simplito.com:1022/df/df-server-new.git"
 DF_SERVER_IMAGE = "gitlab2.simplito.com:5050/df/df-server-new:latest"
 DF_SERVER_PORT = 8000
+# NOTE: uploaded files, used by vector stores
+DF_SERVER_STORAGE_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / DF_SERVER_DIRECTORY / "storage"
 
 DF_MONGO_URL = "mongo:27017"
 DF_MONGO_USER = "deepfellow-usr"

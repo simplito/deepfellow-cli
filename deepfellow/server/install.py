@@ -7,7 +7,12 @@ from typing import Any
 import typer
 
 from deepfellow.common.config import env_to_dict, read_env_file, save_env_file
-from deepfellow.common.defaults import DF_INFRA_DOCKER_NETWORK, DF_SERVER_IMAGE, DF_SERVER_PORT
+from deepfellow.common.defaults import (
+    DF_INFRA_DOCKER_NETWORK,
+    DF_SERVER_IMAGE,
+    DF_SERVER_PORT,
+    DF_SERVER_STORAGE_DIRECTORY,
+)
 from deepfellow.common.docker import (
     COMPOSE_MONGO_DB,
     COMPOSE_SERVER,
@@ -127,6 +132,8 @@ def install(
 
     for _, service in services.items():
         add_network_to_service(service, docker_network)
+
+    services["server"]["volumes"] = [f"{DF_SERVER_STORAGE_DIRECTORY}:/app/storage"]
 
     save_compose_file(
         {"services": services, "volumes": volumes, "networks": {docker_network: {"external": True}}},

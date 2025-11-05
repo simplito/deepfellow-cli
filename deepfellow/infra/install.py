@@ -181,14 +181,14 @@ def install(
     save_env_file(env_file, infra_values)
 
     # Save the docker compose config
-    compose = deepcopy(COMPOSE_INFRA)
-    infra_service = compose["infra"]
+    services = deepcopy(COMPOSE_INFRA)
+    infra_service = services["infra"]
     add_network_to_service(infra_service, docker_network)
 
     infra_service["volumes"].append(f"{docker_socket}:/run/docker.sock")
 
     save_compose_file(
-        {"services": compose, "networks": {docker_network: {"external": True}}},
+        {"services": services, "networks": {docker_network: {"external": True}}},
         directory / "docker-compose.yml",
     )
 
