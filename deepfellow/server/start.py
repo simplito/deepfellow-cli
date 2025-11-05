@@ -28,5 +28,5 @@ def start(
     env_content = env_to_dict(env_vars)
     docker_network = env_content.get("df_infra_docker_subnet", "")
     ensure_network(str(docker_network))
-    run("docker compose up -d", cwd=directory)
+    run("docker compose up -d --remove-orphans", cwd=directory)
     echo.info("DeepFellow Server started.")
