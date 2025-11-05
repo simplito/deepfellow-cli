@@ -327,7 +327,6 @@ def create_network(network_name: str, driver: str = "bridge") -> None:
         DockerNetworkError: When unable to create network
     """
     try:
-        print(f"{network_name=}")
         subprocess.run(
             ["docker", "network", "create", "--driver", driver, network_name],
             capture_output=True,
