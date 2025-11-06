@@ -101,6 +101,8 @@ def post(
     headers: dict[str, str] | None = None,
     item_name: str | None = None,
     data: dict[str, Any] | None = None,
+    reraise: bool = False,
+    timeout: float = 60 * 60 * 24
 ) -> dict[str, Any]:
     """POST request on url using data."""
     echo.debug(f"POST {url} {data=}")
@@ -112,6 +114,7 @@ def post(
             url,
             headers=headers | {"Authorization": f"Bearer {token}"},
             json=data,
+            timeout=timeout,
         )
 
         if response.status_code in (401, 403):
@@ -125,8 +128,55 @@ def post(
             raise typer.Exit(1)
         response.raise_for_status()
     except httpx.HTTPError as exc:
-        echo.error("HTTP Exception")
         echo.debug(exc)
+        if reraise:
+            raise
+
+        echo.error("HTTP Exception")
+        raise typer.Exit(1) from exc
+
+    return response.json()
+
+
+def make_request(
+    method: str,
+    url: str,
+    token: str,
+    headers: dict[str, str] | None = None,
+    err_msg: str | None = None,
+    data: dict[str, Any] | None = None,
+    reraise: bool = False,
+    timeout: float = 60 * 60 * 24,
+) -> dict[str, Any]:
+    """POST request on url using data."""
+    echo.debug(f"POST {url} {data=}")
+    headers = headers or {}
+    data = data or {}
+    try:
+        response = httpx.request(
+            method=method,
+            url=url,
+            headers=headers | {"Authorization": f"Bearer {token}"},
+            json=data,
+            timeout=timeout,
+        )
+
+        if response.status_code in (400, 401, 403):
+            try:
+                response_data = response.json()
+                message = response_data["detail"]
+            except JSONDecodeError:
+                message = response.text
+
+            echo.error(f"{err_msg} {message}")
+            raise typer.Exit(1)
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        echo.debug(exc)
+        if reraise:
+            raise
+
+        echo.error("HTTP Exception")
         raise typer.Exit(1) from exc
 
     return response.json()

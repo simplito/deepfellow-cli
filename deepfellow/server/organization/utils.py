@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from deepfellow.server.utils.rest import get, post
+from deepfellow.common.rest import get, post
 from deepfellow.server.utils.time import datetime_to_str
 
 

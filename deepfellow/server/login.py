@@ -3,9 +3,9 @@
 import typer
 
 from deepfellow.common.echo import echo
+from deepfellow.common.rest import get_server_url
 from deepfellow.common.validation import validate_email, validate_server
 from deepfellow.server.utils.login import get_token_from_login
-from deepfellow.server.utils.rest import get_server_url
 
 app = typer.Typer()
 

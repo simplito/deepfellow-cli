@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from deepfellow.server.utils.rest import delete, get, post
+from deepfellow.common.rest import delete, get, post
 from deepfellow.server.utils.time import datetime_to_str
 
 
