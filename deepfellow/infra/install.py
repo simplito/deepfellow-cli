@@ -93,6 +93,7 @@ def install(
             df_name = echo.prompt("Provide a DF_NAME for this Infra", validation=validate_df_name)
         except typer.BadParameter:
             echo.error("Invalid DF_NAME. Please try again.")
+            df_name = ""
 
     echo.debug(f"{df_name=}")
 
@@ -105,6 +106,9 @@ def install(
             )
         except typer.BadParameter:
             echo.error("Invalid DF_INFRA_URL. Please try again.")
+            df_infra_url = ""
+
+    echo.debug(f"{df_infra_url=}")
 
     # Collect DF_INFRA_ADMIN_API_KEY
     echo.info(
@@ -181,14 +185,14 @@ def install(
     save_env_file(env_file, infra_values)
 
     # Save the docker compose config
-    services = deepcopy(COMPOSE_INFRA)
-    infra_service = services["infra"]
+    compose = deepcopy(COMPOSE_INFRA)
+    infra_service = compose["infra"]
     add_network_to_service(infra_service, docker_network)
 
     infra_service["volumes"].append(f"{docker_socket}:/run/docker.sock")
 
     save_compose_file(
-        {"services": services, "networks": {docker_network: {"external": True}}},
+        {"services": compose, "networks": {docker_network: {"external": True}}},
         directory / "docker-compose.yml",
     )
 
