@@ -24,6 +24,7 @@ from deepfellow.common.docker import (
     save_compose_file,
 )
 from deepfellow.common.echo import echo
+from deepfellow.common.env import env_set
 from deepfellow.common.exceptions import reraise_if_debug
 from deepfellow.common.system import run
 from deepfellow.common.validation import validate_df_name, validate_url
@@ -183,6 +184,10 @@ def install(
         ),
     }
     save_env_file(env_file, infra_values)
+    config_file = ctx.obj.get("cli-config-file")
+    secrets_file = ctx.obj.get("cli-secrets-file")
+    env_set(config_file, "DF_INFRA_EXTERNAL_URL", f"http://localhost:{port}", should_raise=False)
+    env_set(secrets_file, "DF_INFRA_ADMIN_API_KEY", df_infra_admin_api_key, should_raise=False)
 
     # Save the docker compose config
     compose = deepcopy(COMPOSE_INFRA)
@@ -190,6 +195,7 @@ def install(
     add_network_to_service(infra_service, docker_network)
 
     infra_service["volumes"].append(f"{docker_socket}:/run/docker.sock")
+    infra_service["volumes"].append("${DF_INFRA_STORAGE_DIR}:/app/storage")
 
     save_compose_file(
         {"services": compose, "networks": {docker_network: {"external": True}}},

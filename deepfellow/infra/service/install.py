@@ -17,7 +17,6 @@ app = typer.Typer()
 @app.command()
 def install(
     ctx: typer.Context,
-    server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Infra address"),
     name: str = typer.Argument(..., help="service name (e.g. ollama)"),
 ) -> None:
     """Install service."""
@@ -26,6 +25,7 @@ def install(
     config = ctx.obj.get("cli-config")
     config_external_server = config.get("df_infra_external_url")
     secrets_file = ctx.obj.get("cli-secrets-file")
+    server = None
 
     if server is None and config_external_server is not None:
         server = config_external_server
