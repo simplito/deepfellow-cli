@@ -6,6 +6,7 @@ import typer
 
 from deepfellow.common.echo import echo
 from deepfellow.common.system import run
+from deepfellow.common.validation import validate_email
 
 
 class CreateAdminError(Exception):
@@ -15,7 +16,7 @@ class CreateAdminError(Exception):
 def create_admin(directory: Path, name: str | None, email: str | None, password: str | None) -> None:
     """Create admin."""
     name = name or echo.prompt("Provide admin name")
-    email = email or echo.prompt("Provide admin email")
+    email = email or echo.prompt("Provide admin email", validation=validate_email)
     password = password or echo.prompt("Provide admin password", password=True)
 
     response: str | None = None
