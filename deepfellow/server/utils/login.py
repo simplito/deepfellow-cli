@@ -1,7 +1,6 @@
 """Login util."""
 
 from pathlib import Path
-from typing import cast
 
 import httpx
 import typer
@@ -81,7 +80,6 @@ def get_token_from_login(secrets_file: Path, server: str, email: str | None) -> 
     password = echo.prompt("Provide your password", password=True)
 
     # Authorize the user (we need the server's URL)
-    server = cast("str", server)
     url = f"{server}/auth/login"
     echo.debug(f"POST {url}")
     try:

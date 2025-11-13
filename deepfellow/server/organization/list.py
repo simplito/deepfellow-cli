@@ -3,6 +3,7 @@
 import typer
 
 from deepfellow.common.echo import echo
+from deepfellow.common.rest import get_server_url
 from deepfellow.common.validation import validate_server
 from deepfellow.server.organization.utils import list_organizations
 from deepfellow.server.utils.login import get_token
@@ -18,6 +19,7 @@ def list(
     """Display list of organizations."""
     # Get token for the server
     secrets_file = ctx.obj.get("cli-secrets-file")
+    server = get_server_url(server)
     token = get_token(secrets_file, server, None)
 
     organizations = list_organizations(server, token)
