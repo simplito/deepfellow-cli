@@ -102,7 +102,7 @@ def post(
     item_name: str | None = None,
     data: dict[str, Any] | None = None,
     reraise: bool = False,
-    timeout: float = 60 * 60 * 24
+    timeout: float = 60 * 60 * 24,
 ) -> dict[str, Any]:
     """POST request on url using data."""
     echo.debug(f"POST {url} {data=}")

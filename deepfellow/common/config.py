@@ -231,7 +231,9 @@ def read_env_file(file_path: str | Path) -> dict[str, str]:
     return env_vars
 
 
-def save_env_file(env_file: Path, values: Mapping[str, str | int], docker_note: bool = True) -> None:
+def save_env_file(
+    env_file: Path, values: Mapping[str, str | int], docker_note: bool = True, quiet: bool = False
+) -> None:
     """Creates or updates .env file with provided values."""
     # Load existing values if file exists
     existing_vars = {}
@@ -251,7 +253,8 @@ def save_env_file(env_file: Path, values: Mapping[str, str | int], docker_note: 
     env_file.write_text(content)
 
     action = "Updated" if file_existed else "Generated"
-    echo.info(f"{action} {env_file.as_posix()}.")
+    msg = echo.debug if quiet else echo.info
+    msg(f"{action} {env_file.as_posix()}.")
 
 
 def configure_uuid_key(name: str, existing: str | None) -> str:

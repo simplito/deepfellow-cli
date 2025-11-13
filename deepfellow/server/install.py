@@ -119,14 +119,13 @@ def install(
 
     if depends_on:
         compose_server["server"]["depends_on"] = depends_on
-        
+
     if not vector_db_active:
         compose_server["server"]["environment"] = [
-            env for env in compose_server["server"]["environment"] if
-            not env.startswith("DF_VECTOR_DATABASE__") or "ACTIVE" in env
+            env
+            for env in compose_server["server"]["environment"]
+            if not env.startswith("DF_VECTOR_DATABASE__") or "ACTIVE" in env
         ]
-            
-
 
     services.update(compose_server)
 
