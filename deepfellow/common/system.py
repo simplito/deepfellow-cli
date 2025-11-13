@@ -11,7 +11,12 @@ from deepfellow.common.exceptions import reraise_if_debug
 
 
 def run(
-    command: str, cwd: Path | str | None = None, uv: bool = False, raises: Exception | None = None, **kwargs: Any
+    command: str,
+    cwd: Path | str | None = None,
+    uv: bool = False,
+    raises: type[Exception] | None = None,
+    quiet: bool = False,
+    **kwargs: Any,
 ) -> str | None:
     """Run subbrocess command.
 
@@ -20,6 +25,7 @@ def run(
         cwd: directory to run from
         uv: should we call from uv
         raises: exception to be raised if failed
+        quiet: mute stdout and stderr
         kwargs: pass additional kwargs to subrocess.run
     """
     cmd = command
@@ -28,6 +34,13 @@ def run(
 
     clean_env = os.environ.copy()
     clean_env.pop("VIRTUAL_ENV", None)
+
+    if quiet and kwargs.get("capture_output"):
+        raise SystemError("ERROR: If quiet then not capture_output")
+
+    if quiet:
+        kwargs["stdout"] = subprocess.DEVNULL
+        kwargs["stderr"] = subprocess.DEVNULL
 
     try:
         process = subprocess.run(

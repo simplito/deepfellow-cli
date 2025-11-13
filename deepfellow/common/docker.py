@@ -34,6 +34,7 @@ import yaml
 
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import DockerNetworkError, DockerSocketNotFoundError
+from deepfellow.common.system import run
 
 COMPOSE_SAMPLE = {
     "test": {
@@ -222,10 +223,17 @@ def represent_none(self: yaml.representer.BaseRepresenter, _: None) -> yaml.Scal
 yaml.add_representer(type(None), represent_none)
 
 
-def save_compose_file(compose_dict: dict[str, Any], compose_file: Path = Path("docker-compose.yml")) -> None:
+class DockerError(Exception):
+    """Raised if any docker command fails."""
+
+
+def save_compose_file(
+    compose_dict: dict[str, Any], compose_file: Path = Path("docker-compose.yml"), quiet: bool = False
+) -> None:
     """Saves Docker Compose configuration to YAML file."""
-    compose_file.write_text(yaml.dump(compose_dict, default_flow_style=False, sort_keys=False))
-    echo.info(f"Saved Docker Compose configuration to {compose_file.as_posix()}")
+    compose_file.write_text(yaml.dump(compose_dict, default_flow_style=False, sort_keys=False, width=1000))
+    msg = echo.debug if quiet else echo.info
+    msg(f"Saved Docker Compose configuration to {compose_file.as_posix()}")
 
 
 def load_compose_file(compose_file: Path = Path("docker-compose.yml")) -> dict[str, Any]:
@@ -402,3 +410,21 @@ def find_docker_config(explicit_path: Path | None = None) -> Path:
         return root_config
 
     raise FileNotFoundError("Docker config.json not found.")
+
+
+def is_service_running(service: str, cwd: Path) -> bool:
+    """Check if service is running."""
+    result: str | None = None
+    try:
+        result = run(f"docker compose ps {service} --status running", cwd=cwd, raises=DockerError, capture_output=True)
+    except DockerError:
+        return False
+
+    # Running result:
+    # NAME            IMAGE                                               ...
+    # infra-infra-1   gitlab2.simplito.com:5050/df/deepfellow-infra:dev   ...
+
+    # Not running result:
+    # NAME            IMAGE                                               ...
+
+    return result is not None and len(result.splitlines()) > 1

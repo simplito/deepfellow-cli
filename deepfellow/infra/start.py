@@ -16,9 +16,7 @@ app = typer.Typer()
 
 @app.command()
 def start(
-    directory: Path = directory_option(
-        callback=validate_directory,
-    ),
+    directory: Path = directory_option(callback=validate_directory),
 ) -> None:
     """Start DeepFellow Infra."""
     echo.info("Starting DeepFellow Infra")
