@@ -33,25 +33,25 @@ class Organization:
 
 def get_organization(server: str | None, organization_id: str, token: str) -> Organization:
     """Return the organization dict."""
-    data = get(f"{server}/v1/organization/{organization_id}", token, item_name="Organization")
+    data = get(f"{server}/admin/organization/{organization_id}", token, item_name="Organization")
     return Organization(**data["organization"])
 
 
 def delete_organization(server: str | None, organization_id: str, _token: str) -> None:
     """Delete the organization using DELETE."""
     raise NotImplementedError("Organization can't be deleted")
-    # url = f"{server}/v1/organization/{organization_id}"
+    # url = f"{server}/admin/organization/{organization_id}"
     # echo.debug(f"DELETE {url}")
 
 
 def list_organizations(server: str | None, token: str) -> list[Organization]:
     """List organizations."""
-    data = get(f"{server}/v1/organization/", token, item_name="Organizations")
+    data = get(f"{server}/admin/organization/", token, item_name="Organizations")
     return [Organization(**org) for org in data["data"]]
 
 
 def create_organization(server: str | None, token: str, name: str) -> Organization:
     """Create organization."""
-    url = f"{server}/v1/organization/"
+    url = f"{server}/admin/organization/"
     data = post(url, token, item_name="Organization", data={"name": name})
     return Organization(**data["organization"])
