@@ -11,7 +11,7 @@ RUN uv run ruff check deepfellow/ tests/
 RUN uv run ruff format deepfellow/ tests/ --check
 RUN uv run mypy deepfellow/ tests/
 RUN PYRIGHT_PYTHON_NODE_VERSION=24.10.0 uv run pyright
-RUN uv run pytest --showlocals --tb=auto -ra --cov server --cov-branch --cov-report=term-missing tests/
+RUN uv run pytest --showlocals --tb=auto -ra --cov deepfellow --cov-branch --cov-report=term-missing tests/
 RUN rm -rf .venv
 RUN uv sync --frozen --no-dev
 RUN rm -rf .venv/lib/python*/site-packages/*/test
@@ -23,5 +23,4 @@ FROM base AS runner
 WORKDIR /app
 COPY --from=builder /app /app
 
-# CMD ["./.venv/bin/uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8086"]
 CMD ["uv", "run", "python", "-m", "deepfellow.main"]
