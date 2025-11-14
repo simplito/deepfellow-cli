@@ -55,7 +55,7 @@ def run(
     except subprocess.CalledProcessError as exc_info:
         echo.debug(f"Failed to run command {command} {cwd=} {uv=}")
         if raises is not None:
-            raise raises from exc_info
+            raise raises(exc_info.stderr) from exc_info
 
         reraise_if_debug(exc_info)
     else:
