@@ -9,6 +9,7 @@ dependencies = [
     "httpx>=0.28.1",
     "pyyaml>=6.0.2",
     "typer>=0.16.0",
+    "types-pyyaml>=6.0.12.20250915",
     "tzlocal>=5.3.1",
 ]
 
