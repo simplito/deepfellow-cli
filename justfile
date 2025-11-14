@@ -12,4 +12,8 @@ ruff-format *FLAGS:
     uv run ruff format . {{FLAGS}}
 
 mypy *FLAGS:
-    uv run mypy . {{FLAGS}}
+    uv run mypy deepfellow/ {{FLAGS}}
+
+
+check: ruff ruff-format mypy
+
