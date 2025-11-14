@@ -27,11 +27,14 @@ def create_admin(directory: Path, name: str | None, email: str | None, password:
                 f"{name} {email} {password}"
             ),
             cwd=directory,
-            raises=CreateAdminError(),
+            raises=CreateAdminError,
             capture_output=True,
         )
     except CreateAdminError as exc:
-        echo.error("Unable to create an admin.")
+        if "User with that email already exists" in str(exc):
+            echo.error("Unable to create an admin: user with that email already exists")
+        else:
+            echo.error("Unable to create an admin.")
         raise typer.Exit(1) from exc
 
     if response == "Admin created\n":
