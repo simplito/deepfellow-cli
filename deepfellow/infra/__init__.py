@@ -2,6 +2,7 @@
 
 import typer
 
+from .connect import app as connect_app
 from .env_command import app as env_app
 from .env_command.info import app as info_app
 from .install import app as install_app
@@ -19,6 +20,7 @@ app.add_typer(install_app)
 app.add_typer(start_app)
 app.add_typer(stop_app)
 app.add_typer(ssl_on_app)
+app.add_typer(connect_app)
 app.add_typer(env_app, name="env", help="Manage Infra environment variables.")
 app.add_typer(service_app, name="service", help="Manage DeepFellow Infra services.")
 app.add_typer(model_app, name="model", help="Manage DeepFellow Infra models.")
