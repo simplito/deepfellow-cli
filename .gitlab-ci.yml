@@ -1,70 +1,72 @@
+image: python:3.10
+
 stages:
-  - build
-  - deploy
+  - analysis
+  - test
 
 variables:
-  DOCKER_TLS_CERTDIR: ""
+  UV_VERSION: "0.9.9"
+  PYTHON_VERSION: "3.10"
+  BASE_LAYER: bookworm-slim
+  # GitLab CI creates a separate mountpoint for the build directory,
+  # so we need to copy instead of using hard links.
+  UV_LINK_MODE: copy
 
-build:
-  stage: build
-  image: docker:27.3.1
-  services:
-    - name: docker:27.3.1-dind
-      command: ["--tls=false"]
+.uv: &uv
+  variables:
+    UV_CACHE_DIR: .uv-cache
+  cache:
+    - key:
+        files:
+          - uv.lock
+      paths:
+        - $UV_CACHE_DIR
+  image: ghcr.io/astral-sh/uv:$UV_VERSION-python$PYTHON_VERSION-$BASE_LAYER
   script:
-    - docker build .
-  except:
-    - tags
-    - main
-    - /^hotfix-.*$/
+    - uv sync --frozen
+    - uv cache prune --ci
 
-build_and_publish_docker_image:
-  stage: build
-  image: docker:27.3.1
-  services:
-    - name: docker:27.3.1-dind
-      command: ["--tls=false"]
+ruff:
+  <<: *uv
+  stage: analysis
   script:
-    - export IMAGE_ID=$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
-    - export DEV_IMAGE_ID=$CI_REGISTRY_IMAGE:dev
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - docker build -t $IMAGE_ID -t $DEV_IMAGE_ID .
-    - docker push $IMAGE_ID
-    - docker push $DEV_IMAGE_ID
-  except:
-    - tags
-  only:
-    - main
-    - /^hotfix-.*$/
+    - uv run ruff check deepfellow/ tests/
 
-tag_docker_image:
-  stage: build
-  image: docker:27.3.1
-  services:
-    - name: docker:27.3.1-dind
-      command: ["--tls=false"]
+ruff-format:
+  <<: *uv
+  stage: analysis
   script:
-    - export IMAGE_ID=$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
-    - export IMAGE_TAG_ID=$CI_REGISTRY_IMAGE:$CI_COMMIT_TAG
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - docker pull $IMAGE_ID
-    - docker tag $IMAGE_ID $IMAGE_TAG_ID
-    - docker push $IMAGE_TAG_ID
-  except:
-    - branches
-  only:
-    - tags
+    - uv run ruff format --check deepfellow/ tests/
 
-deploy_to_dev:
-  stage: deploy
-  image: curlimages/curl:latest
+mypy:
+  <<: *uv
+  stage: analysis
   script:
-    - export IMAGE_VERSION=${CI_COMMIT_TAG:-$CI_COMMIT_SHA}
-    - 'curl --fail-with-body -H "X-Token: $DEV_TOKEN" https://apps.test.simplito.com/api/deploy?image_version=$IMAGE_VERSION'
-  only:
-    - main
-    - /^hotfix-.*$/
-    - tags
-  environment:
-    name: dev
-    url: https://df.test.simplito.com/
+    - uv run mypy deepfellow/ tests/
+
+mypy:
+  <<: *uv
+  stage: analysis
+  script:
+    - uv run mypy deepfellow/ tests/
+
+pyright:
+  <<: *uv
+  stage: analysis
+  script:
+    - PYRIGHT_PYTHON_NODE_VERSION=24.10.0 uv run pyright
+
+
+pytest:
+  <<: *uv
+  stage: test
+  script:
+    - uv run pytest --showlocals --tb=auto -ra --cov deepfellow --cov-branch --cov-report=term-missing --cov-report xml:coverage_cli.xml --no-cov-on-fail tests/
+
+  # Check if our gitlab can do cobertura artifacts.
+  # coverage: '/(?i)total.*? (100(?:\.0)?\%|[1-9]?\d(?:\.\d+)?\%)$/'
+  # artifacts:
+  #   expire_in: 1 week
+  #   reports:
+  #     coverage_format: cobertura
+  #     path: coverage_cli.xml
