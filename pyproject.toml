@@ -113,3 +113,10 @@ section-order = [
     "first-party",
     "local-folder",
 ]
+
+[tool.mypy]
+python_version = "3.10"
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disable_error_code = ["var-annotated"]

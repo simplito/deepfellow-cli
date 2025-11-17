@@ -9,8 +9,7 @@ from deepfellow.common.config import read_env_file
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
 from deepfellow.common.rest import post
-from deepfellow.common.validation import validate_server
-from deepfellow.infra.utils.rest import get_infra_url
+from deepfellow.common.validation import validate_server, validate_url
 
 app = typer.Typer()
 
@@ -32,7 +31,11 @@ def install(
         server = config_external_server
 
     if server is None and config_external_server is None:
-        server = get_infra_url(config_external_server)
+        server = echo.prompt_until_valid(
+            "Provide a DF_INFRA_URL for this Infra. e.g. http://infra:8086",
+            validate_url,
+            error_message="Invalid DF_INFRA_URL. Please try again.",
+        )
 
     if server != config_external_server:
         env_set(config_file, "DF_INFRA_EXTERNAL_URL", cast("str", server), should_raise=False)

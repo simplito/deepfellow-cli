@@ -8,14 +8,14 @@ import typer
 from deepfellow.common.config import dict_to_env
 from deepfellow.common.defaults import DF_MONGO_DB, DF_MONGO_PASSWORD, DF_MONGO_URL, DF_MONGO_USER, VECTOR_DATABASE
 from deepfellow.common.echo import echo
-from deepfellow.common.validation import validate_url
+from deepfellow.common.validation import validate_truthy, validate_url
 
 
 def configure_vector_db(custom: bool, infra_url: str, original_env: dict[str, Any] | None = None) -> dict[str, str]:
     """Collect info about vector db."""
     original_env = original_env or {}
     original_provider = original_env.get("df_vector_database", {}).get("provider", {})
-    vector_db_config = VECTOR_DATABASE
+    vector_db_config: dict[str, Any] = VECTOR_DATABASE
     if custom:
         vector_db_config["provider"].update(
             {
@@ -27,7 +27,7 @@ def configure_vector_db(custom: bool, infra_url: str, original_env: dict[str, An
         )
     else:
         if not echo.confirm("Do you want to run Milvus from this machine?", default=True):
-            vector_db_config: dict[str, Any] = {"provider": {"active": 0}, "embedding": {"active": 0}}
+            vector_db_config = {"provider": {"active": 0}, "embedding": {"active": 0}}
 
     if int(vector_db_config["embedding"]["active"]) == 1:
         vector_db_config["embedding"]["endpoint"] = infra_url
@@ -41,7 +41,7 @@ def configure_vector_db(custom: bool, infra_url: str, original_env: dict[str, An
     return dict_to_env(vector_db_config, parent_key="DF_VECTOR_DATABASE")
 
 
-def configure_infra(original_env: dict[str, Any]) -> dict[str, Any]:
+def configure_infra() -> dict[str, Any]:
     """Configure single infra."""
     infra = {}
 
@@ -56,7 +56,9 @@ def configure_infra(original_env: dict[str, Any]) -> dict[str, Any]:
             echo.error("Invalid DeepFellow Infra URL. Please try again.")
             correct = False
 
-    infra["DF_INFRA__API_KEY"] = echo.prompt("Provide Deepfellow Infra API KEY", password=True)
+    infra["DF_INFRA__API_KEY"] = echo.prompt_until_valid(
+        "Provide Deepfellow Infra API KEY", validation=validate_truthy, password=True
+    )
     return infra
 
 

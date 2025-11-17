@@ -37,7 +37,9 @@ def env_set(
     save_env_file(env_file, envs, quiet=quiet, **kwargs)
 
 
-def env_get(env_file: Path, env_name: str, df_prefix: bool = True, should_raise: bool = True) -> str | None:
+def env_get(
+    env_file: Path, env_name: str, df_prefix: bool = True, should_raise: bool = True, default: str | None = None
+) -> str | None:
     """Set env value in the directpry/.env file."""
     if not env_file.is_file() and should_raise:
         echo.error(f"Environment file not found: {env_file}")
@@ -53,7 +55,7 @@ def env_get(env_file: Path, env_name: str, df_prefix: bool = True, should_raise:
         echo.debug("Added the DF_ prefix to the variable name")
         env_name = f"DF_{env_name}"
 
-    return envs.get(env_name)
+    return envs.get(env_name, default)
 
 
 def get_envs_list(env_file: Path) -> list[str]:

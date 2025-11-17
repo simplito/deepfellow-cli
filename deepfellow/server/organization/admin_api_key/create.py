@@ -3,6 +3,7 @@
 import typer
 
 from deepfellow.common.echo import echo
+from deepfellow.common.rest import get_server_url
 from deepfellow.common.validation import validate_server
 from deepfellow.server.organization.admin_api_key.utils import create_admin_api_key
 from deepfellow.server.utils.login import get_token
@@ -19,6 +20,7 @@ def create(
 ) -> None:
     """Create organization."""
     secrets_file = ctx.obj.get("cli-secrets-file")
+    server = get_server_url(server)
     token = get_token(secrets_file, server, None)
 
     api_key = create_admin_api_key(server, token, organization_id, name)

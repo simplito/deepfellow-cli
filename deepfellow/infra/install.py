@@ -4,11 +4,15 @@ import random
 import string
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import typer
 
-from deepfellow.common.config import configure_uuid_key, env_to_dict, read_env_file, save_env_file
+from deepfellow.common.config import (
+    configure_uuid_key,
+    read_env_file_to_dict,
+    save_env_file,
+)
 from deepfellow.common.defaults import (
     DF_INFRA_DOCKER_NETWORK,
     DF_INFRA_IMAGE,
@@ -25,11 +29,10 @@ from deepfellow.common.docker import (
 )
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
-from deepfellow.common.exceptions import reraise_if_debug
+from deepfellow.common.install import ensure_directory
 from deepfellow.common.system import run
 from deepfellow.common.validation import validate_df_name, validate_url
 from deepfellow.infra.utils.options import directory_option
-from deepfellow.infra.utils.rest import get_infra_url
 
 app = typer.Typer()
 
@@ -52,10 +55,8 @@ def install(
     civitai_token: str | None = typer.Option(None, envvar="DF_CIVITAI_TOKEN", help="Civitai Token"),
 ) -> None:
     """Install infra with docker."""
-    yes = ctx.obj.get("yes", False)
-    echo.debug(f"{directory=},\n{yes=}")
-
     # Retrieve the docker info to fail early in the process in docker is not running or configured differently
+    echo.info("Installing DeepFellow Infra.")
     docker_socket = get_socket()
     try:
         docker_config = find_docker_config(explicit_path=docker_config)
@@ -63,64 +64,43 @@ def install(
         echo.error("Docker configuration file not found.\nUse --docker-config option to provide it.")
         raise typer.Exit(1) from exc
 
-    # Check if overriding existing installation
-    override_existing_installation = False
-    directory_exists = False
-    if directory.is_dir():
-        directory_exists = True
-        echo.warning(f"Directory {directory} already exists.")
-        override_existing_installation = echo.confirm("Should I override existing installation?")
-        if not override_existing_installation:
-            raise typer.Exit(1)
+    config_file = ctx.obj.get("cli-config-file")
+    secrets_file = ctx.obj.get("cli-secrets-file")
 
-    echo.info("Installing DeepFellow Infra.")
-    if not directory_exists:
-        try:
-            directory.mkdir(parents=True)
-        except Exception as exc_info:
-            echo.error("Unable to create infra directory.")
-            reraise_if_debug(exc_info)
+    # Check if overriding existing installation
+    ensure_directory(directory, error_message="Unable to create DeepFellow Infra directory.")
 
     # Prepare the starting point for .env
     env_file = directory / ".env"
-    original_env_content: dict[str, Any] = {}
-    if env_file.exists():
-        original_env_vars = read_env_file(env_file)
-        original_env_content = env_to_dict(original_env_vars)
+    original_env_content = read_env_file_to_dict(env_file)
 
-    # Collect DF_NAME
-    df_name = ""
-    while not df_name:
-        try:
-            df_name = echo.prompt("Provide a DF_NAME for this Infra", validation=validate_df_name)
-        except typer.BadParameter:
-            echo.error("Invalid DF_NAME. Please try again.")
-            df_name = ""
-
-    echo.debug(f"{df_name=}")
-
-    # Collect DF_INFRA_URL
-    df_infra_url = get_infra_url("http://infra:8086")
-
-    echo.debug(f"{df_infra_url=}")
+    df_name = echo.prompt(
+        "Provide a DF_NAME for this Infra",
+        validation=validate_df_name,
+        default=original_env_content.get("df_infra_name", "infra"),
+    )
+    df_infra_url = echo.prompt_until_valid(
+        f"Provide a DF_INFRA_URL for this Infra. e.g. http://infra:{port}",
+        validate_url,
+        error_message="Invalid DF_INFRA_URL. Please try again.",
+    )
 
     # Collect DF_INFRA_ADMIN_API_KEY
-    echo.info(
-        "An Admin needs to identify itself in DeepFellow Infra to perform actions by providing DF_INFRA_ADMIN_API_KEY."
-    )
+    echo.info("Configuration of DF_INFRA_ADMIN_API_KEY\nkey required for an admin identify in DeepFellow Infra.")
     df_infra_admin_api_key = configure_uuid_key(
         "DF_INFRA_ADMIN_API_KEY", original_env_content.get("df_infra_admin_api_key")
     )
 
     # Collect DF_INFRA_API_KEY
     echo.info(
-        "Configuration of DF_INFRA_API_KEY - key needed to communication between DeepFellow Infra and DeepFellow Server."
+        "Configuration of DF_INFRA_API_KEY\nkey needed to communication between DeepFellow Infra and DeepFellow Server."
     )
     df_infra_api_key = configure_uuid_key("DF_INFRA_API_KEY", original_env_content.get("df_infra_api_key"))
 
     # Collect DF_MESH_KEY
     echo.info(
-        "Configuration of DF_MESH_KEY - key needed by other DeepFellow Infra to attach to this DeepFellow Infra and thus extend the Mesh."
+        "Configuration of DF_MESH_KEY\n"
+        "key needed by other DeepFellow Infra to attach to this DeepFellow Infra and thus extend the Mesh."
     )
     df_mesh_key = configure_uuid_key("DF_MESH_KEY", original_env_content.get("df_mesh_key"))
 
@@ -132,7 +112,7 @@ def install(
 
     # Find out the compose prefix
     original_compose_prefix = original_env_content.get("df_infra_compose_prefix")
-    compose_prefix: str | None = None
+    compose_prefix = None
     if original_compose_prefix is not None and echo.confirm(
         f"Would you like to keep the previously configured compose prefix '{original_compose_prefix}'?", default=True
     ):
@@ -142,7 +122,7 @@ def install(
         compose_prefix = f"df{random_letters}_"
 
     # Find out the infra storage dir
-    original_storage = original_env_content.get("DF_INFRA_STORAGE_DIR")
+    original_storage: Any = original_env_content.get("DF_INFRA_STORAGE_DIR")
     if (
         original_storage is not None
         and original_storage != DF_INFRA_STORAGE_DIR
@@ -177,8 +157,6 @@ def install(
         ),
     }
     save_env_file(env_file, infra_values)
-    config_file = ctx.obj.get("cli-config-file")
-    secrets_file = ctx.obj.get("cli-secrets-file")
     env_set(config_file, "DF_INFRA_EXTERNAL_URL", f"http://localhost:{port}", should_raise=False)
     env_set(secrets_file, "DF_INFRA_ADMIN_API_KEY", df_infra_admin_api_key, should_raise=False)
 
@@ -187,8 +165,9 @@ def install(
     infra_service = compose["infra"]
     add_network_to_service(infra_service, docker_network)
 
-    infra_service["volumes"].append(f"{docker_socket}:/run/docker.sock")
-    infra_service["volumes"].append("${DF_INFRA_STORAGE_DIR}:/app/storage")
+    volumes = cast("list", infra_service["volumes"])
+    volumes.append(f"{docker_socket}:/run/docker.sock")
+    volumes.append("${DF_INFRA_STORAGE_DIR}:/app/storage")
 
     save_compose_file(
         {"services": compose, "networks": {docker_network: {"external": True}}},

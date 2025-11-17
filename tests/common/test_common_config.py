@@ -1358,7 +1358,7 @@ def test_save_env_file_mixed_value_types(mock_read_env_file: mock.Mock, mock_ech
     mock_env_file = mock.Mock(spec=Path)
     mock_env_file.exists.return_value = False
     mock_env_file.as_posix.return_value = "/fake/path/.env"
-    values = {"STRING_VAL": "text", "INT_VAL": 42, "ZERO_VAL": 0, "NEGATIVE_VAL": -123}
+    values: dict[str, str | int] = {"STRING_VAL": "text", "INT_VAL": 42, "ZERO_VAL": 0, "NEGATIVE_VAL": -123}
 
     save_env_file(mock_env_file, values)
 
@@ -1473,7 +1473,7 @@ def test_configure_uuid_key_replace_existing_declined(
 ) -> None:
     mock_echo.confirm.side_effect = [False, True]  # Don't keep existing, but safe to print
     mock_new_uuid = mock.Mock()
-    mock_new_uuid.__str__ = mock.Mock(return_value="new-uuid-456")
+    mock_new_uuid.__str__ = mock.Mock(return_value="new-uuid-456")  # type: ignore[method-assign]
     mock_uuid4.return_value = mock_new_uuid
 
     result = configure_uuid_key(name, existing)
@@ -1501,7 +1501,7 @@ def test_configure_uuid_key_replace_existing_declined(
 def test_configure_uuid_key_no_existing_safe_to_print(mock_echo: mock.Mock, mock_uuid4: mock.Mock, name: str) -> None:
     mock_echo.confirm.return_value = True  # Safe to print
     mock_new_uuid = mock.Mock()
-    mock_new_uuid.__str__ = mock.Mock(return_value="generated-uuid-789")
+    mock_new_uuid.__str__ = mock.Mock(return_value="generated-uuid-789")  # type: ignore[method-assign]
     mock_uuid4.return_value = mock_new_uuid
 
     result = configure_uuid_key(name, None)
@@ -1528,7 +1528,7 @@ def test_configure_uuid_key_no_existing_not_safe_to_print(
 ) -> None:
     mock_echo.confirm.return_value = False  # Not safe to print
     mock_new_uuid = mock.Mock()
-    mock_new_uuid.__str__ = mock.Mock(return_value="secret-uuid-abc")
+    mock_new_uuid.__str__ = mock.Mock(return_value="secret-uuid-abc")  # type: ignore[method-assign]
     mock_uuid4.return_value = mock_new_uuid
 
     result = configure_uuid_key(name, None)
@@ -1544,7 +1544,7 @@ def test_configure_uuid_key_no_existing_not_safe_to_print(
 def test_configure_uuid_key_replace_existing_not_safe_to_print(mock_echo: mock.Mock, mock_uuid4: mock.Mock) -> None:
     mock_echo.confirm.side_effect = [False, False]  # Don't keep existing, not safe to print
     mock_new_uuid = mock.Mock()
-    mock_new_uuid.__str__ = mock.Mock(return_value="hidden-uuid-def")
+    mock_new_uuid.__str__ = mock.Mock(return_value="hidden-uuid-def")  # type: ignore[method-assign]
     mock_uuid4.return_value = mock_new_uuid
     existing = "old-value"
     name = "SECRET_TOKEN"
@@ -1565,7 +1565,7 @@ def test_configure_uuid_key_replace_existing_not_safe_to_print(mock_echo: mock.M
 def test_configure_uuid_key_uuid4_called_when_generating_new(mock_echo: mock.Mock, mock_uuid4: mock.Mock) -> None:
     mock_echo.confirm.return_value = True
     mock_new_uuid = mock.Mock()
-    mock_new_uuid.__str__ = mock.Mock(return_value="test-uuid")
+    mock_new_uuid.__str__ = mock.Mock(return_value="test-uuid")  # type: ignore[method-assign]
     mock_uuid4.return_value = mock_new_uuid
 
     result = configure_uuid_key("TEST_KEY", None)
@@ -1594,7 +1594,7 @@ def test_configure_uuid_key_empty_string_existing_treated_as_string(
 ) -> None:
     mock_echo.confirm.return_value = True
     mock_new_uuid = mock.Mock()
-    mock_new_uuid.__str__ = mock.Mock(return_value="new-for-empty")
+    mock_new_uuid.__str__ = mock.Mock(return_value="new-for-empty")  # type: ignore[method-assign]
     mock_uuid4.return_value = mock_new_uuid
 
     result = configure_uuid_key("EMPTY_KEY", "")
@@ -1611,7 +1611,7 @@ def test_configure_uuid_key_empty_string_existing_treated_as_string(
 @mock.patch("deepfellow.common.config.echo")
 def test_configure_uuid_key_multiple_scenarios_in_sequence(mock_echo: mock.Mock, mock_uuid4: mock.Mock) -> None:
     mock_new_uuid = mock.Mock()
-    mock_new_uuid.__str__ = mock.Mock(return_value="sequential-uuid")
+    mock_new_uuid.__str__ = mock.Mock(return_value="sequential-uuid")  # type: ignore[method-assign]
     mock_uuid4.return_value = mock_new_uuid
 
     # Scenario 1: Keep existing

@@ -181,3 +181,6 @@ Thumbs.db
 # AI
 .continue/
 tasks/
+
+# Installation
+build
