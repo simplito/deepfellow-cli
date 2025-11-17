@@ -10,6 +10,7 @@ from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
 from deepfellow.common.rest import post
 from deepfellow.common.validation import validate_server
+from deepfellow.infra.utils.rest import get_infra_url
 
 app = typer.Typer()
 
@@ -17,6 +18,7 @@ app = typer.Typer()
 @app.command()
 def install(
     ctx: typer.Context,
+    server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Infra address"),
     name: str = typer.Argument(..., help="service name (e.g. ollama)"),
 ) -> None:
     """Install service."""
@@ -25,19 +27,12 @@ def install(
     config = ctx.obj.get("cli-config")
     config_external_server = config.get("df_infra_external_url")
     secrets_file = ctx.obj.get("cli-secrets-file")
-    server = None
 
     if server is None and config_external_server is not None:
         server = config_external_server
 
     if server is None and config_external_server is None:
-        while server is None:
-            try:
-                server = echo.prompt(
-                    "Provide DeepFellow Infra URL", default=config_external_server, validation=validate_server
-                )
-            except typer.BadParameter:
-                echo.error("Invalid Deepfellow Infra address. Please try again.")
+        server = get_infra_url(config_external_server)
 
     if server != config_external_server:
         env_set(config_file, "DF_INFRA_EXTERNAL_URL", cast("str", server), should_raise=False)

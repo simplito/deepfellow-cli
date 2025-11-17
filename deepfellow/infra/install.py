@@ -29,6 +29,7 @@ from deepfellow.common.exceptions import reraise_if_debug
 from deepfellow.common.system import run
 from deepfellow.common.validation import validate_df_name, validate_url
 from deepfellow.infra.utils.options import directory_option
+from deepfellow.infra.utils.rest import get_infra_url
 
 app = typer.Typer()
 
@@ -99,15 +100,7 @@ def install(
     echo.debug(f"{df_name=}")
 
     # Collect DF_INFRA_URL
-    df_infra_url = ""
-    while not df_infra_url:
-        try:
-            df_infra_url = echo.prompt(
-                "Provide a DF_INFRA_URL for this Infra", validation=validate_url, default="http://infra:8086"
-            )
-        except typer.BadParameter:
-            echo.error("Invalid DF_INFRA_URL. Please try again.")
-            df_infra_url = ""
+    df_infra_url = get_infra_url("http://infra:8086")
 
     echo.debug(f"{df_infra_url=}")
 
