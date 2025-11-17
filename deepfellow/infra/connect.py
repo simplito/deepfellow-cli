@@ -1,3 +1,5 @@
+"""infra connect command."""
+
 from pathlib import Path
 
 import typer

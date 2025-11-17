@@ -61,6 +61,8 @@ def run(
     else:
         return process.stdout
 
+    return None
+
 
 def is_command_available(command: str) -> bool:
     """Check if command is accessible in the system."""

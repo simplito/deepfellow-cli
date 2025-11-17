@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import Any
 
 import click
+import typer
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
 
@@ -53,6 +54,23 @@ class Echo(Console):
             value = validation(value)
 
         return value
+
+    def prompt_until_valid(
+        self,
+        message: str,
+        validation: ValidationCallback,
+        error_message: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Prompt until input is valid."""
+        response: Any = None
+        while not response:
+            try:
+                response = echo.prompt(message, validation=validation, **kwargs)
+            except typer.BadParameter as exc:
+                echo.error(error_message or str(exc))
+
+        return response
 
 
 echo = Echo()

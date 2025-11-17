@@ -2,11 +2,11 @@
 
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 import typer
 
-from deepfellow.common.config import env_to_dict, read_env_file, save_env_file
+from deepfellow.common.config import read_env_file_to_dict, save_env_file
 from deepfellow.common.defaults import (
     DF_INFRA_DOCKER_NETWORK,
     DF_SERVER_IMAGE,
@@ -22,7 +22,7 @@ from deepfellow.common.docker import (
     save_compose_file,
 )
 from deepfellow.common.echo import echo
-from deepfellow.common.exceptions import reraise_if_debug
+from deepfellow.common.install import ensure_directory
 from deepfellow.common.system import run
 from deepfellow.server.utils.configure import (
     configure_infra,
@@ -36,7 +36,6 @@ app = typer.Typer()
 
 @app.command()
 def install(
-    ctx: typer.Context,
     directory: Path = directory_option("Target directory for the DeepFellow Server installation."),
     port: int = typer.Option(
         DF_SERVER_PORT, envvar="DF_SERVER_PORT", help="Port to use to serve the DeepFellow Server from."
@@ -44,37 +43,18 @@ def install(
     image: str = typer.Option(DF_SERVER_IMAGE, envvar="DF_SERVER_IMAGE", help="DeepFellow Server docker image."),
 ) -> None:
     """Install DeepFellow Server with docker."""
-    yes = ctx.obj.get("yes", False)
-    echo.debug(f"{directory=},\n{yes=}")
-    override_existing_installation = False
-    directory_exists = False
-    if directory.is_dir():
-        directory_exists = True
-        echo.warning(f"Directory {directory} already exists.")
-        override_existing_installation = echo.confirm("Should I override existing installation?")
-        if not override_existing_installation:
-            raise typer.Exit(1)
-
     echo.info("Installing DeepFellow Server.")
-    if not directory_exists:
-        try:
-            directory.mkdir(parents=True)
-        except Exception as exc_info:
-            echo.error("Unable to create DeepFellow Server directory.")
-            reraise_if_debug(exc_info)
+    ensure_directory(directory, error_message="Unable to create DeepFellow Server directory.")
 
     env_file = directory / ".env"
-    original_env_content: dict[str, Any] = {}
-    if env_file.exists():
-        original_env_vars = read_env_file(env_file)
-        original_env_content = env_to_dict(original_env_vars)
+    original_env_content = read_env_file_to_dict(env_file)
 
     echo.info("DeepFellow Server requires a MongoDB to be installed.")
     custom_mongo_db_server = echo.confirm("Do you have MongoDB installed for DeepFellow Server?")
     mongo_env = configure_mongo(custom_mongo_db_server, original_env_content)
 
     echo.info("DeepFellow Server is communicating with DeepFellow Infra.")
-    infra_env = configure_infra(original_env_content)
+    infra_env = configure_infra()
 
     # Find out which docker network to use
     docker_network = echo.prompt("Provide a docker network name", default=DF_INFRA_DOCKER_NETWORK)
@@ -99,10 +79,10 @@ def install(
         },
     )
 
-    volumes = {}
-
+    volumes: dict[str, None] = {}
     services = {}
     depends_on = {}
+
     if not custom_vector_db_server and vector_db_active:
         services.update(COMPOSE_VECTOR_DB)
         volumes.update({"milvus": None, "etcd": None, "minio": None})
@@ -114,17 +94,16 @@ def install(
         depends_on.update({"mongo": {"condition": "service_healthy"}})
 
     compose_server = deepcopy(COMPOSE_SERVER)
+    environment = cast("list", compose_server["server"]["environment"])
     for api_endpoint_key in infra_env:
-        compose_server["server"]["environment"].append(api_endpoint_key + "=${" + api_endpoint_key + "}")
+        environment.append(api_endpoint_key + "=${" + api_endpoint_key + "}")
 
     if depends_on:
         compose_server["server"]["depends_on"] = depends_on
 
     if not vector_db_active:
         compose_server["server"]["environment"] = [
-            env
-            for env in compose_server["server"]["environment"]
-            if not env.startswith("DF_VECTOR_DATABASE__") or "ACTIVE" in env
+            env for env in environment if not env.startswith("DF_VECTOR_DATABASE__") or "ACTIVE" in env
         ]
 
     services.update(compose_server)

@@ -8,10 +8,6 @@ class ConfigValidationError(Exception):
     """Raised when config validation is failing."""
 
 
-class GitError(Exception):
-    """Raised when Git command failes."""
-
-
 class DockerSocketNotFoundError(Exception):
     """Raised if docker.sock file not found."""
 

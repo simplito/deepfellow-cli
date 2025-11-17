@@ -1,7 +1,7 @@
 """Common validations."""
 
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import typer
@@ -85,5 +85,13 @@ def validate_df_name(value: str | None) -> str | None:
         raise typer.BadParameter("Invalid DF_NAME - cannot be empty")
     if not isinstance(value, str):
         raise typer.BadParameter("Invalid DF_NAME - must be str")
+
+    return value
+
+
+def validate_truthy(value: Any) -> Any:
+    """Validate the value is not None."""
+    if not value:
+        raise typer.BadParameter("Value can't be empty.")
 
     return value

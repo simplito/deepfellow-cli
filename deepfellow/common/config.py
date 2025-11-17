@@ -149,7 +149,7 @@ def env_to_dict(env_vars: dict[str, str], prefix: str = "") -> EnvDict:
     Returns:
         Nested dictionary with appropriate types (string, int, or nested dict)
     """
-    result = {}
+    result: EnvDict = {}
 
     # Filter environment variables by prefix if provided
     filtered_vars = {}
@@ -164,7 +164,8 @@ def env_to_dict(env_vars: dict[str, str], prefix: str = "") -> EnvDict:
     # Build nested dictionary
     for key, value in filtered_vars.items():
         keys = key.split("__")
-        current = result
+        # moving pointer
+        current: dict[str, Any] = result
 
         # Navigate through the nested structure
         for i, k in enumerate(keys):
@@ -231,6 +232,15 @@ def read_env_file(file_path: str | Path) -> dict[str, str]:
     return env_vars
 
 
+def read_env_file_to_dict(env_file: Path) -> EnvDict:
+    """Read envs and return as deep dict."""
+    if env_file.exists():
+        original_env_vars = read_env_file(env_file)
+        return env_to_dict(original_env_vars)
+
+    return {}
+
+
 def save_env_file(
     env_file: Path, values: Mapping[str, str | int], docker_note: bool = True, quiet: bool = False
 ) -> None:
@@ -257,12 +267,12 @@ def save_env_file(
     msg(f"{action} {env_file.as_posix()}.")
 
 
-def configure_uuid_key(name: str, existing: str | None) -> str:
+def configure_uuid_key(name: str, existing: Any) -> str:
     """Generate a new UUID key if required.
 
     Args:
         name (str): The name of the key.
-        existing (str | None): The existing value of the key.
+        existing (Any): The existing value of the key.
 
     Returns:
         str: The new or existing UUID key.
