@@ -19,10 +19,16 @@ def configure_vector_db(custom: bool, infra_url: str, original_env: dict[str, An
     if custom:
         vector_db_config["provider"].update(
             {
-                "url": echo.prompt("Provide Milvus provider URL", default=original_provider.get("url")),
-                "db": echo.prompt("Provide Milvus provider database name", default=original_provider.get("db")),
-                "user": echo.prompt("Provide Milvus provider user", default=original_provider.get("user")),
-                "password": echo.prompt("Provide Milvus provider password", password=True),
+                "url": echo.prompt_until_valid(
+                    "Provide Milvus provider URL", validate_url, default=original_provider.get("url")
+                ),
+                "db": echo.prompt_until_valid(
+                    "Provide Milvus provider database name", validate_truthy, default=original_provider.get("db")
+                ),
+                "user": echo.prompt_until_valid(
+                    "Provide Milvus provider user", validate_truthy, default=original_provider.get("user")
+                ),
+                "password": echo.prompt_until_valid("Provide Milvus provider password", validate_truthy, password=True),
             }
         )
     else:
@@ -78,14 +84,18 @@ def configure_mongo(custom: bool, original_env: dict[str, Any] | None = None) ->
         "DF_MONGO_DB": DF_MONGO_DB,
     }
     if custom:
-        mongo_config["DF_MONGO_URL"] = echo.prompt("Provide URL for MongoDB", default=original_env.get("df_mongo_url"))
-        mongo_config["DF_MONGO_DB"] = echo.prompt(
-            "Provide database name for MongoDB", default=original_env.get("df_mongo_db")
+        mongo_config["DF_MONGO_URL"] = echo.prompt_until_valid(
+            "Provide URL for MongoDB", validate_url, default=original_env.get("df_mongo_url")
         )
-        mongo_config["DF_MONGO_USER"] = echo.prompt(
-            "Provide username for MongoDB", default=original_env.get("df_mongo_user")
+        mongo_config["DF_MONGO_DB"] = echo.prompt_until_valid(
+            "Provide database name for MongoDB", validate_truthy, default=original_env.get("df_mongo_db")
         )
-        mongo_config["DF_MONGO_PASSWORD"] = echo.prompt("Provide password for MongoDB", password=True)
+        mongo_config["DF_MONGO_USER"] = echo.prompt_until_valid(
+            "Provide username for MongoDB", validate_truthy, default=original_env.get("df_mongo_user")
+        )
+        mongo_config["DF_MONGO_PASSWORD"] = echo.prompt_until_valid(
+            "Provide password for MongoDB", validate_truthy, password=True
+        )
     else:
         echo.info("A default MongoDB setup is created.")
 
