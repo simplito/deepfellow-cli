@@ -14,13 +14,9 @@ app = typer.Typer()
 @app.command()
 def create_admin(
     directory: Path = directory_option("Target directory for the DeepFellow Server installation."),
-    name: str | None = typer.Option(None, help="Admin name"),
-    email: str | None = typer.Option(None, callback=validate_email, help="Admin email"),
+    name: str | None = typer.Argument(None, help="Admin name"),
+    email: str | None = typer.Argument(None, callback=validate_email, help="Admin email"),
     password: str | None = typer.Option(None, help="Admin password"),
 ) -> None:
-    """Create admin.
-
-    Returns:
-        token string
-    """
+    """Create admin."""
     create_admin_util(directory, name, email, password)

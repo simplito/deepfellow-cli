@@ -6,18 +6,18 @@ import typer
 
 from deepfellow.common.echo import echo
 from deepfellow.common.system import run
-from deepfellow.common.validation import validate_email
+from deepfellow.common.validation import validate_email, validate_truthy
 
 
-class CreateAdminError(Exception):
+class UserActionError(Exception):
     """Raised if create exception failes on docker."""
 
 
 def create_admin(directory: Path, name: str | None, email: str | None, password: str | None) -> None:
     """Create admin."""
-    name = name or echo.prompt("Provide admin name")
-    email = email or echo.prompt("Provide admin email", validation=validate_email)
-    password = password or echo.prompt("Provide admin password", password=True)
+    name = name or echo.prompt_until_valid("Provide admin name", validate_truthy)
+    email = email or echo.prompt_until_valid("Provide admin email", validate_email)
+    password = password or echo.prompt("Provide admin password", validate_truthy, password=True)
 
     response: str | None = None
     try:
@@ -27,15 +27,39 @@ def create_admin(directory: Path, name: str | None, email: str | None, password:
                 f"{name} {email} {password}"
             ),
             cwd=directory,
-            raises=CreateAdminError,
+            raises=UserActionError,
             capture_output=True,
         )
-    except CreateAdminError as exc:
+    except UserActionError as exc:
         if "User with that email already exists" in str(exc):
             echo.error("Unable to create an admin: user with that email already exists")
         else:
             echo.error("Unable to create an admin.")
         raise typer.Exit(1) from exc
 
-    if response == "Admin created\n":
-        echo.info("Admin account created.")
+    if response and "Admin created" in response:
+        echo.success("Admin account created.")
+
+
+def reset_password(directory: Path, email: str | None, password: str | None) -> None:
+    """Create admin."""
+    email = email or echo.prompt_until_valid("Provide admin email", validate_email)
+    password = password or echo.prompt_until_valid("Provide admin password", validate_truthy, password=True)
+
+    response: str | None = None
+    try:
+        response = run(
+            (f"docker compose run --rm server ./.venv/bin/python -m server.scripts.set_password {email} {password}"),
+            cwd=directory,
+            raises=UserActionError,
+            capture_output=True,
+        )
+    except UserActionError as exc:
+        if "User not found" in str(exc):
+            echo.error("Unable to set password: User not found.")
+        else:
+            echo.error("Unable to set password.")
+        raise typer.Exit(1) from exc
+
+    if response and "Password changed" in response:
+        echo.success("Password changed.")
