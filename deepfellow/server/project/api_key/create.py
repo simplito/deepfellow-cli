@@ -19,7 +19,7 @@ def create(
     project_id: str = typer.Argument(..., help="Organization ID to add the API Key"),
     name: str = typer.Argument(..., help="Name of the API Key"),
 ) -> None:
-    """Create project."""
+    """Create Poject API Key."""
     secrets_file = ctx.obj.get("cli-secrets-file")
     server = get_server_url(server)
     token = get_token(secrets_file, server, None)
