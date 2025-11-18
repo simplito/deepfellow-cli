@@ -17,7 +17,7 @@ def list(
     server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Server address"),
     organization_id: str = typer.Argument(...),
 ) -> None:
-    """Display list of projects."""
+    """Display list of Projects."""
     # Get token for the server
     secrets_file = ctx.obj.get("cli-secrets-file")
     server = get_server_url(server)
