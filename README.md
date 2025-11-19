@@ -3,7 +3,7 @@
 ## Installation
 
 ```bash
-curl -fsSL https://deepfellow.com/install.sh | bash
+curl -fsSL https://deepfellow.ai/install.sh | bash
 ```
 
 ## Development
@@ -38,8 +38,8 @@ Actual existing images you can find in `deepfellow/common/defaults.py`
 
 Example for Linux based OS:
 ```bash
-export DF_INFRA_IMAGE=gitlab.simplito.com/df/df-server-new:latest
-export DF_SERVER_IMAGE=gitlab.simplito.com/df/deepfellow-infra:latest
+export DF_INFRA_IMAGE=hub.simplito.com/deepfellow/deepfellow-infra:latest
+export DF_SERVER_IMAGE=hub.simplito.com/deepfellow/deepfellow-server:latest
 ```
 
 To remember it in every new terminal. Save it into `~/.zshrc` or `~/.bashrc` and source to work in existing terminal.
