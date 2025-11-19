@@ -9,16 +9,16 @@ DF_CLI_CONFIG_PATH = DF_DEEPFELLOW_DIRECTORY / "config"  # env style config file
 DF_CLI_SECRETS_PATH = DF_DEEPFELLOW_DIRECTORY / "secrets"  # env style secrets file
 
 DF_INFRA_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / "infra"
-DF_INFRA_REPO = "ssh://git@gitlab2.simplito.com:1022/df/deepfellow-infra.git"
+DF_INFRA_REPO = "ssh://git@github.com/simplito/deepfellow-infra.git"
 DF_INFRA_CONFIG_PATH = Path("config/infra_config.toml")
-DF_INFRA_IMAGE = "gitlab2.simplito.com:5050/df/deepfellow-infra:latest"
+DF_INFRA_IMAGE = "hub.simplito.com/deepfellow/deepfellow-infra:latest"
 DF_INFRA_PORT = 8086
 DF_INFRA_DOCKER_NETWORK = "deepfellow-infra-net"
 DF_INFRA_STORAGE_DIR = DF_INFRA_DIRECTORY / "storage"
 
 DF_SERVER_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / "server"
-DF_SERVER_REPO = "ssh://git@gitlab2.simplito.com:1022/df/df-server-new.git"
-DF_SERVER_IMAGE = "gitlab2.simplito.com:5050/df/df-server-new:latest"
+DF_SERVER_REPO = "ssh://git@github.com/simplito/deepfellow-server.git"
+DF_SERVER_IMAGE = "hub.simplito.com/deepfellow/deepfellow-server:latest"
 DF_SERVER_PORT = 8000
 # NOTE: uploaded files, used by vector stores
 DF_SERVER_STORAGE_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / DF_SERVER_DIRECTORY / "storage"
