@@ -52,7 +52,7 @@ elif command -v pip &> /dev/null; then
     pip install "git+$REPO_URL"
 
 else
-    echo "Error: No package manager found. Please install Python first."
+    echo "Error: No package manager found. Please install Python package manager first (uv / pipx / pip3 / pip)."
     exit 1
 fi
 
