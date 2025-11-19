@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-REPO_URL="ssh://git@github.com/simplito/deepfellow-cli.git"
+REPO_URL="https://github.com/simplito/deepfellow-cli.git"
 MIN_PYTHON_VERSION="3.10"
 
 
