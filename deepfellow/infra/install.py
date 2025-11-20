@@ -79,10 +79,14 @@ def install(
         validation=validate_df_name,
         default=original_env_content.get("df_infra_name", "infra"),
     )
+
+    current_infra_url = original_env_content.get("df_infra_url")
+    example_infra_url = f" (e.g. http://infra:{port})" if not current_infra_url else ""
     df_infra_url = echo.prompt_until_valid(
-        f"Provide a DF_INFRA_URL for this Infra. e.g. http://infra:{port}",
+        f"Provide a DF_INFRA_URL for this Infra{example_infra_url}",
         validate_url,
         error_message="Invalid DF_INFRA_URL. Please try again.",
+        default=current_infra_url,
     )
 
     # Collect DF_INFRA_ADMIN_API_KEY
@@ -149,13 +153,26 @@ def install(
         "DF_INFRA_COMPOSE_PREFIX": compose_prefix,
         "DF_INFRA_DOCKER_CONFIG": str(docker_config),
         "DF_INFRA_STORAGE_DIR": storage.expanduser().resolve().as_posix(),
-        "DF_HUGGING_FACE_API_KEY": (
-            hugging_face_api_key if hugging_face_api_key else echo.prompt("Provide an optional Hugging Face API Key")
-        ),
-        "DF_CIVITAI_TOKEN": (
-            civitai_token if civitai_token is not None else echo.prompt("Provide an optional Civitai Token")
-        ),
     }
+
+    if original_env_content.get("df_hugging_face_api_key") and echo.confirm(
+        "Do you want to keep your existing Hugging Face API Key?", default=True
+    ):
+        hugging_face_api_key = str(original_env_content["df_hugging_face_api_key"])
+
+    hugging_face_api_key = hugging_face_api_key or echo.prompt("Provide an optional Hugging Face API Key")
+    if hugging_face_api_key:
+        infra_values["DF_HUGGING_FACE_API_KEY"] = hugging_face_api_key
+
+    if original_env_content.get("df_civitai_token") and echo.confirm(
+        "Do you want to keep your existing Civitai Token?", default=True
+    ):
+        civitai_token = str(original_env_content["df_civitai_token"])
+
+    civitai_token = civitai_token or echo.prompt("Provide an optional Civitai Token")
+    if civitai_token:
+        infra_values["DF_CIVITAI_TOKEN"] = civitai_token
+
     save_env_file(env_file, infra_values)
     env_set(config_file, "DF_INFRA_EXTERNAL_URL", f"http://localhost:{port}", should_raise=False)
     env_set(secrets_file, "DF_INFRA_ADMIN_API_KEY", df_infra_admin_api_key, should_raise=False)
@@ -174,7 +191,8 @@ def install(
         directory / "docker-compose.yml",
     )
 
-    run("docker compose pull", directory)
+    echo.info("Pulling docker image(s).")
+    run("docker compose pull", directory, quiet=True)
     echo.success(
         "DeepFellow Infra installed.\n"
         "To start the docker image - `depfellow infra start`.\n"
