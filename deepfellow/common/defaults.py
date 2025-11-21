@@ -41,6 +41,6 @@ VECTOR_DATABASE: dict[str, Any] = {
         "user": "deepfellow_usr",
         "password": "some-fake-password",
     },
-    "embedding": {"active": 1, "endpoint": "openai", "model": "text-embedding-3-small", "size": "1536"},
+    "embedding": {"active": 1, "endpoint": "openai", "model": "mxbai-embed-large", "size": "1024"},
 }
 DF_ADMIN_KEY = "some-admin-key"
