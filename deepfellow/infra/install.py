@@ -23,7 +23,6 @@ from deepfellow.common.docker import (
     COMPOSE_INFRA,
     add_network_to_service,
     ensure_network,
-    find_docker_config,
     get_socket,
     save_compose_file,
 )
@@ -45,6 +44,7 @@ def install(
         DF_INFRA_PORT, envvar="DF_INFRA_PORT", help="Published port to serve the DeepFellow Infra from."
     ),
     image: str = typer.Option(DF_INFRA_IMAGE, envvar="DF_INFRA_IMAGE", help="DeepFellow Infra docker image."),
+    local_image: bool = typer.Option(False, help="Use locally build DeepFellow Infra docker image."),
     docker_config: Path | None = typer.Option(None, envvar="DF_INFRA_DOCKER_CONFIG", help="Path to the docker config."),
     storage: Path = typer.Option(
         DF_INFRA_STORAGE_DIR, envvar="DF_INFRA_STORAGE_DIR", help="Storage for the DeepFellow Infra services."
@@ -58,17 +58,17 @@ def install(
     # Retrieve the docker info to fail early in the process in docker is not running or configured differently
     echo.info("Installing DeepFellow Infra.")
     docker_socket = get_socket()
-    try:
-        docker_config = find_docker_config(explicit_path=docker_config)
-    except FileNotFoundError as exc:
-        echo.error("Docker configuration file not found.\nUse --docker-config option to provide it.")
-        raise typer.Exit(1) from exc
 
     config_file = ctx.obj.get("cli-config-file")
     secrets_file = ctx.obj.get("cli-secrets-file")
 
     # Check if overriding existing installation
     ensure_directory(directory, error_message="Unable to create DeepFellow Infra directory.")
+
+    # Create empty docker config if needed
+    docker_config = docker_config or directory / "docker-config.json"
+    if not docker_config.is_file():
+        docker_config.write_text("{}", encoding="utf-8")
 
     # Prepare the starting point for .env
     env_file = directory / ".env"
@@ -184,7 +184,11 @@ def install(
 
     volumes = cast("list", infra_service["volumes"])
     volumes.append(f"{docker_socket}:/run/docker.sock")
+    volumes.append(f"{docker_socket}:/var/run/docker.sock")
     volumes.append("${DF_INFRA_STORAGE_DIR}:/app/storage")
+
+    if local_image:
+        infra_service["pull_policy"] = "never"
 
     save_compose_file(
         {"services": compose, "networks": {docker_network: {"external": True}}},
