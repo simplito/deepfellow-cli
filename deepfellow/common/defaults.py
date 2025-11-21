@@ -13,6 +13,7 @@ DF_INFRA_REPO = "ssh://git@github.com/simplito/deepfellow-infra.git"
 DF_INFRA_CONFIG_PATH = Path("config/infra_config.toml")
 DF_INFRA_IMAGE = "hub.simplito.com/deepfellow/deepfellow-infra:latest"
 DF_INFRA_PORT = 8086
+DF_INFRA_URL = f"http://infra:{DF_INFRA_PORT}"
 DF_INFRA_DOCKER_NETWORK = "deepfellow-infra-net"
 DF_INFRA_STORAGE_DIR = DF_INFRA_DIRECTORY / "storage"
 

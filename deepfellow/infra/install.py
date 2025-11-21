@@ -18,6 +18,7 @@ from deepfellow.common.defaults import (
     DF_INFRA_IMAGE,
     DF_INFRA_PORT,
     DF_INFRA_STORAGE_DIR,
+    DF_INFRA_URL,
 )
 from deepfellow.common.docker import (
     COMPOSE_INFRA,
@@ -80,14 +81,19 @@ def install(
         default=original_env_content.get("df_infra_name", "infra"),
     )
 
-    current_infra_url = original_env_content.get("df_infra_url")
-    example_infra_url = f" (e.g. http://infra:{port})" if not current_infra_url else ""
-    df_infra_url = echo.prompt_until_valid(
-        f"Provide a DF_INFRA_URL for this Infra{example_infra_url}",
-        validate_url,
-        error_message="Invalid DF_INFRA_URL. Please try again.",
-        default=current_infra_url,
-    )
+    original_infra_url = original_env_content.get("df_infra_url")
+    df_infra_url = None
+    if original_infra_url is not None and echo.confirm(
+        f"Would you like to keep the previously configured DF_INFRA_URL '{original_infra_url}'?", default=True
+    ):
+        df_infra_url = original_infra_url
+    else:
+        df_infra_url = echo.prompt_until_valid(
+            "Provide a DF_INFRA_URL for this Infra",
+            validate_url,
+            error_message="Invalid DF_INFRA_URL. Please try again.",
+            default=DF_INFRA_URL,
+        )
 
     # Collect DF_INFRA_ADMIN_API_KEY
     echo.info("Configuration of DF_INFRA_ADMIN_API_KEY\nkey required for an admin identify in DeepFellow Infra.")
