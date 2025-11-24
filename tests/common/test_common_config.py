@@ -1471,7 +1471,7 @@ def test_configure_uuid_key_keep_existing_confirmed(mock_echo: mock.Mock, name: 
 def test_configure_uuid_key_replace_existing_declined(
     mock_echo: mock.Mock, mock_uuid4: mock.Mock, name: str, existing: str
 ) -> None:
-    mock_echo.confirm.side_effect = [False, True]  # Don't keep existing, but safe to print
+    mock_echo.confirm.return_value = False  # Don't keep existing
     mock_new_uuid = mock.Mock()
     mock_new_uuid.__str__ = mock.Mock(return_value="new-uuid-456")  # type: ignore[method-assign]
     mock_uuid4.return_value = mock_new_uuid
@@ -1479,13 +1479,10 @@ def test_configure_uuid_key_replace_existing_declined(
     result = configure_uuid_key(name, existing)
 
     assert result == "new-uuid-456"
-    assert mock_echo.confirm.call_count == 2
-    assert mock_echo.confirm.call_args_list[0] == mock.call(
+    assert mock_echo.confirm.call_count == 1
+    assert mock_echo.confirm.call_args == mock.call(
         f"There is an existing {name} in the env file. Do you want to keep it?", default=True
     )
-    assert mock_echo.confirm.call_args_list[1] == mock.call(f"{name} created. Is it safe to print it here?")
-    assert mock_echo.info.call_count == 1
-    assert mock_echo.info.call_args == mock.call(f"{name}: new-uuid-456")
 
 
 @pytest.mark.parametrize(
@@ -1498,8 +1495,7 @@ def test_configure_uuid_key_replace_existing_declined(
 )
 @mock.patch("deepfellow.common.config.uuid4")
 @mock.patch("deepfellow.common.config.echo")
-def test_configure_uuid_key_no_existing_safe_to_print(mock_echo: mock.Mock, mock_uuid4: mock.Mock, name: str) -> None:
-    mock_echo.confirm.return_value = True  # Safe to print
+def test_configure_uuid_key_no_existing(mock_echo: mock.Mock, mock_uuid4: mock.Mock, name: str) -> None:
     mock_new_uuid = mock.Mock()
     mock_new_uuid.__str__ = mock.Mock(return_value="generated-uuid-789")  # type: ignore[method-assign]
     mock_uuid4.return_value = mock_new_uuid
@@ -1507,42 +1503,12 @@ def test_configure_uuid_key_no_existing_safe_to_print(mock_echo: mock.Mock, mock
     result = configure_uuid_key(name, None)
 
     assert result == "generated-uuid-789"
-    assert mock_echo.confirm.call_count == 1
-    assert mock_echo.confirm.call_args == mock.call(f"{name} created. Is it safe to print it here?")
-    assert mock_echo.info.call_count == 1
-    assert mock_echo.info.call_args == mock.call(f"{name}: generated-uuid-789")
-
-
-@pytest.mark.parametrize(
-    "name",
-    [
-        "API_KEY",
-        "SECRET_KEY",
-        "JWT_SECRET",
-    ],
-)
-@mock.patch("deepfellow.common.config.uuid4")
-@mock.patch("deepfellow.common.config.echo")
-def test_configure_uuid_key_no_existing_not_safe_to_print(
-    mock_echo: mock.Mock, mock_uuid4: mock.Mock, name: str
-) -> None:
-    mock_echo.confirm.return_value = False  # Not safe to print
-    mock_new_uuid = mock.Mock()
-    mock_new_uuid.__str__ = mock.Mock(return_value="secret-uuid-abc")  # type: ignore[method-assign]
-    mock_uuid4.return_value = mock_new_uuid
-
-    result = configure_uuid_key(name, None)
-
-    assert result == "secret-uuid-abc"
-    assert mock_echo.confirm.call_count == 1
-    assert mock_echo.confirm.call_args == mock.call(f"{name} created. Is it safe to print it here?")
-    assert mock_echo.info.call_count == 0
 
 
 @mock.patch("deepfellow.common.config.uuid4")
 @mock.patch("deepfellow.common.config.echo")
-def test_configure_uuid_key_replace_existing_not_safe_to_print(mock_echo: mock.Mock, mock_uuid4: mock.Mock) -> None:
-    mock_echo.confirm.side_effect = [False, False]  # Don't keep existing, not safe to print
+def test_configure_uuid_key_replace_existing(mock_echo: mock.Mock, mock_uuid4: mock.Mock) -> None:
+    mock_echo.confirm.return_value = False  # Don't keep existing
     mock_new_uuid = mock.Mock()
     mock_new_uuid.__str__ = mock.Mock(return_value="hidden-uuid-def")  # type: ignore[method-assign]
     mock_uuid4.return_value = mock_new_uuid
@@ -1552,11 +1518,10 @@ def test_configure_uuid_key_replace_existing_not_safe_to_print(mock_echo: mock.M
     result = configure_uuid_key(name, existing)
 
     assert result == "hidden-uuid-def"
-    assert mock_echo.confirm.call_count == 2
+    assert mock_echo.confirm.call_count == 1
     assert mock_echo.confirm.call_args_list[0] == mock.call(
         "There is an existing SECRET_TOKEN in the env file. Do you want to keep it?", default=True
     )
-    assert mock_echo.confirm.call_args_list[1] == mock.call("SECRET_TOKEN created. Is it safe to print it here?")
     assert mock_echo.info.call_count == 0
 
 
@@ -1624,8 +1589,8 @@ def test_configure_uuid_key_multiple_scenarios_in_sequence(mock_echo: mock.Mock,
     mock_uuid4.reset_mock()
     mock_uuid4.return_value = mock_new_uuid
 
-    # Scenario 2: Generate new, don't print
-    mock_echo.confirm.side_effect = [False, False]
+    # Scenario 2: Generate new
+    mock_echo.confirm.return_value = False
     result2 = configure_uuid_key("KEY2", "existing2")
     assert result2 == "sequential-uuid"
     assert mock_echo.info.call_count == 0
