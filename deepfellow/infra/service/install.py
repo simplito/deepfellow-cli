@@ -50,6 +50,9 @@ def install(
 
     try:
         data = post(url, api_key, item_name="Service", data={"spec": {}}, reraise=True)
+    except httpx.ConnectError as exc:
+        echo.error("No connection with DeepFellow Infra. Is it up? (deepfellow infra start)")
+        raise typer.Exit(1) from exc
     except httpx.HTTPStatusError as exc:
         msg = "Unable to install service"
         if exc.response:
