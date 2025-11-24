@@ -4,6 +4,7 @@ from pathlib import Path
 
 import typer
 
+from deepfellow.common.docker import is_docker_installed
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
 
@@ -33,3 +34,10 @@ def ensure_directory(
         except Exception as exc_info:
             echo.error(error_message)
             reraise_if_debug(exc_info)
+
+
+def assert_docker() -> None:
+    """Raise typer.Exit(1) if docker is not installed, otherwise pass."""
+    if not is_docker_installed():
+        echo.error("Missing docker. Install docker.")
+        raise typer.Exit(1)

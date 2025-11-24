@@ -29,7 +29,7 @@ from deepfellow.common.docker import (
 )
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
-from deepfellow.common.install import ensure_directory
+from deepfellow.common.install import assert_docker, ensure_directory
 from deepfellow.common.system import run
 from deepfellow.common.validation import validate_df_name, validate_url
 from deepfellow.infra.utils.options import directory_option
@@ -58,6 +58,9 @@ def install(  # noqa: C901
     """Install infra with docker."""
     # Retrieve the docker info to fail early in the process in docker is not running or configured differently
     echo.info("Installing DeepFellow Infra.")
+
+    assert_docker()
+
     docker_socket = get_socket()
 
     config_file = ctx.obj.get("cli-config-file")
