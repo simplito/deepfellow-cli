@@ -22,7 +22,7 @@ from deepfellow.common.docker import (
     save_compose_file,
 )
 from deepfellow.common.echo import echo
-from deepfellow.common.install import ensure_directory
+from deepfellow.common.install import assert_docker, ensure_directory
 from deepfellow.common.system import run
 from deepfellow.server.utils.configure import (
     configure_infra,
@@ -44,6 +44,9 @@ def install(
 ) -> None:
     """Install DeepFellow Server with docker."""
     echo.info("Installing DeepFellow Server.")
+
+    assert_docker()
+
     ensure_directory(directory, error_message="Unable to create DeepFellow Server directory.")
 
     env_file = directory / ".env"

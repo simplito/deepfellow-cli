@@ -1,10 +1,13 @@
+import subprocess
 from pathlib import Path
 from unittest import mock
+from unittest.mock import Mock
 
 import pytest
 import yaml
 
 from deepfellow.common.docker import (
+    is_docker_installed,
     load_compose_file,
     merge_services,
     save_compose_file,
@@ -36,6 +39,14 @@ def existing_env_content() -> str:
 DF_EXISTING_VAR=existing_value
 DF_SHARED_VAR=old_value
 """
+
+
+@pytest.mark.parametrize("error", [subprocess.CalledProcessError(1, "docker"), FileNotFoundError()])
+@mock.patch("deepfellow.common.docker.subprocess.run")
+def test_is_docker_installed_error(mock_subprocess_run: Mock, error: Exception) -> None:
+    mock_subprocess_run.side_effect = error
+
+    assert not is_docker_installed()  # Should also be False, not True
 
 
 def test_merge_services_combines_multiple_services() -> None:

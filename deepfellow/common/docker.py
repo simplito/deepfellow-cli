@@ -200,6 +200,15 @@ COMPOSE_MONGO_DB = {
 }
 
 
+def is_docker_installed() -> bool:
+    """Checks if docker is installed."""
+    try:
+        subprocess.run(["docker", "--version"], check=True, capture_output=True, text=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+    return True
+
+
 def merge_services(*service_dicts: dict[str, Any]) -> dict[str, Any]:
     """Combines multiple service dictionaries into one."""
     merged: dict[str, Any] = {"services": {}}
