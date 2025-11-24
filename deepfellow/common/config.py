@@ -282,8 +282,4 @@ def configure_uuid_key(name: str, existing: Any) -> str:
     ):
         return existing
 
-    new_value = str(uuid4())
-    if echo.confirm(f"{name} created. Is it safe to print it here?"):
-        echo.info(f"{name}: {new_value}")
-
-    return new_value
+    return str(uuid4())

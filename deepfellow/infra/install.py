@@ -38,7 +38,7 @@ app = typer.Typer()
 
 
 @app.command()
-def install(
+def install(  # noqa: C901
     ctx: typer.Context,
     directory: Path = directory_option("Target directory for the DeepFellow Infra installation."),
     port: int = typer.Option(
@@ -95,17 +95,23 @@ def install(
             default=DF_INFRA_URL,
         )
 
+    flag_print_keys = echo.confirm("Is it safe to print API keys here?")
+
     # Collect DF_INFRA_ADMIN_API_KEY
     echo.info("Configuration of DF_INFRA_ADMIN_API_KEY\nkey required for an admin identify in DeepFellow Infra.")
     df_infra_admin_api_key = configure_uuid_key(
         "DF_INFRA_ADMIN_API_KEY", original_env_content.get("df_infra_admin_api_key")
     )
+    if flag_print_keys:
+        echo.info(f"DF_INFRA_ADMIN_API_KEY: {df_infra_admin_api_key}")
 
     # Collect DF_INFRA_API_KEY
     echo.info(
         "Configuration of DF_INFRA_API_KEY\nkey needed to communication between DeepFellow Infra and DeepFellow Server."
     )
     df_infra_api_key = configure_uuid_key("DF_INFRA_API_KEY", original_env_content.get("df_infra_api_key"))
+    if flag_print_keys:
+        echo.info(f"DF_INFRA_API_KEY: {df_infra_api_key}")
 
     # Collect DF_MESH_KEY
     echo.info(
@@ -113,6 +119,8 @@ def install(
         "key needed by other DeepFellow Infra to attach to this DeepFellow Infra and thus extend the Mesh."
     )
     df_mesh_key = configure_uuid_key("DF_MESH_KEY", original_env_content.get("df_mesh_key"))
+    if flag_print_keys:
+        echo.info(f"DF_MESH_KEY: {df_mesh_key}")
 
     # Find out which docker network to use
     docker_network = echo.prompt("Provide a docker network name", default=DF_INFRA_DOCKER_NETWORK)
