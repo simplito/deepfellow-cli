@@ -31,13 +31,11 @@ def uninstall(
         server = config_external_server
 
     if server is None and config_external_server is None:
-        while server is None:
-            try:
-                server = echo.prompt(
-                    "Provide DeepFellow Infra URL", default=config_external_server, validation=validate_server
-                )
-            except typer.BadParameter:
-                echo.error("Invalid Deepfellow Infra address. Please try again.")
+        server = echo.prompt_until_valid(
+            message="Provide DeepFellow Infra URL",
+            validation=validate_server,
+            error_message="Invalid Deepfellow Infra address. Please try again.",
+        )
 
     if server != config_external_server:
         env_set(config_file, "DF_INFRA_EXTERNAL_URL", cast("str", server), should_raise=False)
@@ -59,6 +57,9 @@ def uninstall(
             err_msg="Unable to uninstall Service.",
             reraise=True,
         )
+    except httpx.ConnectError as exc:
+        echo.error("No connection with DeepFellow Infra. Is it up? (deepfellow infra start)")
+        raise typer.Exit(1) from exc
     except httpx.HTTPStatusError as exc:
         msg = "Unable to uninstall service"
         if exc.response:
