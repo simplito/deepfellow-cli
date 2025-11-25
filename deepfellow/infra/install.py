@@ -177,7 +177,9 @@ def install(  # noqa: C901
     ):
         hugging_face_api_key = str(original_env_content["df_hugging_face_api_key"])
 
-    hugging_face_api_key = hugging_face_api_key or echo.prompt("Provide an optional Hugging Face API Key")
+    hugging_face_api_key = hugging_face_api_key or echo.prompt(
+        "Provide an optional Hugging Face API Key", password=True
+    )
     if hugging_face_api_key:
         infra_values["DF_HUGGING_FACE_API_KEY"] = hugging_face_api_key
 
@@ -186,7 +188,7 @@ def install(  # noqa: C901
     ):
         civitai_token = str(original_env_content["df_civitai_token"])
 
-    civitai_token = civitai_token or echo.prompt("Provide an optional Civitai Token")
+    civitai_token = civitai_token or echo.prompt("Provide an optional Civitai Token", password=True)
     if civitai_token:
         infra_values["DF_CIVITAI_TOKEN"] = civitai_token
 
