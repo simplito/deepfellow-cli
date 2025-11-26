@@ -195,6 +195,7 @@ def install(  # noqa: C901
     save_env_file(env_file, infra_values)
     env_set(config_file, "DF_INFRA_EXTERNAL_URL", f"http://localhost:{port}", should_raise=False)
     env_set(secrets_file, "DF_INFRA_ADMIN_API_KEY", df_infra_admin_api_key, should_raise=False)
+    env_set(env_file, "DF_STORAGE_DIR", "${DF_INFRA_STORAGE_DIR}")
 
     # Save the docker compose config
     compose = deepcopy(COMPOSE_INFRA)
@@ -204,7 +205,7 @@ def install(  # noqa: C901
     volumes = cast("list", infra_service["volumes"])
     volumes.append(f"{docker_socket}:/run/docker.sock")
     volumes.append(f"{docker_socket}:/var/run/docker.sock")
-    volumes.append("${DF_INFRA_STORAGE_DIR}:/app/storage")
+    volumes.append("${DF_INFRA_STORAGE_DIR}:${DF_INFRA_STORAGE_DIR}")
 
     if local_image:
         infra_service["pull_policy"] = "never"
