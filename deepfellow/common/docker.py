@@ -75,6 +75,7 @@ COMPOSE_INFRA = {
             "DF_COMPOSE_PREFIX=${DF_INFRA_COMPOSE_PREFIX}",
             "DF_HUGGING_FACE_API_KEY=${DF_HUGGING_FACE_API_KEY}",
             "DF_CIVITAI_TOKEN=${DF_CIVITAI_TOKEN}",
+            "DF_STORAGE_DIR=${DF_INFRA_STORAGE_DIR}",
             "DOCKER_HOST=unix:///var/run/docker.sock",
         ],
         "restart": "unless-stopped",
