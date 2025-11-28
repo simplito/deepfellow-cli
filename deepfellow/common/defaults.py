@@ -21,6 +21,7 @@ DF_SERVER_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / "server"
 DF_SERVER_REPO = "ssh://git@github.com/simplito/deepfellow-server.git"
 DF_SERVER_IMAGE = "hub.simplito.com/deepfellow/deepfellow-server:latest"
 DF_SERVER_PORT = 8000
+DF_OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4317"
 # NOTE: uploaded files, used by vector stores
 DF_SERVER_STORAGE_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / DF_SERVER_DIRECTORY / "storage"
 
