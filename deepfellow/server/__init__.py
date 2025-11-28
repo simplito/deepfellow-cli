@@ -5,6 +5,7 @@ from .env_command import app as env_app
 from .env_command.info import app as info_app
 from .install import app as install_app
 from .login import app as login_app
+from .opentelemetry import app as opentelemetry_app
 from .organization import app as organization_app
 from .password_reset import app as reset_password_app
 from .project import app as project_app
@@ -16,6 +17,7 @@ app = typer.Typer()
 app.add_typer(info_app)
 app.add_typer(install_app)
 app.add_typer(create_admin_app)
+app.add_typer(opentelemetry_app)
 app.add_typer(reset_password_app)
 app.add_typer(start_app)
 app.add_typer(stop_app)
