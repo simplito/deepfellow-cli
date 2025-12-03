@@ -1,10 +1,16 @@
 """Server and infra install util."""
 
+import getpass
 from pathlib import Path
 
 import typer
 
-from deepfellow.common.docker import is_docker_installed
+from deepfellow.common.docker import (
+    is_docker_group_available,
+    is_docker_installed,
+    is_user_allowed_to_use_docker,
+    is_user_in_docker_group,
+)
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
 
@@ -40,4 +46,14 @@ def assert_docker() -> None:
     """Raise typer.Exit(1) if docker is not installed, otherwise pass."""
     if not is_docker_installed():
         echo.error("Missing docker. Install docker.")
+        raise typer.Exit(1)
+
+    if not is_user_allowed_to_use_docker():
+        echo.error("Unable to run docker command.")
+        if not is_user_in_docker_group() and is_docker_group_available():
+            username = getpass.getuser()
+            echo.info(f"Add user to the docker group. `usermod -aG docker {username}`")
+            raise typer.Exit(1)
+
+        echo.info("Try running with sudo command.")
         raise typer.Exit(1)
