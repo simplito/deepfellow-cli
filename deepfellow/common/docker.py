@@ -204,10 +204,36 @@ COMPOSE_MONGO_DB = {
 def is_docker_installed() -> bool:
     """Checks if docker is installed."""
     try:
-        subprocess.run(["docker", "--version"], check=True, capture_output=True, text=True)
+        subprocess.run(["docker --version"], shell=True, check=True, capture_output=True, text=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
+
     return True
+
+
+def is_user_allowed_to_use_docker() -> bool:
+    """Check is user is allowed to use docker."""
+    try:
+        subprocess.run("docker ps", shell=True, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError:
+        return False
+
+    return True
+
+
+def is_user_in_docker_group() -> bool:
+    """Check is user is in docker group."""
+    groups = subprocess.run(["groups"], shell=True, check=True, capture_output=True, text=True)
+    return "docker" in groups.stdout
+
+
+def is_docker_group_available() -> bool:
+    """Check if group docker is present in the system."""
+    group_file = Path("/etc/group")
+    if not group_file.exists():
+        return False
+
+    return any(line.startswith("docker:") for line in group_file.read_text().splitlines())
 
 
 def merge_services(*service_dicts: dict[str, Any]) -> dict[str, Any]:
