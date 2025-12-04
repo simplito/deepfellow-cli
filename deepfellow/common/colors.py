@@ -79,10 +79,6 @@ LIMITED_COLORS = Colors(
     darkest_blue="\033[38;5;17m",
 )
 
-# Usage
-color_support = get_color_support()
-COLORS = TRUE_COLORS if color_support == COLORTERM.truecolor else LIMITED_COLORS
-
 # Reset code
 RESET = "\033[0m"
 
