@@ -8,6 +8,8 @@ import typer
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
 
+from deepfellow.common.colors import COLORS, RESET
+
 ValidationCallback = Callable[[str | None], str | None] | None
 
 
@@ -45,11 +47,11 @@ class Echo(Console):
         if "default" not in kwargs:
             kwargs["default"] = False
 
-        return Confirm.ask(prompt=f"❓\t[blue]{add_tabs(message)}[/]", **kwargs)
+        return Confirm.ask(prompt=f"❓\t{COLORS.medium_blue}{add_tabs(message)}{RESET}", **kwargs)
 
     def prompt(self, message: str, validation: ValidationCallback = None, **kwargs: Any) -> Any:
         """Prompt the user for value."""
-        value = Prompt.ask(prompt=f"❓\t[blue]{add_tabs(message)}[/]", show_default=True, **kwargs)
+        value = Prompt.ask(prompt=f"❓\t{COLORS.medium_blue}{add_tabs(message)}{RESET}", show_default=True, **kwargs)
         if validation is not None:
             value = validation(value)
 
