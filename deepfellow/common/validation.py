@@ -1,5 +1,6 @@
 """Common validations."""
 
+import re
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlparse
@@ -13,6 +14,7 @@ from .echo import echo
 from .system import is_command_available
 
 REQUIRED_COMMANDS = ("uv",)
+USERNAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_]{2,19}$"
 
 
 def validate_system() -> None:
@@ -83,6 +85,7 @@ def validate_df_name(value: str | None) -> str | None:
     """Validate the value for DF_NAME env. It must be non-empty string."""
     if not value:
         raise typer.BadParameter("Invalid DF_NAME - cannot be empty")
+
     if not isinstance(value, str):
         raise typer.BadParameter("Invalid DF_NAME - must be str")
 
@@ -93,5 +96,17 @@ def validate_truthy(value: Any) -> Any:
     """Validate the value is not None."""
     if not value:
         raise typer.BadParameter("Value can't be empty.")
+
+    return value
+
+
+def validate_username(value: str | None) -> str | None:
+    """Validate value is a sane username."""
+    if value is None:
+        return None
+
+    validate_truthy(value)
+    if not re.match(USERNAME_REGEX, value):
+        raise typer.BadParameter("Invalid username - only letters, numbers, and '_' are allowed.")
 
     return value

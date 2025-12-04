@@ -5,7 +5,7 @@ from pathlib import Path
 import typer
 
 from deepfellow.common.config import read_env_file_to_dict
-from deepfellow.common.defaults import DF_OTEL_EXPORTER_OTLP_ENDPOINT
+from deepfellow.common.defaults import DEFAULT_OTEL_URL
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get, env_set
 from deepfellow.common.system import run
@@ -20,7 +20,7 @@ def opentelemetry(
     directory: Path = directory_option(callback=validate_directory),
     otel_url: str | None = typer.Argument(
         None,
-        envvar=DF_OTEL_EXPORTER_OTLP_ENDPOINT,
+        envvar="DF_OTEL_EXPORTER_OTLP_ENDPOINT",
         help="Open Telemetry url (DF_OTEL_EXPORTER_OTLP_ENDPOINT).",
         callback=validate_url,
     ),
@@ -37,12 +37,10 @@ def opentelemetry(
     original_env_content = read_env_file_to_dict(env_file)
 
     if not otel_url:
-        otel_url = echo.prompt(
+        otel_url = echo.prompt_until_valid(
             "Provide OTL url",
-            default=original_env_content.get(
-                "df_otel_exporter_orlp_endpoint",
-                str(original_env_content.get("df_otel_exporter_otlp_endpoint") or "http://localhost:4317"),
-            ),
+            default=original_env_content.get("df_otel_exporter_orlp_endpoint", DEFAULT_OTEL_URL),
+            validation=validate_url,
         )
 
     if otel_url:

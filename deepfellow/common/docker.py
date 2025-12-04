@@ -36,170 +36,6 @@ from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import DockerNetworkError, DockerSocketNotFoundError
 from deepfellow.common.system import run
 
-COMPOSE_SAMPLE = {
-    "test": {
-        "image": "alpine:latest",
-        "command": [
-            "sh",
-            "-c",
-            "echo 'Environment Variables from .env file:' "
-            "&& echo 'TEST_ variables:' && env | grep '^TEST_' | sort "
-            "&& echo 'DF_ variables:' && env | grep '^DF_' | sort "
-            "&& echo 'Test completed' && sleep 10",
-        ],
-        "environment": [
-            "TEST_DF_INFRA_API_KEY=${DF_INFRA_API_KEY}",
-            "TEST_DF_INFRA_URL=${DF_INFRA_URL}",
-            "TEST_INFRA_PORT=${DF_INFRA_PORT}",
-            "TEST_SERVER_PORT=${DF_SERVER_PORT}",
-            "TEST_DB_PASSWORD=${DF_DB_PASSWORD}",
-            "TEST_INFRA_IMAGE=${DF_INFRA_IMAGE}",
-            "TEST_SERVER_IMAGE=${DF_SERVER_IMAGE}",
-        ],
-    }
-}
-
-COMPOSE_INFRA = {
-    "infra": {
-        "image": "${DF_INFRA_IMAGE}",
-        "ports": ["${DF_INFRA_PORT}:8086"],
-        "environment": [
-            "DF_NAME=${DF_NAME}",
-            "DF_INFRA_ADMIN_API_KEY=${DF_INFRA_ADMIN_API_KEY}",
-            "DF_INFRA_API_KEY=${DF_INFRA_API_KEY}",
-            "DF_INFRA_URL=${DF_INFRA_URL}",
-            "DF_MESH_KEY=${DF_MESH_KEY}",
-            "DF_CONNECT_TO_MESH_URL=${DF_CONNECT_TO_MESH_URL}",
-            "DF_CONNECT_TO_MESH_KEY=${DF_CONNECT_TO_MESH_KEY}",
-            "DF_DOCKER_SUBNET=${DF_INFRA_DOCKER_SUBNET}",
-            "DF_COMPOSE_PREFIX=${DF_INFRA_COMPOSE_PREFIX}",
-            "DF_HUGGING_FACE_API_KEY=${DF_HUGGING_FACE_API_KEY}",
-            "DF_CIVITAI_TOKEN=${DF_CIVITAI_TOKEN}",
-            "DF_STORAGE_DIR=${DF_INFRA_STORAGE_DIR}",
-            "DOCKER_HOST=unix:///var/run/docker.sock",
-        ],
-        "restart": "unless-stopped",
-        "volumes": [
-            "${DF_INFRA_DOCKER_CONFIG}:/root/.docker/config.json:ro",
-        ],
-    },
-}
-
-COMPOSE_SERVER = {
-    "server": {
-        "container_name": "server",
-        "image": "${DF_SERVER_IMAGE}",
-        "ports": ["${DF_SERVER_PORT}:8000"],
-        "environment": [
-            "DF_MONGO_URL=${DF_MONGO_URL}",
-            "DF_MONGO_USER=${DF_MONGO_USER}",
-            "DF_MONGO_PASSWORD=${DF_MONGO_PASSWORD}",
-            "DF_MONGO_DB=${DF_MONGO_DB}",
-            "DF_VECTOR_DATABASE__PROVIDER__ACTIVE=${DF_VECTOR_DATABASE__PROVIDER__ACTIVE}",
-            "DF_VECTOR_DATABASE__PROVIDER__TYPE=${DF_VECTOR_DATABASE__PROVIDER__TYPE}",
-            "DF_VECTOR_DATABASE__PROVIDER__URL=${DF_VECTOR_DATABASE__PROVIDER__URL}",
-            "DF_VECTOR_DATABASE__PROVIDER__DB=${DF_VECTOR_DATABASE__PROVIDER__DB}",
-            "DF_VECTOR_DATABASE__PROVIDER__USER=${DF_VECTOR_DATABASE__PROVIDER__USER}",
-            "DF_VECTOR_DATABASE__PROVIDER__PASSWORD=${DF_VECTOR_DATABASE__PROVIDER__PASSWORD}",
-            "DF_VECTOR_DATABASE__EMBEDDING__ACTIVE=${DF_VECTOR_DATABASE__EMBEDDING__ACTIVE}",
-            "DF_VECTOR_DATABASE__EMBEDDING__ENDPOINT=${DF_VECTOR_DATABASE__EMBEDDING__ENDPOINT}",
-            "DF_VECTOR_DATABASE__EMBEDDING__MODEL=${DF_VECTOR_DATABASE__EMBEDDING__MODEL}",
-            "DF_VECTOR_DATABASE__EMBEDDING__SIZE=${DF_VECTOR_DATABASE__EMBEDDING__SIZE}",
-        ],
-        "restart": "unless-stopped",
-        "healthcheck": {
-            "test": "curl -f http://localhost:${DF_SERVER_PORT}/docs || exit 1",
-            "interval": "5m",
-            "timeout": "2s",
-            "retries": 3,
-        },
-    }
-}
-
-COMPOSE_VECTOR_DB = {
-    "etcd": {
-        "container_name": "etcd",
-        "image": "quay.io/coreos/etcd:v3.5.18",
-        "environment": [
-            "ETCD_AUTO_COMPACTION_MODE=revision",
-            "ETCD_AUTO_COMPACTION_RETENTION=1000",
-            "ETCD_QUOTA_BACKEND_BYTES=4294967296",
-            "ETCD_SNAPSHOT_COUNT=50000",
-        ],
-        "ports": ["2379:2379"],
-        "volumes": ["etcd:/etcd"],
-        "command": (
-            "etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd"
-        ),
-        "healthcheck": {
-            "test": ["CMD", "etcdctl", "endpoint", "health"],
-            "interval": "30s",
-            "timeout": "20s",
-            "retries": 3,
-        },
-    },
-    "minio": {
-        "container_name": "minio",
-        "image": "minio/minio:RELEASE.2024-12-18T13-15-44Z",
-        "environment": [
-            "MINIO_ACCESS_KEY=minioadmin",
-            "MINIO_SECRET_KEY=minioadmin",
-        ],
-        "ports": ["9001:9001", "9000:9000"],
-        "volumes": ["minio:/minio_data"],
-        "command": 'minio server /minio_data --console-address ":9001"',
-        "healthcheck": {
-            "test": "curl -f http://localhost:9000/minio/health/live",
-            "interval": "30s",
-            "timeout": "20s",
-            "retries": 3,
-        },
-    },
-    "milvus": {
-        "container_name": "milvus",
-        "image": "milvusdb/milvus:v2.6.2",
-        "command": "milvus run standalone",
-        "security_opt": ["seccomp:unconfined"],
-        "environment": [
-            "ETCD_ENDPOINTS=etcd:2379",
-            "MINIO_ADDRESS=minio:9000",
-            "MQ_TYPE=woodpecker",
-        ],
-        "volumes": ["milvus:/var/lib/milvus"],
-        "healthcheck": {
-            "test": "curl -f http://localhost:9091/healthz",
-            "interval": "30s",
-            "start_period": "90s",
-            "timeout": "20s",
-            "retries": 3,
-        },
-        "ports": ["19530:19530", "9091:9091"],
-        "depends_on": ["etcd", "minio"],
-    },
-}
-
-COMPOSE_MONGO_DB = {
-    "mongo": {
-        "container_name": "mongo",
-        "image": "mongo:8",
-        "restart": "always",
-        "expose": ["27017"],
-        "ports": ["27017:27017"],
-        "volumes": ["mongo:/data/db"],
-        "environment": [
-            "MONGO_INITDB_ROOT_USERNAME=${DF_MONGO_USER}",
-            "MONGO_INITDB_ROOT_PASSWORD=${DF_MONGO_PASSWORD}",
-        ],
-        "healthcheck": {
-            "test": "mongosh --eval 'db.runCommand(\"ping\")'",
-            "interval": "10s",
-            "timeout": "10s",
-            "retries": 5,
-            "start_period": "5s",
-        },
-    }
-}
-
 
 def is_docker_installed() -> bool:
     """Checks if docker is installed."""
@@ -265,12 +101,15 @@ class DockerError(Exception):
 
 
 def save_compose_file(
-    compose_dict: dict[str, Any], compose_file: Path = Path("docker-compose.yml"), quiet: bool = False
+    compose_dict: dict[str, Any],
+    compose_file: Path = Path("docker-compose.yml"),
+    quiet: bool = False,
+    file_info: str = "Docker Compose configuration",
 ) -> None:
     """Saves Docker Compose configuration to YAML file."""
     compose_file.write_text(yaml.dump(compose_dict, default_flow_style=False, sort_keys=False, width=1000))
     msg = echo.debug if quiet else echo.info
-    msg(f"Saved Docker Compose configuration to {compose_file.as_posix()}")
+    msg(f"Saved {file_info} to {compose_file.as_posix()}")
 
 
 def load_compose_file(compose_file: Path = Path("docker-compose.yml")) -> dict[str, Any]:
