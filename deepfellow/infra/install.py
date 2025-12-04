@@ -19,9 +19,9 @@ from deepfellow.common.defaults import (
     DF_INFRA_PORT,
     DF_INFRA_STORAGE_DIR,
     DF_INFRA_URL,
+    DOCKER_COMPOSE_INFRA,
 )
 from deepfellow.common.docker import (
-    COMPOSE_INFRA,
     add_network_to_service,
     ensure_network,
     get_socket,
@@ -197,7 +197,7 @@ def install(  # noqa: C901
     env_set(secrets_file, "DF_INFRA_ADMIN_API_KEY", df_infra_admin_api_key, should_raise=False)
 
     # Save the docker compose config
-    compose = deepcopy(COMPOSE_INFRA)
+    compose = deepcopy(DOCKER_COMPOSE_INFRA)
     infra_service = compose["infra"]
     add_network_to_service(infra_service, docker_network)
 

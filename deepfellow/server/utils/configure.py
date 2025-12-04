@@ -1,14 +1,26 @@
 """Configure methods."""
 
+from copy import deepcopy
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import typer
 
 from deepfellow.common.config import dict_to_env
-from deepfellow.common.defaults import DF_MONGO_DB, DF_MONGO_PASSWORD, DF_MONGO_URL, DF_MONGO_USER, VECTOR_DATABASE
+from deepfellow.common.defaults import (
+    DEFAULT_OTEL_URL,
+    DF_MONGO_DB,
+    DF_MONGO_PASSWORD,
+    DF_MONGO_URL,
+    DF_MONGO_USER,
+    DOCKER_COMPOSE_OTEL_COLLECTOR,
+    OTEL_COLLECTOR_CONFIG,
+    VECTOR_DATABASE,
+)
+from deepfellow.common.docker import save_compose_file
 from deepfellow.common.echo import echo
-from deepfellow.common.validation import validate_truthy, validate_url
+from deepfellow.common.validation import validate_truthy, validate_url, validate_username
 
 
 def configure_vector_db(custom: bool, infra_url: str, original_env: dict[str, Any] | None = None) -> dict[str, str]:
@@ -100,3 +112,59 @@ def configure_mongo(custom: bool, original_env: dict[str, Any] | None = None) ->
         echo.info("A default MongoDB setup is created.")
 
     return mongo_config
+
+
+@dataclass
+class OtelConfig:
+    envs: dict[str, Any]
+    docker_compose: dict[str, Any]
+
+
+def configure_otel(directory: Path, otel_url: str | None, original_env: dict[str, Any] | None) -> OtelConfig:
+    """Configure Open Telemetry."""
+    original_env = original_env or {}
+    docker_compose = {}
+    envs = {}
+
+    if not otel_url:
+        echo.info("DeepFellow Server might use an Open Telemetry.")
+        if echo.confirm("Do you have an Open Telemetry server ready?"):
+            otel_url = echo.prompt_until_valid(
+                "Provide OTL url",
+                default=original_env.get("df_otel_exporter_orlp_endpoint", DEFAULT_OTEL_URL),
+                validation=validate_url,
+            )
+        elif echo.confirm(
+            "Do you want to run Open Telemetry from this machine?\n(You need an existing ElasticSearch server running)",
+            default=True,
+        ):
+            config_file = directory / "otel-collector-config.yaml"
+            docker_compose = DOCKER_COMPOSE_OTEL_COLLECTOR
+            otel_url = DEFAULT_OTEL_URL
+            # store Open Telemetry yaml config
+            echo.info("Let's configure Open Telemetry")
+            otel_config: dict[str, Any] = deepcopy(OTEL_COLLECTOR_CONFIG)
+            otel_config["exporters"]["elasticsearch"]["endpoint"] = echo.prompt_until_valid(
+                "Provide your ElasticSearch endpoint", validation=validate_url
+            )
+            otel_config["exporters"]["elasticsearch"]["traces_index"] = echo.prompt_until_valid(
+                "Provide traces index", validation=validate_truthy
+            )
+            otel_config["extensions"]["basicauth"]["client_auth"]["username"] = echo.prompt_until_valid(
+                "Provide username", validation=validate_username
+            )
+            otel_config["extensions"]["basicauth"]["client_auth"]["password"] = echo.prompt_until_valid(
+                "Provide password", validation=validate_truthy, password=True
+            )
+            save_compose_file(otel_config, config_file, quiet=True, file_info="Open Telemetry collector configuration")
+            echo.warning(
+                f"Open Telemetry configuration stored in file:\n{config_file}\n"
+                "Please review its content before starting the DeepFellow Server."
+            )
+
+    envs = {"DF_OTEL_EXPORTER_OTLP_ENDPOINT": otel_url, "DF_OTEL_TRACING_ENABLED": "true"}
+
+    return OtelConfig(
+        envs=envs,
+        docker_compose=docker_compose,
+    )
