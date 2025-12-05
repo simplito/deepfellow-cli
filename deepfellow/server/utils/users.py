@@ -6,7 +6,7 @@ import typer
 
 from deepfellow.common.echo import echo
 from deepfellow.common.system import run
-from deepfellow.common.validation import validate_email, validate_truthy
+from deepfellow.common.validation import validate_email, validate_password, validate_truthy
 
 
 class UserActionError(Exception):
@@ -17,14 +17,14 @@ def create_admin(directory: Path, name: str | None, email: str | None, password:
     """Create admin."""
     name = name or echo.prompt_until_valid("Provide admin name", validate_truthy)
     email = email or echo.prompt_until_valid("Provide admin email", validate_email)
-    password = password or echo.prompt("Provide admin password", validate_truthy, password=True)
+    password = password or echo.prompt("Provide admin password", validate_password, password=True)
 
     response: str | None = None
     try:
         response = run(
             (
                 "docker compose run --rm server ./.venv/bin/python -m server.scripts.create_admin "
-                f"{name} {email} {password}"
+                f"'{name}' {email} '{password}'"
             ),
             cwd=directory,
             raises=UserActionError,
@@ -44,12 +44,12 @@ def create_admin(directory: Path, name: str | None, email: str | None, password:
 def reset_password(directory: Path, email: str | None, password: str | None) -> None:
     """Create admin."""
     email = email or echo.prompt_until_valid("Provide admin email", validate_email)
-    password = password or echo.prompt_until_valid("Provide admin password", validate_truthy, password=True)
+    password = password or echo.prompt_until_valid("Provide admin password", validate_password, password=True)
 
     response: str | None = None
     try:
         response = run(
-            (f"docker compose run --rm server ./.venv/bin/python -m server.scripts.set_password {email} {password}"),
+            (f"docker compose run --rm server ./.venv/bin/python -m server.scripts.set_password {email} '{password}'"),
             cwd=directory,
             raises=UserActionError,
             capture_output=True,

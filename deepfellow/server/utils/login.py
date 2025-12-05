@@ -7,7 +7,7 @@ import typer
 
 from deepfellow.common.config import read_env_file, save_env_file
 from deepfellow.common.echo import echo
-from deepfellow.common.validation import validate_email
+from deepfellow.common.validation import validate_email, validate_password
 
 
 def get_token(secrets_file: Path, server: str, email: str | None) -> str:
@@ -53,13 +53,14 @@ def get_token(secrets_file: Path, server: str, email: str | None) -> str:
     return token
 
 
-def get_token_from_login(secrets_file: Path, server: str, email: str | None) -> str:
+def get_token_from_login(secrets_file: Path, server: str, email: str | None, password: str | None = None) -> str:
     """Login User and return the config.
 
     Args:
         secrets_file (Path): DeepFellow Server secrets
         server (str): DeepFellow Server URL
         email (str): User email
+        password (str): User password
 
     Returns:
         token string
@@ -69,15 +70,10 @@ def get_token_from_login(secrets_file: Path, server: str, email: str | None) -> 
     """
     # Get user's email and password
     if email is None:
-        email_collected = False
-        while email_collected is False:
-            try:
-                email = echo.prompt("Provide your email", validation=validate_email)
-                email_collected = True
-            except typer.BadParameter:
-                echo.error("Invalid email. Please try again.")
+        email = echo.prompt_until_valid("Provide your email", validate_email)
 
-    password = echo.prompt("Provide your password", password=True)
+    if password is None:
+        password = echo.prompt_until_valid("Provide your password", validate_password, password=True)
 
     # Authorize the user (we need the server's URL)
     url = f"{server}/auth/login"
