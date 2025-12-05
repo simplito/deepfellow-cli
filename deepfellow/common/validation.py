@@ -15,6 +15,7 @@ from .system import is_command_available
 
 REQUIRED_COMMANDS = ("uv",)
 USERNAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_]{2,19}$"
+PASSWORD_REGEX = r"^[a-zA-Z0-9_!@#$%^&*()_=+\-]{8,19}$"
 
 
 def validate_system() -> None:
@@ -108,5 +109,16 @@ def validate_username(value: str | None) -> str | None:
     validate_truthy(value)
     if not re.match(USERNAME_REGEX, value):
         raise typer.BadParameter("Invalid username - only letters, numbers, and '_' are allowed.")
+
+    return value
+
+
+def validate_password(value: str | None) -> str | None:
+    """Validate value is a sane password."""
+    if value is None:
+        return None
+
+    if not re.match(PASSWORD_REGEX, value):
+        raise typer.BadParameter("Invalid password - min 8 characters of 'a-zA-Z0-9_!@#$%^&*()_=+-'.")
 
     return value
