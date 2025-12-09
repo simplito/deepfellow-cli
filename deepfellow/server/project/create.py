@@ -41,7 +41,7 @@ def create(
     # Get token for the server
     secrets_file = ctx.obj.get("cli-secrets-file")
     server = get_server_url(server)
-    token = get_token(secrets_file, server, None)
+    token = get_token(secrets_file, server)
 
     # Determine actual models value
     if models and "all" in models and len(models) > 1:

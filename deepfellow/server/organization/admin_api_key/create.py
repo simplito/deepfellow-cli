@@ -30,7 +30,7 @@ def create(
     """Create organization."""
     secrets_file = ctx.obj.get("cli-secrets-file")
     server = get_server_url(server)
-    token = get_token(secrets_file, server, None)
+    token = get_token(secrets_file, server)
 
     api_key = create_admin_api_key(server, token, organization_id, name)
 

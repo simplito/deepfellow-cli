@@ -18,7 +18,7 @@ from deepfellow.common.docker import is_service_running, load_compose_file, save
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get, env_set
 from deepfellow.common.system import run
-from deepfellow.common.validation import validate_directory, validate_server
+from deepfellow.common.validation import validate_server
 from deepfellow.infra.utils.options import directory_option
 
 app = typer.Typer()
@@ -26,7 +26,7 @@ app = typer.Typer()
 
 @app.command()
 def ssl_on(
-    directory: Path = directory_option(callback=validate_directory),
+    directory: Path = directory_option(exists=True),
     ssl_key_path: str = typer.Argument(None, help="Path to the SSL key path."),
     ssl_cert_path: str = typer.Argument(None, help="Path to the SSL certificate path."),
     port: int = typer.Option(None, help="Port to serve the SSL server from."),

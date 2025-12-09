@@ -18,7 +18,7 @@ from deepfellow.common.defaults import DEFAULT_OTEL_URL
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get, env_set
 from deepfellow.common.system import run
-from deepfellow.common.validation import validate_directory, validate_url
+from deepfellow.common.validation import validate_url
 from deepfellow.server.utils.options import directory_option
 
 app = typer.Typer()
@@ -26,7 +26,7 @@ app = typer.Typer()
 
 @app.command()
 def opentelemetry(
-    directory: Path = directory_option(callback=validate_directory),
+    directory: Path = directory_option(exists=True),
     otel_url: str | None = typer.Argument(
         None,
         envvar="DF_OTEL_EXPORTER_OTLP_ENDPOINT",

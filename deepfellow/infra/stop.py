@@ -15,7 +15,6 @@ import typer
 
 from deepfellow.common.echo import echo
 from deepfellow.common.system import run
-from deepfellow.common.validation import validate_directory
 from deepfellow.infra.utils.options import directory_option
 
 app = typer.Typer()
@@ -23,7 +22,7 @@ app = typer.Typer()
 
 @app.command()
 def stop(
-    directory: Path = directory_option(callback=validate_directory),
+    directory: Path = directory_option(exists=True),
 ) -> None:
     """Stop DeepFellow Infra."""
     echo.debug("Stopping DeepFellow Infra")
