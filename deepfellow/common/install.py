@@ -35,20 +35,16 @@ def ensure_directory(
     error_message = error_message or f"Unable to create directory {directory}."
     warning_message = warning_message or f"Directory {directory} already exists."
 
-    directory_exists = False
     if directory.is_dir():
         echo.warning(warning_message)
         if not echo.confirm(confirm_message):
             raise typer.Exit(1)
 
-        directory_exists = True
-
-    if not directory_exists:
-        try:
-            directory.mkdir(parents=True)
-        except Exception as exc_info:
-            echo.error(error_message)
-            reraise_if_debug(exc_info)
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+    except Exception as exc_info:
+        echo.error(error_message)
+        reraise_if_debug(exc_info)
 
 
 def assert_docker() -> None:

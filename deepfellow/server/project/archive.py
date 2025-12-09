@@ -30,7 +30,7 @@ def archive(
     """Archive a Project."""
     secrets_file = ctx.obj.get("cli-secrets-file")
     server = get_server_url(server)
-    token = get_token(secrets_file, server, None)
+    token = get_token(secrets_file, server)
 
     project = archive_project(server, token, organization_id, project_id)
 

@@ -17,7 +17,7 @@ from deepfellow.common.docker import is_service_running
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get, env_set
 from deepfellow.common.system import run
-from deepfellow.common.validation import validate_directory, validate_url
+from deepfellow.common.validation import validate_url
 from deepfellow.infra.utils.options import directory_option
 
 app = typer.Typer()
@@ -25,7 +25,7 @@ app = typer.Typer()
 
 @app.command()
 def connect(
-    directory: Path = directory_option(callback=validate_directory),
+    directory: Path = directory_option(exists=True),
     parent_infra_url: str = typer.Argument(
         ..., help="Parent DeepFellow Infra address (DF_INFRA_MESH_URL).", callback=validate_url
     ),

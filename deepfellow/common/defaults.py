@@ -19,7 +19,6 @@ DF_CLI_SECRETS_PATH = DF_DEEPFELLOW_DIRECTORY / "secrets"  # env style secrets f
 
 DF_INFRA_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / "infra"
 DF_INFRA_REPO = "ssh://git@github.com/simplito/deepfellow-infra.git"
-DF_INFRA_CONFIG_PATH = Path("config/infra_config.toml")
 DF_INFRA_IMAGE = "hub.simplito.com/deepfellow/deepfellow-infra:latest"
 DF_INFRA_PORT = 8086
 DF_INFRA_URL = f"http://infra:{DF_INFRA_PORT}"

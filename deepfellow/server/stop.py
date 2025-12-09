@@ -15,7 +15,6 @@ import typer
 
 from deepfellow.common.echo import echo
 from deepfellow.common.system import run
-from deepfellow.common.validation import validate_directory
 from deepfellow.server.utils.options import directory_option
 
 app = typer.Typer()
@@ -23,10 +22,7 @@ app = typer.Typer()
 
 @app.command()
 def stop(
-    directory: Path = directory_option(
-        "Target directory for the server installation.",
-        callback=validate_directory,
-    ),
+    directory: Path = directory_option("Target directory for the server installation.", exists=True),
 ) -> None:
     """Stop DeepFellow Server."""
     echo.debug("Stopping DeepFellow Server")

@@ -30,7 +30,7 @@ def delete(
     # Get token for the server
     secrets_file = ctx.obj.get("cli-secrets-file")
     server = get_server_url(server)
-    token = get_token(secrets_file, server, None)
+    token = get_token(secrets_file, server)
 
     organization = get_organization(server, organization_id, token)
     if not echo.confirm(f"Are you sure you want to delete the {organization.name}?", default=False):

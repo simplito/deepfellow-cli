@@ -10,14 +10,12 @@
 """Common validations."""
 
 import re
-from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlparse
 
 import typer
 from email_validator import EmailNotValidError
 from email_validator import validate_email as validate_email_lib
-from typer import BadParameter
 
 from .echo import echo
 from .system import is_command_available
@@ -39,17 +37,6 @@ def validate_system() -> None:
         echo.error("System is not ready for DeepFellow.")
         echo.error("\n".join(f"Please install `{command}` command" for command in failed_commands))
         raise typer.Exit(1)
-
-
-def validate_directory(directory: str | Path | None) -> Path:
-    """Raise an error if directory argument is not an existing directory."""
-    if isinstance(directory, str):
-        directory = Path(directory)
-
-    if directory is None or not directory.is_dir():
-        raise BadParameter(f"Directory {directory} does not exist")
-
-    return directory
 
 
 def validate_email(value: str | None) -> str | None:

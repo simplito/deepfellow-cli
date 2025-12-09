@@ -19,7 +19,7 @@ from deepfellow.common.echo import echo
 from deepfellow.common.validation import validate_email, validate_password
 
 
-def get_token(secrets_file: Path, server: str, email: str | None) -> str:
+def get_token(secrets_file: Path, server: str) -> str:
     """Load token from the secrets file.
 
     Fallback to get_token_from login if not stored yet or expired.
@@ -27,7 +27,6 @@ def get_token(secrets_file: Path, server: str, email: str | None) -> str:
     Args:
         secrets_file (Path): DeepFellow Server secrets
         server (str): DeepFellow Server URL
-        email (str): User email
 
     Returns:
         Valid token string
@@ -39,7 +38,7 @@ def get_token(secrets_file: Path, server: str, email: str | None) -> str:
     token = secrets.get("DF_USER_TOKEN")
     if token is None:
         echo.info("Token not found in secrets file or it does not exist. Falling back to login.")
-        return get_token_from_login(secrets_file, server, email)
+        return get_token_from_login(secrets_file, server)
 
     # Authenticate to check if user is able to log in.
     url = f"{server}/auth/me"
@@ -51,7 +50,7 @@ def get_token(secrets_file: Path, server: str, email: str | None) -> str:
         )
         if response.status_code == 401:
             echo.info("Retrieved token is not valid. Falling back to login.")
-            return get_token_from_login(secrets_file, server, email)
+            return get_token_from_login(secrets_file, server)
 
         response.raise_for_status()
     except httpx.HTTPError as exc:
@@ -62,7 +61,7 @@ def get_token(secrets_file: Path, server: str, email: str | None) -> str:
     return token
 
 
-def get_token_from_login(secrets_file: Path, server: str, email: str | None, password: str | None = None) -> str:
+def get_token_from_login(secrets_file: Path, server: str, email: str | None = None, password: str | None = None) -> str:
     """Login User and return the config.
 
     Args:
@@ -78,11 +77,8 @@ def get_token_from_login(secrets_file: Path, server: str, email: str | None, pas
         typer.Exit for bad credentials or HTTPError
     """
     # Get user's email and password
-    if email is None:
-        email = echo.prompt_until_valid("Provide your email", validate_email)
-
-    if password is None:
-        password = echo.prompt_until_valid("Provide your password", validate_password, password=True)
+    email = email or echo.prompt_until_valid("Provide your email", validate_email)
+    password = password or echo.prompt_until_valid("Provide your password", validate_password, password=True)
 
     # Authorize the user (we need the server's URL)
     url = f"{server}/auth/login"
