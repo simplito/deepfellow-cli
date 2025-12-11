@@ -32,8 +32,19 @@ def create_admin(directory: Path, name: str | None, email: str | None, password:
     try:
         response = run(
             (
-                "docker compose run --rm server ./.venv/bin/python -m server.scripts.create_admin "
-                f"'{name}' {email} '{password}'"
+                [
+                    "docker",
+                    "compose",
+                    "run",
+                    "--rm",
+                    "server",
+                    "./.venv/bin/python",
+                    "-m",
+                    "server.scripts.create_admin",
+                    str(name),
+                    str(email),
+                    str(password),
+                ]
             ),
             cwd=directory,
             raises=UserActionError,
@@ -58,7 +69,20 @@ def reset_password(directory: Path, email: str | None, password: str | None) -> 
     response: str | None = None
     try:
         response = run(
-            (f"docker compose run --rm server ./.venv/bin/python -m server.scripts.set_password {email} '{password}'"),
+            (
+                [
+                    "docker",
+                    "compose",
+                    "run",
+                    "--rm",
+                    "server",
+                    "./.venv/bin/python",
+                    "-m",
+                    "server.scripts.set_password",
+                    str(email),
+                    str(password),
+                ]
+            ),
             cwd=directory,
             raises=UserActionError,
             capture_output=True,

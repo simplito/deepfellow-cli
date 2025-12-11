@@ -26,5 +26,5 @@ def stop(
 ) -> None:
     """Stop DeepFellow Infra."""
     echo.debug("Stopping DeepFellow Infra")
-    run("docker compose down", cwd=directory)
+    run(["docker", "compose", "down"], cwd=directory)
     echo.success("DeepFellow Infra is down")

@@ -29,8 +29,8 @@ def ssl_on(
     directory: Path = directory_option(exists=True),
     ssl_key_path: str = typer.Argument(None, help="Path to the SSL key path."),
     ssl_cert_path: str = typer.Argument(None, help="Path to the SSL certificate path."),
-    port: int = typer.Option(None, help="Port to serve the SSL server from."),
-    server: str = typer.Option(None, help="New SSL DeepFellow Infra address.", callback=validate_server),
+    port: int | None = typer.Option(None, help="Port to serve the SSL server from."),
+    server: str | None = typer.Option(None, help="New SSL DeepFellow Infra address.", callback=validate_server),
 ) -> None:
     """Switch on the SSL."""
     # Validate entry data
@@ -57,7 +57,7 @@ def ssl_on(
     save_compose_file(docker_config, compose_file=directory / "docker-compose.yml", quiet=True)
 
     # Create directory on the server
-    run("docker compose exec infra mkdir /ssl -p", cwd=directory)
+    run(["docker", "compose", "exec", "infra", "mkdir", "/ssl", "-p"], cwd=directory)
 
     # If paths are provided - copy the files to the volume
     # Else run the openssl commands
@@ -72,14 +72,31 @@ def ssl_on(
     else:
         echo.info("Creating cert files on the DeepFellow Infra.")
         run(
-            "docker compose exec infra  "
-            "openssl req -x509 -newkey rsa:4096 -nodes "
-            "-out /ssl/cert.pem -keyout /ssl/key.pem -days 3650 -subj '/CN=localhost'",
+            [
+                "docker",
+                "compose",
+                "exec",
+                "infra",
+                "openssl",
+                "req",
+                "-x509",
+                "-newkey",
+                "rsa:4096",
+                "-nodes",
+                "-out",
+                "/ssl/cert.pem",
+                "-keyout",
+                "/ssl/key.pem",
+                "-days",
+                "3650",
+                "-subj",
+                "/CN=localhost",
+            ],
             cwd=directory,
             quiet=True,
         )
         echo.debug("Copying cert files from the DeepFellow Infra.")
-        run(f"docker compose cp infra:/ssl/. {ssl_dir}", cwd=directory, quiet=True)
+        run(["docker", "compose", "cp", "infra:/ssl/.", ssl_dir.as_posix()], cwd=directory, quiet=True)
 
     # Update .env with the port
     port_config = env_get(env_file, "infra_port")
@@ -111,7 +128,7 @@ def ssl_on(
 
     echo.info("Restarting docker.")
     # Restart docker with rebuild
-    run("docker compose down", cwd=directory, quiet=True)
-    run("docker compose up -d --build", cwd=directory, quiet=True)
+    run(["docker", "compose", "down"], cwd=directory, quiet=True)
+    run(["docker", "compose", "up", "--build", "-d", "--remove-orphans"], cwd=directory, quiet=True)
 
     echo.success("DeepFellow Infra is running with SSL.")

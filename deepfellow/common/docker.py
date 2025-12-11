@@ -35,7 +35,6 @@ Sample usage:
 """
 
 import os
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -46,11 +45,15 @@ from deepfellow.common.exceptions import DockerNetworkError, DockerSocketNotFoun
 from deepfellow.common.system import run
 
 
+class DockerError(Exception):
+    """Raised if any docker command fails."""
+
+
 def is_docker_installed() -> bool:
     """Checks if docker is installed."""
     try:
-        subprocess.run(["docker --version"], shell=True, check=True, capture_output=True, text=True)
-    except (subprocess.CalledProcessError, FileNotFoundError):
+        run(["docker", "--version"], capture_output=True, raises=DockerError)
+    except (DockerError, FileNotFoundError):
         return False
 
     return True
@@ -59,8 +62,8 @@ def is_docker_installed() -> bool:
 def is_user_allowed_to_use_docker() -> bool:
     """Check is user is allowed to use docker."""
     try:
-        subprocess.run("docker ps", shell=True, check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError:
+        run(["docker", "ps"], capture_output=True, raises=DockerError)
+    except DockerError:
         return False
 
     return True
@@ -68,8 +71,8 @@ def is_user_allowed_to_use_docker() -> bool:
 
 def is_user_in_docker_group() -> bool:
     """Check is user is in docker group."""
-    groups = subprocess.run(["groups"], shell=True, check=True, capture_output=True, text=True)
-    return "docker" in groups.stdout
+    groups = run(["groups"], capture_output=True)
+    return "docker" in groups if groups is not None else False
 
 
 def is_docker_group_available() -> bool:
@@ -103,10 +106,6 @@ def represent_none(self: yaml.representer.BaseRepresenter, _: None) -> yaml.Scal
 
 
 yaml.add_representer(type(None), represent_none)
-
-
-class DockerError(Exception):
-    """Raised if any docker command fails."""
 
 
 def save_compose_file(
@@ -145,17 +144,14 @@ def get_socket() -> str:
         return docker_host.replace("unix://", "")
 
     # Try to find the active docker socket
-    try:
-        result = subprocess.run(
-            ["docker", "context", "inspect", "-f", "{{.Endpoints.docker.Host}}"], capture_output=True, text=True
-        )
-        if result.returncode == 0:
-            host = result.stdout.strip()
-            if host.startswith("unix://"):
-                return host.replace("unix://", "")
-
-    except subprocess.CalledProcessError:
-        pass
+    result = run(
+        ["docker", "context", "inspect", "-f", "{{.Endpoints.docker.Host}}"],
+        capture_output=True,
+    )
+    if result:
+        host = result.strip()
+        if host.startswith("unix://"):
+            return host.replace("unix://", "")
 
     socket_file = "docker.sock"
 
@@ -191,14 +187,11 @@ def list_networks() -> list[str]:
     Raises:
         DockerNetworkError: When unable to fetch network list
     """
-    try:
-        result = subprocess.run(
-            ["docker", "network", "ls", "--format", "{{.Name}}"], capture_output=True, text=True, check=True
-        )
-        networks = result.stdout.strip().split("\n")
-    except subprocess.CalledProcessError as exc:
-        raise DockerNetworkError("Failed to fetch Docker network list") from exc
+    result = run(["docker", "network", "ls", "--format", "{{.Name}}"], capture_output=True)
+    if result is None:
+        raise DockerNetworkError("Failed to fetch Docker network list")
 
+    networks = result.strip().split("\n")
     # Filter potential empty lines
     return [net for net in networks if net]
 
@@ -219,13 +212,8 @@ def create_network(network_name: str, driver: str = "bridge") -> None:
         DockerNetworkError: When unable to create network
     """
     try:
-        subprocess.run(
-            ["docker", "network", "create", "--driver", driver, network_name],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-    except subprocess.CalledProcessError as exc:
+        run(["docker", "network", "create", "--driver", driver, network_name], raises=DockerError)
+    except DockerError as exc:
         raise DockerNetworkError(f"Failed to create network '{network_name}'") from exc
 
 
@@ -266,7 +254,12 @@ def is_service_running(service: str, cwd: Path) -> bool:
     """Check if service is running."""
     result: str | None = None
     try:
-        result = run(f"docker compose ps {service} --status running", cwd=cwd, raises=DockerError, capture_output=True)
+        result = run(
+            ["docker", "compose", "ps", service, "--status", "running"],
+            cwd=cwd,
+            raises=DockerError,
+            capture_output=True,
+        )
     except DockerError:
         return False
 

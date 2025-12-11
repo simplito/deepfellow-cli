@@ -7,7 +7,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import subprocess
 from pathlib import Path
 from unittest import mock
 from unittest.mock import Mock
@@ -16,6 +15,7 @@ import pytest
 import yaml
 
 from deepfellow.common.docker import (
+    DockerError,
     is_docker_installed,
     load_compose_file,
     merge_services,
@@ -50,10 +50,10 @@ DF_SHARED_VAR=old_value
 """
 
 
-@pytest.mark.parametrize("error", [subprocess.CalledProcessError(1, "docker"), FileNotFoundError()])
-@mock.patch("deepfellow.common.docker.subprocess.run")
-def test_is_docker_installed_error(mock_subprocess_run: Mock, error: Exception) -> None:
-    mock_subprocess_run.side_effect = error
+@pytest.mark.parametrize("error", [DockerError(1, "docker"), FileNotFoundError()])
+@mock.patch("deepfellow.common.docker.run")
+def test_is_docker_installed_error(mock_run: Mock, error: Exception) -> None:
+    mock_run.side_effect = error
 
     assert not is_docker_installed()  # Should also be False, not True
 

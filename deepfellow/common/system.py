@@ -20,14 +20,34 @@ from deepfellow.common.exceptions import reraise_if_debug
 
 
 def run(
-    command: str,
+    command: str | list[str],
     cwd: Path | str | None = None,
     uv: bool = False,
     raises: type[Exception] | None = None,
     quiet: bool = False,
+    shell: bool = False,
+    check: bool = True,
     **kwargs: Any,
 ) -> str | None:
     """Run subbrocess command.
+
+    Calls `subprocess.run` with a preset arguments.
+
+    Raising exception logic:
+    - By default, `subprocess.CalledProcessError` is suppressed - `run` would return `None` if raised.
+    - If a custom exception is provided in `raises`, it will be raised.
+    - If `--debug` is used and `raises` is `None`, `subprocess.CalledProcessError` is reraised.
+
+    Sample usage:
+    ```
+    if run(["some", "command"]) is None:
+        echo.error("some error")
+
+    try:
+        run(["some", "command"], raises=SomeError)
+    except SomeError:
+        echo.error("some error")
+    ```
 
     Args:
         command: command to run
@@ -35,7 +55,16 @@ def run(
         uv: should we call from uv
         raises: exception to be raised if failed
         quiet: mute stdout and stderr
+        shell: should subrocess run as shell command
+        check: should subprocess raise an issue if failed
         kwargs: pass additional kwargs to subrocess.run
+
+    Returns:
+        Process's `stdout` or `None` if error.
+
+    Raises:
+        - Custom exception, if it is provided in the `raises` kwarg
+        - subprocess.CalledProcessError if in debug mode
     """
     cmd = command
     if uv:
@@ -55,8 +84,8 @@ def run(
         process = subprocess.run(
             cmd,
             cwd=cwd,
-            shell=True,
-            check=True,
+            shell=shell,
+            check=check,
             text=True,
             env=clean_env,
             **kwargs,

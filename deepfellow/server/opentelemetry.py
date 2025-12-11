@@ -57,10 +57,9 @@ def opentelemetry(
         env_set(env_file, "DF_OTEL_TRACING_ENABLED", "true")
 
         echo.info("Restarting this instance DeepFellow Server ...")
-        run("docker compose down", cwd=directory, quiet=True)
-        run("docker compose up -d", cwd=directory, quiet=True)
+        run(["docker", "compose", "down"], cwd=directory, quiet=True)
+        run(["docker", "compose", "up", "-d", "--remove-orphans"], cwd=directory, quiet=True)
 
         echo.success(f"DeepFellow Server is connected to Open Telemetry {otel_url}")
-
     else:
         echo.info("OpenTelemetry settings in DeepFellow remain the same as before")
