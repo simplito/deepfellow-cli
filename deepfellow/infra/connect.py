@@ -47,7 +47,7 @@ def connect(
     env_set(env_file, "DF_CONNECT_TO_MESH_KEY", mesh_key)
 
     echo.info("Restarting this instance DeepFellow Infra ...")
-    run("docker compose down", cwd=directory, quiet=True)
-    run("docker compose up -d", cwd=directory, quiet=True)
+    run(["docker", "compose", "down"], cwd=directory, quiet=True)
+    run(["docker", "compose", "up", "-d", "--remove-orphans"], cwd=directory, quiet=True)
 
     echo.success(f"DeepFellow Infra is connected to another Infra at {parent_infra_url}")

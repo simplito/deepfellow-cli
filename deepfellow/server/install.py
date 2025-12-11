@@ -143,5 +143,5 @@ def install(
         {"services": services, "volumes": volumes, "networks": {docker_network: {"external": True}}},
         directory / "docker-compose.yml",
     )
-    run("docker compose pull", directory)
+    run(["docker", "compose", "pull"], directory)
     echo.success("DeepFellow Server Installed.\nCall `deepfellow server start`.")

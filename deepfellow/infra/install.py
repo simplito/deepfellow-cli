@@ -224,7 +224,7 @@ def install(  # noqa: C901
     )
 
     echo.info("Pulling docker image(s).")
-    run("docker compose pull", directory, quiet=True)
+    run(["docker", "compose", "pull"], directory, quiet=True)
     echo.success(
         "DeepFellow Infra installed.\n"
         "To start the docker image - `deepfellow infra start`.\n"
