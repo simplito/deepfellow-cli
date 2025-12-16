@@ -44,12 +44,6 @@ mypy:
   script:
     - uv run mypy deepfellow/ tests/
 
-mypy:
-  <<: *uv
-  stage: analysis
-  script:
-    - uv run mypy deepfellow/ tests/
-
 pyright:
   <<: *uv
   stage: analysis
@@ -62,11 +56,10 @@ pytest:
   stage: test
   script:
     - uv run pytest --showlocals --tb=auto -ra --cov deepfellow --cov-branch --cov-report=term-missing --cov-report xml:coverage_cli.xml --no-cov-on-fail tests/
-
-  # Check if our gitlab can do cobertura artifacts.
-  # coverage: '/(?i)total.*? (100(?:\.0)?\%|[1-9]?\d(?:\.\d+)?\%)$/'
-  # artifacts:
-  #   expire_in: 1 week
-  #   reports:
-  #     coverage_format: cobertura
-  #     path: coverage_cli.xml
+  coverage: '/(?i)total.*? (100(?:\.0)?\%|[1-9]?\d(?:\.\d+)?\%)$/'
+  artifacts:
+    expire_in: 1 week
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage_cli.xml
