@@ -14,6 +14,7 @@ ruff-format *FLAGS:
 mypy *FLAGS:
     uv run mypy deepfellow/ {{FLAGS}}
 
+license-check *FLAGS:
+    uv run scripts/check_license_header.py {{FLAGS}}
 
-check: ruff ruff-format mypy
-
+check: ruff ruff-format mypy license-check

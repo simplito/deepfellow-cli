@@ -21,3 +21,13 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+
+  - repo: local
+    hooks:
+      - id: check-license-header
+        name: Check license header
+        description: Ensures all Python files contain the required license header
+        entry: uv run python scripts/check_license_header.py --files
+        language: python
+        types: [python]
+        pass_filenames: true
