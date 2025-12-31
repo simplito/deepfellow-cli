@@ -1,6 +1,7 @@
 image: python:3.10
 
 stages:
+  - license-check
   - analysis
   - test
 
@@ -25,6 +26,12 @@ variables:
   script:
     - uv sync --frozen
     - uv cache prune --ci
+
+license-check:
+  <<: *uv
+  stage: license-check
+  script:
+    - uv run python scripts/check_license_header.py
 
 ruff:
   <<: *uv
