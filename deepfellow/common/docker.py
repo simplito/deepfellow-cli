@@ -40,6 +40,7 @@ from typing import Any
 
 import yaml
 
+from deepfellow.common.config import env_to_dict, read_env_file
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import DockerNetworkError, DockerSocketNotFoundError
 from deepfellow.common.system import run
@@ -271,3 +272,11 @@ def is_service_running(service: str, cwd: Path) -> bool:
     # NAME            IMAGE                                               ...
 
     return result is not None and len(result.splitlines()) > 1
+
+
+def get_docker_network(directory: Path) -> str:
+    """Get docker network setting."""
+    env_file = directory / ".env"
+    env_vars = read_env_file(env_file)
+    env_content = env_to_dict(env_vars)
+    return str(env_content.get("df_infra_docker_subnet", ""))
