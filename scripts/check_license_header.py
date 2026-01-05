@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 # DeepFellow Software Framework.
-# Copyright © 2025 Simplito sp. z o.o.
+# Copyright © 2026 Simplito sp. z o.o.
 #
 # This file is part of the DeepFellow Software Framework (https://deepfellow.ai).
 # This software is Licensed under the DeepFellow Free License.
@@ -11,14 +11,16 @@
 
 """License header validation script for Python files."""
 
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
-LICENSE_HEADER = """\
+LICENSE_HEADER_TEMPLATE = """\
 # DeepFellow Software Framework.
-# Copyright © 2025 Simplito sp. z o.o.
+# Copyright © {year} Simplito sp. z o.o.
 #
 # This file is part of the DeepFellow Software Framework (https://deepfellow.ai).
 # This software is Licensed under the DeepFellow Free License.
@@ -27,9 +29,37 @@ LICENSE_HEADER = """\
 # limitations under the License.
 """
 
+# Pattern to match the license header with any year
+LICENSE_HEADER_PATTERN = re.compile(
+    r"# DeepFellow Software Framework\.\s*\n"
+    r"# Copyright © (\d{4}) Simplito sp\. z o\.o\.\s*\n"
+    r"#\s*\n"
+    r"# This file is part of the DeepFellow Software Framework \(https://deepfellow\.ai\)\.\s*\n"
+    r"# This software is Licensed under the DeepFellow Free License\.\s*\n"
+    r"#\s*\n"
+    r"# See the License for the specific language governing permissions and\s*\n"
+    r"# limitations under the License\."
+)
+
 DEFAULT_EXCLUDES = frozenset({".git", ".uv-cache"})
 
 app = typer.Typer(add_completion=False)
+
+
+def get_current_year() -> int:
+    """Get the current year."""
+    return datetime.now(timezone.utc).year
+
+
+def get_license_header(year: int | None = None) -> str:
+    """Generate license header with the specified or current year."""
+    if year is None:
+        year = get_current_year()
+    return LICENSE_HEADER_TEMPLATE.format(year=year)
+
+
+# Keep LICENSE_HEADER for backward compatibility
+LICENSE_HEADER = get_license_header()
 
 
 def parse_gitignore(path: Path) -> frozenset[str]:
@@ -75,34 +105,65 @@ def extract_content_after_preamble(content: str) -> str:
     return "\n".join(lines[start_idx:])
 
 
-def check_file_header(filepath: Path) -> bool:
-    """Check if a file contains the required license header."""
+def extract_header_year(content: str) -> int | None:
+    """Extract the year from the license header if present."""
+    remaining = extract_content_after_preamble(content)
+    match = LICENSE_HEADER_PATTERN.search(remaining)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def check_file_header(filepath: Path) -> tuple[bool, int | None]:
+    """Check if a file contains the required license header.
+
+    Returns:
+        Tuple of (has_valid_header, year_in_header).
+        - has_valid_header: True if header exists with current year
+        - year_in_header: The year found in header, or None if no header
+    """
     try:
         content = filepath.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
-        return False
+        return False, None
 
     if not content.strip():
-        return True
+        return True, None
 
-    remaining = extract_content_after_preamble(content)
-    expected = normalize_header(LICENSE_HEADER)
-    actual_start = normalize_header(remaining[: len(LICENSE_HEADER) + 100])
+    year = extract_header_year(content)
+    if year is None:
+        return False, None
 
-    return actual_start.startswith(expected)
+    current_year = get_current_year()
+    return year == current_year, year
 
 
 def fix_file_header(filepath: Path) -> bool:
-    """Add license header to a file that's missing it."""
+    """Add or update license header in a file."""
     try:
         content = filepath.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return False
 
+    current_year = get_current_year()
+    current_header = get_license_header(current_year)
+
     if not content.strip():
-        filepath.write_text(LICENSE_HEADER, encoding="utf-8")
+        filepath.write_text(current_header, encoding="utf-8")
         return True
 
+    # Check if header exists with wrong year
+    existing_year = extract_header_year(content)
+    if existing_year is not None and existing_year != current_year:
+        # Replace year in existing header
+        new_content = content.replace(
+            f"# Copyright © {existing_year} Simplito sp. z o.o.",
+            f"# Copyright © {current_year} Simplito sp. z o.o.",
+        )
+        filepath.write_text(new_content, encoding="utf-8")
+        return True
+
+    # No header present - add new one
     lines = content.split("\n")
     preamble_lines = []
     start_idx = 0
@@ -124,7 +185,7 @@ def fix_file_header(filepath: Path) -> bool:
         parts.append("\n".join(preamble_lines))
         parts.append("")
 
-    parts.append(LICENSE_HEADER.rstrip())
+    parts.append(current_header.rstrip())
 
     if rest:
         parts.append("")
@@ -210,6 +271,58 @@ def get_files_to_check(
     return find_python_files(paths, excludes, recursive=recursive)
 
 
+def classify_files(
+    files_to_check: list[Path],
+) -> tuple[list[Path], list[Path]]:
+    """Classify files into missing header and invalid year lists."""
+    missing_header: list[Path] = []
+    invalid_year: list[Path] = []
+
+    for f in files_to_check:
+        has_valid, year = check_file_header(f)
+        if not has_valid:
+            if year is None:
+                missing_header.append(f)
+            else:
+                invalid_year.append(f)
+
+    return missing_header, invalid_year
+
+
+def apply_fixes(files: list[Path]) -> None:
+    """Apply fixes to all files and print results."""
+    for f in files:
+        if fix_file_header(f):
+            print(f"Fixed: {f}")
+        else:
+            print(f"Error: {f}")
+
+
+def report_issues(
+    missing_header: list[Path],
+    invalid_year: list[Path],
+    verbose: bool,
+) -> None:
+    """Report validation issues to stdout."""
+    if missing_header:
+        if verbose:
+            for f in missing_header:
+                print(f)
+        else:
+            print(f"Missing license header in {len(missing_header)} files")
+
+    if invalid_year:
+        if verbose:
+            for f in invalid_year:
+                print(f)
+        else:
+            print(f"Invalid year in {len(invalid_year)} files")
+
+    if (missing_header or invalid_year) and not verbose:
+        print("Use --verbose to see individual files")
+        print("Use --fix to automatically repair")
+
+
 @app.command()
 def main(
     paths: Annotated[
@@ -234,7 +347,11 @@ def main(
     ] = False,
     fix: Annotated[
         bool,
-        typer.Option("--fix", help="Add missing license headers to files"),
+        typer.Option("--fix", help="Add missing license headers or update year"),
+    ] = False,
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", "-v", help="Show individual file paths"),
     ] = False,
 ) -> None:
     """Validate license headers in Python files."""
@@ -243,24 +360,18 @@ def main(
 
     excludes = build_excludes(paths, exclude, use_gitignore=not no_gitignore)
     files_to_check = get_files_to_check(paths, files, excludes, recursive=not no_recursive)
+    missing_header, invalid_year = classify_files(files_to_check)
 
-    failed = [f for f in files_to_check if not check_file_header(f)]
-
-    if fix and failed:
-        for f in failed:
-            if fix_file_header(f):
-                print(f"Fixed: {f}")
-            else:
-                print(f"Error: {f}")
+    if fix and (missing_header or invalid_year):
+        apply_fixes(missing_header + invalid_year)
         raise typer.Exit(0)
 
-    for f in failed:
-        print(f)
+    report_issues(missing_header, invalid_year, verbose)
 
-    if failed:
+    if missing_header or invalid_year:
         raise typer.Exit(1)
 
-    print("All Python files have the license")
+    print("All Python files have valid license headers")
 
 
 if __name__ == "__main__":

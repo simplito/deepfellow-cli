@@ -1,5 +1,5 @@
 # DeepFellow Software Framework.
-# Copyright © 2025 Simplito sp. z o.o.
+# Copyright © 2026 Simplito sp. z o.o.
 #
 # This file is part of the DeepFellow Software Framework (https://deepfellow.ai).
 # This software is Licensed under the DeepFellow Free License.
@@ -10,15 +10,18 @@
 """Tests for check_license_header.py module."""
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from scripts.check_license_header import (
-    LICENSE_HEADER,
     check_file_header,
     extract_content_after_preamble,
+    extract_header_year,
     find_python_files,
     fix_file_header,
+    get_current_year,
+    get_license_header,
     normalize_header,
     parse_gitignore,
     should_exclude,
@@ -26,27 +29,39 @@ from scripts.check_license_header import (
 
 
 @pytest.fixture
-def valid_content() -> str:
+def current_year() -> int:
+    """Current year for tests."""
+    return get_current_year()
+
+
+@pytest.fixture
+def license_header(current_year: int) -> str:
+    """License header with current year."""
+    return get_license_header(current_year)
+
+
+@pytest.fixture
+def valid_content(license_header: str) -> str:
     """Valid Python file content with license header."""
-    return f"{LICENSE_HEADER}\n\nimport sys\n"
+    return f"{license_header}\n\nimport sys\n"
 
 
 @pytest.fixture
-def valid_with_shebang() -> str:
+def valid_with_shebang(license_header: str) -> str:
     """Valid Python file with shebang and license header."""
-    return f"#!/usr/bin/env python3\n\n{LICENSE_HEADER}\n\nimport sys\n"
+    return f"#!/usr/bin/env python3\n\n{license_header}\n\nimport sys\n"
 
 
 @pytest.fixture
-def valid_with_encoding() -> str:
+def valid_with_encoding(license_header: str) -> str:
     """Valid Python file with encoding declaration and license header."""
-    return f"# -*- coding: utf-8 -*-\n\n{LICENSE_HEADER}\n\nimport sys\n"
+    return f"# -*- coding: utf-8 -*-\n\n{license_header}\n\nimport sys\n"
 
 
 @pytest.fixture
-def valid_with_both() -> str:
+def valid_with_both(license_header: str) -> str:
     """Valid Python file with shebang, encoding, and license header."""
-    return f"#!/usr/bin/env python3\n# -*- coding: utf-8 -*-\n\n{LICENSE_HEADER}\n\nimport sys\n"
+    return f"#!/usr/bin/env python3\n# -*- coding: utf-8 -*-\n\n{license_header}\n\nimport sys\n"
 
 
 @pytest.fixture
@@ -62,6 +77,43 @@ def project_dir(tmp_path: Path) -> Path:
     (tmp_path / ".venv").mkdir()
     (tmp_path / ".venv" / "lib.py").write_text("# venv")
     return tmp_path
+
+
+# --- get_license_header ---
+
+
+def test_get_license_header_uses_current_year(current_year: int):
+    header = get_license_header()
+    assert f"Copyright © {current_year}" in header
+
+
+def test_get_license_header_with_specific_year():
+    header = get_license_header(2020)
+    assert "Copyright © 2020" in header
+
+
+# --- extract_header_year ---
+
+
+def test_extract_header_year_finds_year(current_year: int, license_header: str):
+    content = f"{license_header}\nimport sys\n"
+    assert extract_header_year(content) == current_year
+
+
+def test_extract_header_year_finds_old_year():
+    header = get_license_header(2020)
+    content = f"{header}\nimport sys\n"
+    assert extract_header_year(content) == 2020
+
+
+def test_extract_header_year_no_header():
+    content = "import sys\n"
+    assert extract_header_year(content) is None
+
+
+def test_extract_header_year_with_shebang(current_year: int, license_header: str):
+    content = f"#!/usr/bin/env python3\n\n{license_header}\nimport sys\n"
+    assert extract_header_year(content) == current_year
 
 
 # --- normalize_header ---
@@ -204,116 +256,162 @@ def test_should_exclude_no_excludes():
 def test_check_file_header_valid(tmp_path: Path, valid_content: str):
     file = tmp_path / "valid.py"
     file.write_text(valid_content)
-    assert check_file_header(file) is True
+    has_valid, year = check_file_header(file)
+    assert has_valid is True
+    assert year == get_current_year()
 
 
 def test_check_file_header_valid_with_shebang(tmp_path: Path, valid_with_shebang: str):
     file = tmp_path / "with_shebang.py"
     file.write_text(valid_with_shebang)
-    assert check_file_header(file) is True
+    has_valid, _year = check_file_header(file)
+    assert has_valid is True
 
 
 def test_check_file_header_valid_with_encoding(tmp_path: Path, valid_with_encoding: str):
     file = tmp_path / "with_encoding.py"
     file.write_text(valid_with_encoding)
-    assert check_file_header(file) is True
+    has_valid, _year = check_file_header(file)
+    assert has_valid is True
 
 
 def test_check_file_header_valid_with_shebang_and_encoding(tmp_path: Path, valid_with_both: str):
     file = tmp_path / "with_both.py"
     file.write_text(valid_with_both)
-    assert check_file_header(file) is True
+    has_valid, _year = check_file_header(file)
+    assert has_valid is True
 
 
 def test_check_file_header_invalid_no_header(tmp_path: Path):
     file = tmp_path / "no_header.py"
     file.write_text("import sys\n")
-    assert check_file_header(file) is False
+    has_valid, year = check_file_header(file)
+    assert has_valid is False
+    assert year is None
 
 
 def test_check_file_header_invalid_wrong_header(tmp_path: Path):
     file = tmp_path / "wrong_header.py"
     file.write_text("# MIT License\nimport sys\n")
-    assert check_file_header(file) is False
+    has_valid, year = check_file_header(file)
+    assert has_valid is False
+    assert year is None
+
+
+def test_check_file_header_invalid_old_year(tmp_path: Path):
+    """File with valid header but outdated year."""
+    old_header = get_license_header(2020)
+    file = tmp_path / "old_year.py"
+    file.write_text(f"{old_header}\nimport sys\n")
+    has_valid, year = check_file_header(file)
+    assert has_valid is False
+    assert year == 2020
 
 
 def test_check_file_header_empty_file(tmp_path: Path):
     file = tmp_path / "empty.py"
     file.write_text("")
-    assert check_file_header(file) is True
+    has_valid, year = check_file_header(file)
+    assert has_valid is True
+    assert year is None
 
 
 def test_check_file_header_whitespace_only(tmp_path: Path):
     file = tmp_path / "whitespace.py"
     file.write_text("   \n\n")
-    assert check_file_header(file) is True
+    has_valid, _year = check_file_header(file)
+    assert has_valid is True
 
 
 def test_check_file_header_nonexistent_file(tmp_path: Path):
-    assert check_file_header(tmp_path / "nonexistent.py") is False
+    has_valid, year = check_file_header(tmp_path / "nonexistent.py")
+    assert has_valid is False
+    assert year is None
 
 
 # --- fix_file_header ---
 
 
-def test_fix_file_header_without_header(tmp_path: Path):
+def test_fix_file_header_without_header(tmp_path: Path, current_year: int):
     file = tmp_path / "no_header.py"
     file.write_text("import sys\n\ndef main():\n    pass\n")
 
     result = fix_file_header(file)
 
     assert result is True
-    assert check_file_header(file) is True
+    has_valid, _year = check_file_header(file)
+    assert has_valid is True
     content = file.read_text()
-    assert content.startswith(LICENSE_HEADER.rstrip())
+    assert f"Copyright © {current_year}" in content
     assert "import sys" in content
 
 
-def test_fix_file_header_with_shebang(tmp_path: Path):
+def test_fix_file_header_with_shebang(tmp_path: Path, current_year: int):
     file = tmp_path / "with_shebang.py"
     file.write_text("#!/usr/bin/env python3\n\nimport sys\n")
 
     fix_file_header(file)
 
-    assert check_file_header(file) is True
+    has_valid, _ = check_file_header(file)
+    assert has_valid is True
     content = file.read_text()
     assert content.startswith("#!/usr/bin/env python3\n")
-    assert LICENSE_HEADER.rstrip() in content
+    assert f"Copyright © {current_year}" in content
     assert "import sys" in content
 
 
-def test_fix_file_header_with_encoding(tmp_path: Path):
+def test_fix_file_header_with_encoding(tmp_path: Path, current_year: int):
     file = tmp_path / "with_encoding.py"
     file.write_text("# -*- coding: utf-8 -*-\n\nimport sys\n")
 
     fix_file_header(file)
 
-    assert check_file_header(file) is True
+    has_valid, _ = check_file_header(file)
+    assert has_valid is True
     content = file.read_text()
     assert content.startswith("# -*- coding: utf-8 -*-\n")
-    assert LICENSE_HEADER.rstrip() in content
+    assert f"Copyright © {current_year}" in content
 
 
-def test_fix_file_header_with_shebang_and_encoding(tmp_path: Path):
+def test_fix_file_header_with_shebang_and_encoding(tmp_path: Path, current_year: int):
     file = tmp_path / "with_both.py"
     file.write_text("#!/usr/bin/env python3\n# -*- coding: utf-8 -*-\n\nimport sys\n")
 
     fix_file_header(file)
 
-    assert check_file_header(file) is True
+    has_valid, _ = check_file_header(file)
+    assert has_valid is True
     content = file.read_text()
     assert content.startswith("#!/usr/bin/env python3\n# -*- coding: utf-8 -*-\n")
-    assert LICENSE_HEADER.rstrip() in content
+    assert f"Copyright © {current_year}" in content
 
 
-def test_fix_file_header_empty_file(tmp_path: Path):
+def test_fix_file_header_empty_file(tmp_path: Path, current_year: int):
     file = tmp_path / "empty.py"
     file.write_text("")
 
     fix_file_header(file)
 
     content = file.read_text()
-    assert content == LICENSE_HEADER
+    assert f"Copyright © {current_year}" in content
+
+
+def test_fix_file_header_updates_old_year(tmp_path: Path, current_year: int):
+    """Fix should update year in existing header."""
+    old_header = get_license_header(2020)
+    file = tmp_path / "old_year.py"
+    file.write_text(f"{old_header}\nimport sys\n")
+
+    result = fix_file_header(file)
+
+    assert result is True
+    has_valid, year = check_file_header(file)
+    assert has_valid is True
+    assert year == current_year
+    content = file.read_text()
+    assert f"Copyright © {current_year}" in content
+    assert "Copyright © 2020" not in content
+    assert "import sys" in content
 
 
 def test_fix_file_header_preserves_code(tmp_path: Path):
@@ -332,15 +430,18 @@ def test_fix_file_header_nonexistent_file(tmp_path: Path):
     assert fix_file_header(tmp_path / "nonexistent.py") is False
 
 
-def test_fix_file_header_idempotent(tmp_path: Path, valid_content: str):
+def test_fix_file_header_idempotent(tmp_path: Path, valid_content: str, current_year: int):
     file = tmp_path / "already_valid.py"
     file.write_text(valid_content)
 
-    assert check_file_header(file) is True
+    has_valid, _ = check_file_header(file)
+    assert has_valid is True
 
     fix_file_header(file)
 
-    assert check_file_header(file) is True
+    has_valid, year = check_file_header(file)
+    assert has_valid is True
+    assert year == current_year
 
 
 # --- find_python_files ---
@@ -389,3 +490,39 @@ def test_find_python_files_respects_gitignore(project_dir: Path):
     files = find_python_files([project_dir], excludes)
 
     assert {f.name for f in files} == {"main.py", "utils.py", "test_main.py"}
+
+
+# --- Year validation edge cases ---
+
+
+def test_check_file_header_with_mocked_year(tmp_path: Path):
+    """Test that year check uses current year dynamically."""
+    header_2024 = get_license_header(2024)
+    file = tmp_path / "test.py"
+    file.write_text(f"{header_2024}\nimport sys\n")
+
+    # Mock current year to be 2024
+    with patch("scripts.check_license_header.get_current_year", return_value=2024):
+        has_valid, year = check_file_header(file)
+        assert has_valid is True
+        assert year == 2024
+
+    # Without mock, should fail (unless we're actually in 2024)
+    actual_year = get_current_year()
+    if actual_year != 2024:
+        has_valid, year = check_file_header(file)
+        assert has_valid is False
+        assert year == 2024
+
+
+def test_fix_file_header_updates_to_current_year_mocked(tmp_path: Path):
+    """Test that fix updates to whatever the current year is."""
+    header_2020 = get_license_header(2020)
+    file = tmp_path / "old.py"
+    file.write_text(f"{header_2020}\nimport sys\n")
+
+    with patch("scripts.check_license_header.get_current_year", return_value=2030):
+        fix_file_header(file)
+        content = file.read_text()
+        assert "Copyright © 2030" in content
+        assert "Copyright © 2020" not in content
