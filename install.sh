@@ -45,11 +45,35 @@ elif command -v pipx &> /dev/null; then
 
 elif command -v pip3 &> /dev/null; then
     echo "Using pip3..."
-    pip3 install "git+$REPO_URL"
+    if ! pip3 install --user "git+$REPO_URL" 2>/dev/null; then
+        echo ""
+        echo "⚠ Your system uses PEP 668 protection (externally-managed-environment)."
+        echo "This prevents pip from installing packages globally."
+        echo ""
+        read -p "Install with --break-system-packages? [y/N] " confirm
+        if [[ "$confirm" =~ ^[Yy]$ ]]; then
+            pip3 install --user --break-system-packages "git+$REPO_URL"
+        else
+            echo "Installation cancelled. Consider installing uv or pipx first."
+            exit 1
+        fi
+    fi
 
 elif command -v pip &> /dev/null; then
     echo "Using pip..."
-    pip install "git+$REPO_URL"
+    if ! pip install --user "git+$REPO_URL" 2>/dev/null; then
+        echo ""
+        echo "⚠ Your system uses PEP 668 protection (externally-managed-environment)."
+        echo "This prevents pip from installing packages globally."
+        echo ""
+        read -p "Install with --break-system-packages? [y/N] " confirm
+        if [[ "$confirm" =~ ^[Yy]$ ]]; then
+            pip install --user --break-system-packages "git+$REPO_URL"
+        else
+            echo "Installation cancelled. Consider installing uv or pipx first."
+            exit 1
+        fi
+    fi
 
 else
     echo "Error: No package manager found. Please install Python package manager first (uv / pipx / pip3 / pip)."
