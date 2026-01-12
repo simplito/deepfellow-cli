@@ -20,14 +20,15 @@ from email_validator import validate_email as validate_email_lib
 from .echo import echo
 from .system import is_command_available
 
-REQUIRED_COMMANDS = ("uv",)
+# Empty as no system command is required for server login and organization or project commands
+REQUIRED_COMMANDS: set[str] = set()
 USERNAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_]{2,19}$"
 PASSWORD_REGEX = r"^[a-zA-Z0-9_!@#$%^&*()_=+\-]{8,19}$"
 
 
 def validate_system() -> None:
     """Validate if the system has all dependencies."""
-    failed_commands = []
+    failed_commands: list[str] = []
     # TODO Validate for Python version
     for command in REQUIRED_COMMANDS:
         if not is_command_available(command):
