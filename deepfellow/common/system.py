@@ -22,7 +22,6 @@ from deepfellow.common.exceptions import reraise_if_debug
 def run(
     command: str | list[str],
     cwd: Path | str | None = None,
-    uv: bool = False,
     raises: type[Exception] | None = None,
     quiet: bool = False,
     shell: bool = False,
@@ -52,7 +51,6 @@ def run(
     Args:
         command: command to run
         cwd: directory to run from
-        uv: should we call from uv
         raises: exception to be raised if failed
         quiet: mute stdout and stderr
         shell: should subrocess run as shell command
@@ -67,9 +65,6 @@ def run(
         - subprocess.CalledProcessError if in debug mode
     """
     cmd = command
-    if uv:
-        cmd = f"uv run {cmd}"
-
     clean_env = os.environ.copy()
     clean_env.pop("VIRTUAL_ENV", None)
 
@@ -91,7 +86,7 @@ def run(
             **kwargs,
         )
     except subprocess.CalledProcessError as exc_info:
-        echo.debug(f"Failed to run command {command} {cwd=} {uv=}")
+        echo.debug(f"Failed to run command {command} {cwd=}")
         if raises is not None:
             raise raises(exc_info.stderr) from exc_info
 
