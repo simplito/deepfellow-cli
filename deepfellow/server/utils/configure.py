@@ -29,7 +29,7 @@ from deepfellow.common.defaults import (
 )
 from deepfellow.common.docker import save_compose_file
 from deepfellow.common.echo import echo
-from deepfellow.common.validation import validate_truthy, validate_url, validate_username
+from deepfellow.common.validation import validate_connection_string, validate_truthy, validate_url, validate_username
 
 
 def configure_vector_db(custom: bool, infra_url: str, original_env: dict[str, Any] | None = None) -> dict[str, str]:
@@ -106,7 +106,9 @@ def configure_mongo(custom: bool, original_env: dict[str, Any] | None = None) ->
     }
     if custom:
         mongo_config["DF_MONGO_URL"] = echo.prompt_until_valid(
-            "Provide URL for MongoDB", validate_url, default=original_env.get("df_mongo_url")
+            "Provide host:port for MongoDB e.g. 192.168.1.5:27017",
+            validate_connection_string,
+            default=original_env.get("df_mongo_url"),
         )
         mongo_config["DF_MONGO_DB"] = echo.prompt_until_valid(
             "Provide database name for MongoDB", validate_truthy, default=original_env.get("df_mongo_db")

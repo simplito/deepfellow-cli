@@ -71,6 +71,35 @@ def validate_url(value: str | None) -> str | None:
     return value
 
 
+def validate_connection_string(value: str | None) -> str | None:
+    """Validate connection string in format: host[:port]."""
+    if value is None:
+        return None
+
+    # Split host and port
+    parts = value.split(":")
+
+    if len(parts) > 2:
+        raise typer.BadParameter("Invalid connection string - expected format: host[:port]")
+
+    host = parts[0].strip()
+    if not host:
+        raise typer.BadParameter("Host cannot be empty")
+
+    # Jeśli jest port, zwaliduj
+    if len(parts) == 2:
+        port_str = parts[1].strip()
+        try:
+            port = int(port_str)
+        except ValueError as exc:
+            raise typer.BadParameter("Invalid port - must be a number between 1 and 65535") from exc
+
+        if not (1 <= port <= 65535):
+            raise typer.BadParameter("Port must be between 1 and 65535")
+
+    return value
+
+
 def validate_server(value: str | None) -> str | None:
     """Validate the server entry. Strip the last slash."""
     if value is None:
