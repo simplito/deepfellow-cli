@@ -41,7 +41,7 @@ def configure_vector_db(custom: bool, infra_url: str, original_env: dict[str, An
         vector_db_config["provider"].update(
             {
                 "url": echo.prompt_until_valid(
-                    "Provide Milvus provider URL", validate_url, default=original_provider.get("url")
+                    "Provide Milvus instance URL", validate_url, default=original_provider.get("url")
                 ),
                 "db": echo.prompt_until_valid(
                     "Provide Milvus provider database name", validate_truthy, default=original_provider.get("db")
