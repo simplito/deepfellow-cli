@@ -47,6 +47,7 @@ def install(
         DF_SERVER_PORT, envvar="DF_SERVER_PORT", help="Port to use to serve the DeepFellow Server from."
     ),
     image: str = typer.Option(DF_SERVER_IMAGE, envvar="DF_SERVER_IMAGE", help="DeepFellow Server docker image."),
+    local_image: bool = typer.Option(False, help="Use locally build DeepFellow Server docker image."),
     otel_url: str | None = typer.Option(
         None,
         envvar="DF_OTEL_EXPORTER_OTLP_ENDPOINT",
@@ -131,6 +132,9 @@ def install(
 
     if depends_on:
         compose_server["server"]["depends_on"] = depends_on
+
+    if local_image:
+        compose_server["server"]["pull_policy"] = "never"
 
     services.update(compose_server)
 

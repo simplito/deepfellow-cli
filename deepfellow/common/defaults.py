@@ -106,10 +106,11 @@ DOCKER_COMPOSE_SERVER = {
         ],
         "restart": "unless-stopped",
         "healthcheck": {
-            "test": "curl -f http://localhost:${DF_SERVER_PORT}/docs || exit 1",
-            "interval": "5m",
-            "timeout": "2s",
+            "test": ["CMD", "/app/scripts/healthcheck.py"],
+            "interval": "30s",
+            "timeout": "5s",
             "retries": 3,
+            "start_period": "40s",
         },
     }
 }
