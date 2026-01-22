@@ -21,6 +21,7 @@ from .model import app as model_app
 from .service import app as service_app
 from .ssl_on import app as ssl_on_app
 from .start import app as start_app
+from .status import app as status_app
 from .stop import app as stop_app
 from .update import app as update_app
 
@@ -30,6 +31,7 @@ app = typer.Typer()
 app.add_typer(info_app)
 app.add_typer(install_app)
 app.add_typer(start_app)
+app.add_typer(status_app)
 app.add_typer(stop_app)
 app.add_typer(update_app)
 app.add_typer(ssl_on_app)
