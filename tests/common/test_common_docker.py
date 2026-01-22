@@ -19,6 +19,8 @@ from deepfellow.common.docker import (
     is_docker_installed,
     load_compose_file,
     merge_services,
+    parse_docker_compose_ps,
+    parse_docker_compose_usage,
     save_compose_file,
 )
 
@@ -168,3 +170,86 @@ def test_save_compose_file_with_volumes(temp_compose_file: Path):
   test_volume_2:
 """
     )
+
+
+def test_parse_docker_compose_ps():
+    # Test with sample docker compose ps output
+    sample_output = (
+        "NAME            IMAGE                                                 COMMAND                  "
+        "SERVICE   CREATED       STATUS          PORTS\n"
+        'infra-infra-1   hub.simplito.com/deepfellow/deepfellow-infra:0.15.0   "./.venv/bin/uvicorn…"   infra     '
+        "2 weeks ago   Up 14 minutes   0.0.0.0:8086->8086/tcp, [::]:8086->8086/tcp"
+    )
+
+    result = parse_docker_compose_ps(sample_output)
+
+    assert result["NAME"] == "infra-infra-1"
+    assert result["IMAGE"] == "hub.simplito.com/deepfellow/deepfellow-infra:0.15.0"
+    assert result["CREATED"] == "2 weeks ago"
+    assert result["STATUS"] == "Up 14 minutes"
+    assert result["PORTS"] == "0.0.0.0:8086->8086/tcp, [::]:8086->8086/tcp"
+
+
+def test_parse_docker_compose_ps_empty():
+    # Test with empty output
+    result = parse_docker_compose_ps("")
+    assert result == {}
+
+
+def test_parse_docker_compose_ps_single_line():
+    # Test with only header
+    result = parse_docker_compose_ps("NAME            IMAGE")
+    assert result == {}
+
+
+def test_parse_docker_compose_usage():
+    # Test with sample docker stats output
+    sample_output = (
+        "CONTAINER ID   NAME            CPU %     MEM USAGE / LIMIT     MEM %     NET I/O           BLOCK I/O    PIDS\n"
+        "9c06fdf7cb59   infra-infra-1   0.21%     53.67MiB / 11.72GiB   0.45%     20.1kB / 5.48kB   353MB / 0B   2"
+    )
+
+    result = parse_docker_compose_usage(sample_output)
+
+    assert result["CONTAINER ID"] == "9c06fdf7cb59"
+    assert result["NAME"] == "infra-infra-1"
+    assert result["CPU %"] == "0.21%"
+    assert result["MEM USAGE"] == "53.67MiB"
+    assert result["MEM LIMIT"] == "11.72GiB"
+    assert result["MEM %"] == "0.45%"
+    assert result["NET I/O"] == "20.1kB / 5.48kB"
+    assert result["BLOCK I/O"] == "353MB / 0B"
+    assert result["PIDS"] == "2"
+
+
+def test_parse_docker_compose_usage_empty():
+    # Test with empty output
+    result = parse_docker_compose_usage("")
+    assert result == {}
+
+
+def test_parse_docker_compose_usage_single_line():
+    # Test with only header
+    sample_output = "CONTAINER ID   NAME            CPU %     MEM USAGE / LIMIT"
+    result = parse_docker_compose_usage(sample_output)
+    assert result == {}
+
+
+def test_parse_docker_compose_usage_different_values():
+    # Test with different container data
+    sample_output = (
+        "CONTAINER ID   NAME          CPU %     MEM USAGE / LIMIT    MEM %     NET I/O         BLOCK I/O      PIDS\n"
+        "abc123def456   my-app-1      1.50%     128.5MiB / 2GiB      6.27%     1.2MB / 856kB   1.5GB / 10MB   5"
+    )
+
+    result = parse_docker_compose_usage(sample_output)
+
+    assert result["CONTAINER ID"] == "abc123def456"
+    assert result["NAME"] == "my-app-1"
+    assert result["CPU %"] == "1.50%"
+    assert result["MEM USAGE"] == "128.5MiB"
+    assert result["MEM LIMIT"] == "2GiB"
+    assert result["MEM %"] == "6.27%"
+    assert result["NET I/O"] == "1.2MB / 856kB"
+    assert result["BLOCK I/O"] == "1.5GB / 10MB"
+    assert result["PIDS"] == "5"
