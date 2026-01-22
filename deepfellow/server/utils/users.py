@@ -63,8 +63,8 @@ def create_admin(directory: Path, name: str | None, email: str | None, password:
 
 def reset_password(directory: Path, email: str | None, password: str | None) -> None:
     """Reset password."""
-    email = email or echo.prompt_until_valid("Provide admin email", validate_email)
-    password = password or echo.prompt_until_valid("Provide admin password", validate_password, password=True)
+    email = email or echo.prompt_until_valid("Provide user email", validate_email)
+    password = password or echo.prompt_until_valid("Provide user password", validate_password, password=True)
 
     response: str | None = None
     try:
