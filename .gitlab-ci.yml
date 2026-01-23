@@ -74,7 +74,7 @@ pytest:
         path: coverage_cli.xml
 
 create_issue_on_merge:
-  image: hub.simplito.com/deepfellow/automatic-issue-creator:0.5.0
+  image: hub.simplito.com/deepfellow/automatic-issue-creator:0.7.0
   stage: post-merge
   only:
     - main  # change to 'master' if that's your default branch
