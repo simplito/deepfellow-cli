@@ -19,6 +19,7 @@ from .opentelemetry import app as opentelemetry_app
 from .organization import app as organization_app
 from .password_reset import app as reset_password_app
 from .project import app as project_app
+from .ssl_on import app as ssl_on_app
 from .start import app as start_app
 from .status import app as status_app
 from .stop import app as stop_app
@@ -35,6 +36,7 @@ app.add_typer(start_app)
 app.add_typer(status_app)
 app.add_typer(stop_app)
 app.add_typer(update_app)
+app.add_typer(ssl_on_app)
 app.add_typer(logs_app)
 app.add_typer(env_app, name="env", help="Manage DeepFellow Server environment variables.")
 app.add_typer(login_app)
