@@ -32,11 +32,41 @@ from deepfellow.common.echo import echo
 from deepfellow.common.validation import validate_connection_string, validate_truthy, validate_url, validate_username
 
 
-def configure_vector_db(custom: bool, infra_url: str, original_env: dict[str, Any] | None = None) -> dict[str, str]:
+def configure_vector_db(
+    custom: bool,
+    infra_url: str,
+    original_env: dict[str, Any] | None = None,
+    vectordb_active: bool = bool(VECTOR_DATABASE["provider"]["active"]),
+    vectordb_type: str = VECTOR_DATABASE["provider"]["type"],
+    vectordb_url: str = VECTOR_DATABASE["provider"]["url"],
+    vectordb_db: str = VECTOR_DATABASE["provider"]["db"],
+    vectordb_user: str = VECTOR_DATABASE["provider"]["user"],
+    vectordb_password: str = VECTOR_DATABASE["provider"]["password"],
+    embedding: bool = bool(VECTOR_DATABASE["embedding"]["active"]),
+    embedding_endpoint: str = VECTOR_DATABASE["embedding"]["endpoint"],
+    embedding_model: str = VECTOR_DATABASE["embedding"]["model"],
+    embedding_size: int = VECTOR_DATABASE["embedding"]["size"],
+) -> dict[str, str]:
     """Collect info about vector db."""
     original_env = original_env or {}
     original_provider = original_env.get("df_vector_database", {}).get("provider", {})
     vector_db_config: dict[str, Any] = VECTOR_DATABASE
+    vector_db_config = {
+        "provider": {
+            "active": vectordb_active,
+            "type": vectordb_type,
+            "url": vectordb_url,
+            "db": vectordb_db,
+            "user": vectordb_user,
+            "password": vectordb_password,
+        },
+        "embedding": {
+            "active": embedding,
+            "endpoint": embedding_endpoint,
+            "model": embedding_model,
+            "size": embedding_size,
+        },
+    }
     if custom:
         vector_db_config["provider"].update(
             {
@@ -60,15 +90,15 @@ def configure_vector_db(custom: bool, infra_url: str, original_env: dict[str, An
         vector_db_config["embedding"]["endpoint"] = infra_url
         vector_db_config["embedding"].update(
             {
-                "model": echo.prompt("Provide the model for embedding", default=VECTOR_DATABASE["embedding"]["model"]),
-                "size": echo.prompt("Provide the embedding size", default=VECTOR_DATABASE["embedding"]["size"]),
+                "model": echo.prompt("Provide the model for embedding", default=vector_db_config["embedding"]["model"]),
+                "size": echo.prompt("Provide the embedding size", default=vector_db_config["embedding"]["size"]),
             }
         )
 
     return dict_to_env(vector_db_config, parent_key="DF_VECTOR_DATABASE")
 
 
-def configure_infra() -> dict[str, Any]:
+def configure_infra(infra_api_key: str, default_infra_url: str = "http://infra:8086") -> dict[str, Any]:
     """Configure single infra."""
     infra = {}
 
@@ -76,15 +106,17 @@ def configure_infra() -> dict[str, Any]:
     while not correct:
         try:
             infra["DF_INFRA__URL"] = echo.prompt(
-                "Provide DeepFellow Infra URL", default="http://infra:8086", validation=validate_url
+                "Provide DeepFellow Infra URL", default=default_infra_url, validation=validate_url
             )
             correct = True
         except typer.BadParameter:
             echo.error("Invalid DeepFellow Infra URL. Please try again.")
             correct = False
 
-    infra["DF_INFRA__API_KEY"] = echo.prompt_until_valid(
-        "Provide Deepfellow Infra API KEY", validation=validate_truthy, password=True
+    infra["DF_INFRA__API_KEY"] = (
+        infra_api_key
+        if infra_api_key
+        else echo.prompt_until_valid("Provide Deepfellow Infra API KEY", validation=validate_truthy, password=True)
     )
     return infra
 
@@ -95,14 +127,21 @@ class Infras:
     names: list[str]
 
 
-def configure_mongo(custom: bool, original_env: dict[str, Any] | None = None) -> dict[str, str]:
+def configure_mongo(
+    custom: bool,
+    original_env: dict[str, Any] | None = None,
+    mongo_url: str = DF_MONGO_URL,
+    mongo_user: str = DF_MONGO_USER,
+    mongo_password: str = DF_MONGO_PASSWORD,
+    mongo_db: str = DF_MONGO_DB,
+) -> dict[str, str]:
     """Collect info about MongoDB."""
     original_env = original_env or {}
     mongo_config = {
-        "DF_MONGO_URL": DF_MONGO_URL,
-        "DF_MONGO_USER": DF_MONGO_USER,
-        "DF_MONGO_PASSWORD": DF_MONGO_PASSWORD,
-        "DF_MONGO_DB": DF_MONGO_DB,
+        "DF_MONGO_URL": mongo_url,
+        "DF_MONGO_USER": mongo_user,
+        "DF_MONGO_PASSWORD": mongo_password,
+        "DF_MONGO_DB": mongo_db,
     }
     if custom:
         mongo_config["DF_MONGO_URL"] = echo.prompt_until_valid(

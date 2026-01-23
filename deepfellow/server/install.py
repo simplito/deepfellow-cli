@@ -18,12 +18,18 @@ import typer
 from deepfellow.common.config import read_env_file_to_dict, save_env_file
 from deepfellow.common.defaults import (
     DF_INFRA_DOCKER_NETWORK,
+    DF_INFRA_URL,
+    DF_MONGO_DB,
+    DF_MONGO_PASSWORD,
+    DF_MONGO_URL,
+    DF_MONGO_USER,
     DF_SERVER_IMAGE,
     DF_SERVER_PORT,
     DF_SERVER_STORAGE_DIRECTORY,
     DOCKER_COMPOSE_MONGO_DB,
     DOCKER_COMPOSE_SERVER,
     DOCKER_COMPOSE_VECTOR_DB,
+    VECTOR_DATABASE,
 )
 from deepfellow.common.docker import (
     add_network_to_service,
@@ -54,33 +60,94 @@ def install(
         help="Open Telemetry url (DF_OTEL_EXPORTER_OTLP_ENDPOINT).",
         callback=validate_url,
     ),
+    infra_url: str = typer.Option(
+        DF_INFRA_URL, help="Deepfellow Infra url. Can be docker service url inside network or outside."
+    ),
+    infra_api_key: str = typer.Option("", help="Deepfellow Infra api key"),
+    docker_network: str = typer.Option(
+        DF_INFRA_DOCKER_NETWORK, help="The Docker network name for container communication"
+    ),
+    mongodb_url: str = typer.Option(DF_MONGO_URL, help="The connection URL for the MongoDB instance"),
+    mongodb_database_name: str = typer.Option(DF_MONGO_DB, help="The name of the MongoDB database to use"),
+    mongodb_username: str = typer.Option(DF_MONGO_USER, help="Username for MongoDB authentication"),
+    mongodb_password: str = typer.Option(DF_MONGO_PASSWORD, help="Password for MongoDB authentication"),
+    vectordb_local: bool = typer.Option(
+        bool(VECTOR_DATABASE["provider"]["active"]), help="Enable to use a local vector database instance"
+    ),
+    vectordb_url: str = typer.Option(
+        VECTOR_DATABASE["provider"]["url"], help="The connection URL for the remote Vector DB provider"
+    ),
+    vectordb_type: str = typer.Option(VECTOR_DATABASE["provider"]["type"], help="Type of Vector DB"),
+    vectordb_database_name: str = typer.Option(
+        VECTOR_DATABASE["provider"]["db"], help="The collection or database name in the Vector DB"
+    ),
+    vectordb_username: str = typer.Option(
+        VECTOR_DATABASE["provider"]["user"], help="Username for Vector DB authentication"
+    ),
+    vectordb_password: str = typer.Option(
+        VECTOR_DATABASE["provider"]["password"], help="Password for Vector DB authentication"
+    ),
+    embedding_active: bool = typer.Option(bool(VECTOR_DATABASE["embedding"]["active"]), help="Active embedding"),
+    embedding_endpoint: str = typer.Option(
+        VECTOR_DATABASE["embedding"]["endpoint"], help="The model endpoint used for generating vector embeddings"
+    ),
+    embedding_model: str = typer.Option(
+        VECTOR_DATABASE["embedding"]["model"], help="The model name used for generating vector embeddings"
+    ),
+    embedding_size: int = typer.Option(
+        VECTOR_DATABASE["embedding"]["size"], help="The dimensionality/size of the embedding vectors"
+    ),
+    force_install: bool = typer.Option(False, help="Force install"),
 ) -> None:
     """Install DeepFellow Server with docker."""
     echo.info("Installing DeepFellow Server.")
 
     assert_docker()
 
-    ensure_directory(directory, error_message="Unable to create DeepFellow Server directory.")
+    ensure_directory(
+        directory, error_message="Unable to create DeepFellow Server directory.", force_install=force_install
+    )
 
     env_file = directory / ".env"
     original_env_content = read_env_file_to_dict(env_file)
 
     echo.info("DeepFellow Server requires a MongoDB to be installed.")
-    custom_mongo_db_server = echo.confirm("Do you have MongoDB installed for DeepFellow Server?")
-    mongo_env = configure_mongo(custom_mongo_db_server, original_env_content)
+    custom_mongo_db_server = echo.confirm("Do you have MongoDB installed for DeepFellow Server?", default=False)
+    mongo_env = configure_mongo(
+        custom_mongo_db_server,
+        original_env_content,
+        mongodb_url,
+        mongodb_username,
+        mongodb_password,
+        mongodb_database_name,
+    )
 
     echo.info("DeepFellow Server is communicating with DeepFellow Infra.")
-    infra_env = configure_infra()
+    infra_env = configure_infra(infra_api_key, infra_url)
 
     # Find out which docker network to use
-    docker_network = echo.prompt("Provide a docker network name", default=DF_INFRA_DOCKER_NETWORK)
+    docker_network = echo.prompt("Provide a docker network name", default=docker_network)
 
     # Create the network if needed
     ensure_network(docker_network)
 
     echo.info("DeepFellow Server might use a vector DB. If not provided some features will not work.")
-    custom_vector_db_server = echo.confirm("Do you have a vector DB ready?")
-    vector_db_envs = configure_vector_db(custom_vector_db_server, infra_env["DF_INFRA__URL"], original_env_content)
+    custom_vector_db_server = echo.confirm("Do you have a vector DB ready?", default=False)
+    vector_db_envs = configure_vector_db(
+        custom_vector_db_server,
+        infra_env["DF_INFRA__URL"],
+        original_env_content,
+        vectordb_local,
+        vectordb_type,
+        vectordb_url,
+        vectordb_database_name,
+        vectordb_username,
+        vectordb_password,
+        embedding_active,
+        embedding_endpoint,
+        embedding_model,
+        embedding_size,
+    )
     vector_db_active = vector_db_envs.get("DF_VECTOR_DATABASE__PROVIDER__ACTIVE") == "1"
 
     otel = configure_otel(directory, otel_url, original_env_content)

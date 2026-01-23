@@ -29,13 +29,14 @@ def ensure_directory(
     warning_message: str | None = None,
     confirm_message: str | None = None,
     error_message: str | None = None,
+    force_install: bool | None = None,
 ) -> None:
     """Check if overriding the existing installation and create directory if needed."""
     confirm_message = confirm_message or "Should I override existing installation?"
     error_message = error_message or f"Unable to create directory {directory}."
     warning_message = warning_message or f"Directory {directory} already exists."
 
-    if directory.is_dir():
+    if directory.is_dir() and not force_install:
         echo.warning(warning_message)
         if not echo.confirm(confirm_message):
             raise typer.Exit(1)
