@@ -19,6 +19,7 @@ from deepfellow.common.env import env_get, env_set
 from deepfellow.common.system import run
 from deepfellow.common.validation import validate_url
 from deepfellow.infra.utils.options import directory_option
+from deepfellow.infra.utils.validation import check_infra_directory
 
 app = typer.Typer()
 
@@ -32,6 +33,8 @@ def connect(
     mesh_key: str = typer.Argument(..., help="DF_MESH_KEY of the Parent DeepFellow Infra."),
 ) -> None:
     """Connect two Infras together. This infra is child."""
+    check_infra_directory(directory)
+
     if not is_service_running("infra", cwd=directory):
         echo.error("DeepFellow Infra is not running")
         echo.info("Call `deepfellow infra start`")

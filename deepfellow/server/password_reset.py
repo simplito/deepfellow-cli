@@ -16,6 +16,7 @@ import typer
 from deepfellow.common.validation import validate_email
 from deepfellow.server.utils.options import directory_option
 from deepfellow.server.utils.users import reset_password as reset_password_util
+from deepfellow.server.utils.validation import check_server_directory
 
 app = typer.Typer()
 
@@ -27,4 +28,5 @@ def password_reset(
     password: str | None = typer.Option(None, help="Password"),
 ) -> None:
     """Password reset."""
+    check_server_directory(directory)
     reset_password_util(directory, email, password)

@@ -16,6 +16,7 @@ import typer
 from deepfellow.common.echo import echo
 from deepfellow.common.env import get_envs_list
 from deepfellow.server.utils.options import directory_option
+from deepfellow.server.utils.validation import check_server_directory
 
 app = typer.Typer()
 
@@ -25,6 +26,7 @@ def info(
     directory: Path = directory_option(),
 ) -> None:
     """Display environment configuration."""
+    check_server_directory(directory)
     env_file = directory / ".env"
     envs = "\n".join(get_envs_list(env_file))
     echo.info(f"Variables stored in {env_file}\n{envs}")

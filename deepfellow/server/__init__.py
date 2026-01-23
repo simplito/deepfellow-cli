@@ -23,12 +23,14 @@ from .ssl_on import app as ssl_on_app
 from .start import app as start_app
 from .status import app as status_app
 from .stop import app as stop_app
+from .uninstall import app as uninstall_app
 from .update import app as update_app
 
 app = typer.Typer()
 
 app.add_typer(info_app)
 app.add_typer(install_app)
+app.add_typer(uninstall_app)
 app.add_typer(create_admin_app)
 app.add_typer(opentelemetry_app)
 app.add_typer(reset_password_app)

@@ -16,6 +16,7 @@ import typer
 from deepfellow.common.echo import echo
 from deepfellow.common.env import get_envs_list
 from deepfellow.infra.utils.options import directory_option
+from deepfellow.infra.utils.validation import check_infra_directory
 
 app = typer.Typer()
 
@@ -25,6 +26,7 @@ def info(
     directory: Path = directory_option(),
 ) -> None:
     """Display environment configuration."""
+    check_infra_directory(directory)
     env_file = directory / ".env"
     envs = get_envs_list(env_file)
     extended_envs = []

@@ -20,6 +20,7 @@ from deepfellow.common.env import env_get, env_set
 from deepfellow.common.system import run
 from deepfellow.common.validation import validate_server
 from deepfellow.infra.utils.options import directory_option
+from deepfellow.infra.utils.validation import check_infra_directory
 
 app = typer.Typer()
 
@@ -34,6 +35,7 @@ def ssl_on(
 ) -> None:
     """Switch on the SSL."""
     # Validate entry data
+    check_infra_directory(directory)
     if (ssl_key_path and not ssl_cert_path) or (not ssl_key_path and ssl_cert_path):
         echo.error("SSL configuration requires both SSL_KEY_PATH and SSL_CERT_PATH. Provide both or omit both.")
         raise typer.Exit(1)

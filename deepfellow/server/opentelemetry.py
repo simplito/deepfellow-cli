@@ -20,6 +20,7 @@ from deepfellow.common.env import env_get, env_set
 from deepfellow.common.system import run
 from deepfellow.common.validation import validate_url
 from deepfellow.server.utils.options import directory_option
+from deepfellow.server.utils.validation import check_server_directory
 
 app = typer.Typer()
 
@@ -35,6 +36,7 @@ def opentelemetry(
     ),
 ) -> None:
     """Connect to Open Telemetry."""
+    check_server_directory(directory)
     env_file = directory / ".env"
     original_otel_url = env_get(env_file, "DF_OTEL_EXPORTER_OTLP_ENDPOINT")
 

@@ -15,6 +15,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import typer
+
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
 
@@ -100,3 +102,10 @@ def run(
 def is_command_available(command: str) -> bool:
     """Check if command is accessible in the system."""
     return shutil.which(command) is not None
+
+
+def check_service_directory(directory: Path, service_name: str) -> None:
+    """Check if service directory exist."""
+    if not directory.is_dir():
+        echo.error(f"Create Deepfellow {service_name} first.")
+        raise typer.Exit(1)

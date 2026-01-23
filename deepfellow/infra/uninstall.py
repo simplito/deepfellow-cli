@@ -7,13 +7,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Start infra typer command."""
+"""Uninstall infra typer command."""
 
+import shutil
 from pathlib import Path
 
 import typer
 
 from deepfellow.common.echo import echo
+from deepfellow.common.install import assert_docker
 from deepfellow.common.system import run
 from deepfellow.infra.utils.options import directory_option
 from deepfellow.infra.utils.validation import check_infra_directory
@@ -22,11 +24,18 @@ app = typer.Typer()
 
 
 @app.command()
-def stop(
-    directory: Path = directory_option(exists=True),
+def uninstall(
+    directory: Path = directory_option("DeepFellow Infra directory."),
 ) -> None:
-    """Stop DeepFellow Infra."""
+    """Uninstall Deepfellow Infra."""
+    echo.info("Uninstalling DeepFellow Infra.")
     check_infra_directory(directory)
-    echo.debug("Stopping DeepFellow Infra")
-    run(["docker", "compose", "down"], cwd=directory)
-    echo.success("DeepFellow Infra is down")
+    assert_docker()
+
+    echo.info("Turn off DeepFellow Infra.")
+    run(["docker", "compose", "rm", "-s", "-f"], directory, quiet=True)
+
+    echo.info("Removing DeepFellow Infra files.")
+    shutil.rmtree(directory)
+
+    echo.success("DeepFellow Infra uninstalled.")

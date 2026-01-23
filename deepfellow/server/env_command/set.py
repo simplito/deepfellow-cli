@@ -15,6 +15,7 @@ import typer
 
 from deepfellow.common.env import env_set
 from deepfellow.server.utils.options import directory_option
+from deepfellow.server.utils.validation import check_server_directory
 
 app = typer.Typer()
 
@@ -27,4 +28,5 @@ def set(
     df_prefix: bool = typer.Option(True, help="Add DF_ prefix if not provided?"),
 ) -> None:
     """Set environment configuration."""
+    check_server_directory(directory)
     env_set(directory / ".env", env_name, env_value, df_prefix)

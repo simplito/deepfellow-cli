@@ -7,15 +7,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Start server typer command."""
+"""Uninstall server typer command."""
 
+import shutil
 from pathlib import Path
 
 import typer
 
-from deepfellow.common.config import read_env_file_to_dict
 from deepfellow.common.echo import echo
-from deepfellow.server.utils.docker import start_server
+from deepfellow.common.install import assert_docker
+from deepfellow.common.system import run
 from deepfellow.server.utils.options import directory_option
 from deepfellow.server.utils.validation import check_server_directory
 
@@ -23,13 +24,18 @@ app = typer.Typer()
 
 
 @app.command()
-def start(
-    directory: Path = directory_option("Target directory for the server installation.", exists=True),
+def uninstall(
+    directory: Path = directory_option("DeepFellow Server directory."),
 ) -> None:
-    """Start DeepFellow Server."""
+    """Uninstall DeepFellow Server."""
+    echo.info("Uninstalling DeepFellow Server.")
     check_server_directory(directory)
-    env_file = directory / ".env"
-    original_env_content = read_env_file_to_dict(env_file)
-    echo.info("Starting DeepFellow Server")
-    start_server(directory)
-    echo.info(f"DeepFellow Server started on http://localhost:{original_env_content['df_server_port']}")
+    assert_docker()
+
+    echo.info("Turn off DeepFellow Server.")
+    run(["docker", "compose", "rm", "-s", "-f"], directory, quiet=True)
+
+    echo.info("Removing DeepFellow Server files.")
+    shutil.rmtree(directory)
+
+    echo.success("DeepFellow Server uninstalled.")
