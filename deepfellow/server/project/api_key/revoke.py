@@ -40,7 +40,7 @@ def revoke(
     api_key = get_api_key(server, token, organization_id, project_id, api_key_id)
 
     if not yes and not echo.confirm(
-        f"Are you sure you want to delete the Project API Key {api_key.name}?", default=False
+        f"Are you sure you want to delete the Project API Key {api_key.name}?", default=True
     ):
         raise typer.Exit(1)
 
