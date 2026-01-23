@@ -29,13 +29,13 @@ def delete(
     """Delete organization after confirmation."""
     # Get token for the server
     secrets_file = ctx.obj.get("cli-secrets-file")
-    server = get_server_url(server)
-    token = get_token(secrets_file, server)
+    server_url = get_server_url(server)
+    token = get_token(secrets_file, server_url)
 
-    organization = get_organization(server, organization_id, token)
+    organization = get_organization(server_url, organization_id, token)
     if not echo.confirm(f"Are you sure you want to delete the {organization.name}?", default=False):
         raise typer.Exit(1)
 
-    delete_organization(server, organization_id, token)
+    delete_organization(server_url, organization_id, token)
 
     echo.info("Deleted {data['name']}")

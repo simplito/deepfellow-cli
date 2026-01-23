@@ -32,6 +32,6 @@ def login(
         typer.Exit if invalid credentials.
     """
     secrets_file = ctx.obj.get("cli-secrets-file")
-    server = get_server_url(server)
-    get_token_from_login(secrets_file, server, email=email, password=password)
+    server_url = get_server_url(server)
+    get_token_from_login(secrets_file, server_url, email=email, password=password)
     echo.info("Your token is stored and will be used automatically.")

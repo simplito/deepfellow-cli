@@ -40,8 +40,8 @@ def create(
     """Create organization."""
     # Get token for the server
     secrets_file = ctx.obj.get("cli-secrets-file")
-    server = get_server_url(server)
-    token = get_token(secrets_file, server)
+    server_url = get_server_url(server)
+    token = get_token(secrets_file, server_url)
 
     # Determine actual models value
     if models and "all" in models and len(models) > 1:
@@ -52,7 +52,7 @@ def create(
         project_models = models
 
     project = create_project(
-        server,
+        server_url,
         token,
         organization_id,
         {
