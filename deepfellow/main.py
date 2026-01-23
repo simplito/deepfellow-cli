@@ -60,6 +60,7 @@ def main(
     ),
     debug: bool = typer.Option(False, "-v", "-vv", "--verbose", "--debug", help="Display debug information"),
     yes: bool = typer.Option(False, "-y", "--yes", help="Automatically answer to all questions"),
+    non_interactive: bool = typer.Option(False, help="Run in non-interactive mode"),
 ) -> None:
     """DeepFellow Command Line Interface."""
     if ctx.invoked_subcommand is None:
@@ -69,6 +70,7 @@ def main(
     ctx.ensure_object(dict)
     ctx.obj["debug"] = debug
     ctx.obj["yes"] = yes
+    ctx.obj["non-interactive"] = non_interactive
     ctx.obj["cli-secrets-file"] = secrets
     ctx.obj["cli-config-file"] = config
     echo.debug(f"{config=}")

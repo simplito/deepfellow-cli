@@ -27,6 +27,15 @@ def add_tabs(msg: str) -> str:
     return msg.replace("\n", "\n\t")
 
 
+def is_interactive() -> bool:
+    """Check if in interactive mode."""
+    try:
+        ctx = click.get_current_context()
+        return bool(ctx and not ctx.obj.get("non-interactive", False))
+    except RuntimeError:
+        return True
+
+
 class Echo(Console):
     def debug(self, message_source: Any) -> None:
         """Print a debug message to the console."""
@@ -56,10 +65,20 @@ class Echo(Console):
         if "default" not in kwargs:
             kwargs["default"] = False
 
+        if not is_interactive():
+            return kwargs["default"]
+
         return Confirm.ask(prompt=f"❓\t{COLORS.medium_blue}{add_tabs(message)}{RESET}", **kwargs)
 
     def prompt(self, message: str, validation: ValidationCallback = None, **kwargs: Any) -> Any:
         """Prompt the user for value."""
+        if not is_interactive():
+            if "default" in kwargs:
+                return kwargs["default"]
+
+            echo.error(f"Non interactive mode is ON.\nPlease provide the value in args.\nMSG: {message}")
+            raise typer.Exit(1)
+
         value = Prompt.ask(prompt=f"❓\t{COLORS.medium_blue}{add_tabs(message)}{RESET}", show_default=True, **kwargs)
         if validation is not None:
             value = validation(value)

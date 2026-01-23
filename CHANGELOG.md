@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 - `deepfellow infra status` / `deepfelow server status` - displays container status and resource usage
+- Added non-interactive mode support with `--non-interactive` flag for all commands
 
 ## [0.1.0] - 2026-01-16
 
