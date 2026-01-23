@@ -76,7 +76,14 @@ class Echo(Console):
         final_msg = f"❓\t{COLORS.medium_blue}{add_tabs(message)}{RESET}" if is_interactive() else message
         return Confirm.ask(prompt=final_msg, **kwargs)
 
-    def prompt(self, message: str, validation: ValidationCallback = None, **kwargs: Any) -> Any:
+    def prompt(
+        self,
+        message: str,
+        validation: ValidationCallback = None,
+        from_args: str | None = None,
+        original_default: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
         """Prompt the user for value."""
         if not is_interactive():
             if "default" in kwargs:
@@ -85,8 +92,12 @@ class Echo(Console):
             echo.error(f"Non interactive mode is ON.\nPlease provide the value in args.\nMSG: {message}")
             raise typer.Exit(1)
 
-        final_msg = f"❓\t{COLORS.medium_blue}{add_tabs(message)}{RESET}" if is_interactive() else message
-        value = Prompt.ask(prompt=final_msg, show_default=True, **kwargs)
+        if from_args is not None or original_default is not None or from_args == original_default:
+            value = Prompt.ask(
+                prompt=f"❓\t{COLORS.medium_blue}{add_tabs(message)}{RESET}", show_default=True, **kwargs
+            )
+        else:
+            value = from_args
 
         if validation is not None:
             value = validation(value)

@@ -63,6 +63,12 @@ def install(  # noqa: C901
         None, envvar="DF_HUGGING_FACE_API_KEY", help="Hugging Face API Key"
     ),
     civitai_token: str | None = typer.Option(None, envvar="DF_CIVITAI_TOKEN", help="Civitai Token"),
+    infra_name: str = typer.Option("infra", help="Deepfellow Infra name"),
+    infra_url: str = typer.Option(DF_INFRA_URL, envvar="DF_INFRA_URL", help="Deepfellow Infra URL"),
+    docker_network: str = typer.Option(
+        DF_INFRA_DOCKER_NETWORK, envvar="DF_INFRA_DOCKER_NETWORK", help="Docker network"
+    ),
+    force_install: bool = typer.Option(False, help="Force install"),
 ) -> None:
     """Install infra with docker."""
     # Retrieve the docker info to fail early in the process in docker is not running or configured differently
@@ -90,13 +96,16 @@ def install(  # noqa: C901
     df_name = echo.prompt(
         "Provide a DF_NAME for this Infra",
         validation=validate_df_name,
-        default=original_env_content.get("df_infra_name", "infra"),
+        from_args=infra_name,
+        original_default="infra",
+        default=original_env_content.get("df_infra_name", infra_name),
     )
 
     original_infra_url = original_env_content.get("df_infra_url")
     df_infra_url = None
     if original_infra_url is not None and echo.confirm(
-        f"Would you like to keep the previously configured DF_INFRA_URL '{original_infra_url}'?", default=True
+        f"Would you like to keep the previously configured DF_INFRA_URL '{original_infra_url}'?",
+        default=not force_install,
     ):
         df_infra_url = original_infra_url
     else:
@@ -104,7 +113,7 @@ def install(  # noqa: C901
             "Provide a DF_INFRA_URL for this Infra",
             validate_url,
             error_message="Invalid DF_INFRA_URL. Please try again.",
-            default=DF_INFRA_URL,
+            default=infra_url,
         )
 
     flag_print_keys = echo.confirm("Is it safe to print API keys here?")
@@ -135,7 +144,7 @@ def install(  # noqa: C901
         echo.info(f"DF_MESH_KEY: {df_mesh_key}")
 
     # Find out which docker network to use
-    docker_network = echo.prompt("Provide a docker network name", default=DF_INFRA_DOCKER_NETWORK)
+    docker_network = echo.prompt("Provide a docker network name", default=docker_network)
 
     # Create the network if needed
     ensure_network(docker_network)
