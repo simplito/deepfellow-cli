@@ -28,8 +28,8 @@ def list(
     """Display list of organizations."""
     # Get token for the server
     secrets_file = ctx.obj.get("cli-secrets-file")
-    server = get_server_url(server)
-    token = get_token(secrets_file, server)
+    server_url = get_server_url(server)
+    token = get_token(secrets_file, server_url)
 
-    organizations = list_organizations(server, token)
+    organizations = list_organizations(server_url, token)
     echo.info("\n\n".join([str(org) for org in organizations]))

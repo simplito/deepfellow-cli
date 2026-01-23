@@ -29,8 +29,8 @@ def list(
     """Display list of Projects."""
     # Get token for the server
     secrets_file = ctx.obj.get("cli-secrets-file")
-    server = get_server_url(server)
-    token = get_token(secrets_file, server)
+    server_url = get_server_url(server)
+    token = get_token(secrets_file, server_url)
 
-    projects = list_projects(server, token, organization_id)
+    projects = list_projects(server_url, token, organization_id)
     echo.info("\n\n".join([str(org) for org in projects]))

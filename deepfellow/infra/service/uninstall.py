@@ -36,18 +36,19 @@ def uninstall(
     config_external_server = config.get("df_infra_external_url")
     secrets_file = ctx.obj.get("cli-secrets-file")
 
-    if server is None and config_external_server is not None:
-        server = config_external_server
+    if server is None:
+        if config_external_server is not None:
+            server = config_external_server
+        else:
+            server = echo.prompt_until_valid(
+                message="Provide DeepFellow Infra URL",
+                validation=validate_server,
+                error_message="Invalid Deepfellow Infra address. Please try again.",
+            )
 
-    if server is None and config_external_server is None:
-        server = echo.prompt_until_valid(
-            message="Provide DeepFellow Infra URL",
-            validation=validate_server,
-            error_message="Invalid Deepfellow Infra address. Please try again.",
-        )
-
+    server = cast("str", server)
     if server != config_external_server:
-        env_set(config_file, "DF_INFRA_EXTERNAL_URL", cast("str", server), should_raise=False)
+        env_set(config_file, "DF_INFRA_EXTERNAL_URL", server, should_raise=False)
 
     secrets = read_env_file(secrets_file) if secrets_file.is_file() else {}
     api_key = secrets.get("DF_INFRA_ADMIN_API_KEY")

@@ -10,6 +10,7 @@
 """REST utils."""
 
 from json import JSONDecodeError
+from pathlib import Path
 from typing import Any
 
 import click
@@ -42,6 +43,7 @@ def get_server_url(server: str | None) -> str:
         env_set(config_file, "SERVER_URL", server, should_raise=False, docker_note=False)
         config_server = server
 
+    check_health(server)
     return server
 
 
@@ -189,3 +191,32 @@ def make_request(
         raise typer.Exit(1) from exc
 
     return response.json()
+
+
+def check_health(url: str) -> None:
+    """Check health endpoint."""
+    url = f"{url}/health"
+    echo.debug(f"GET {url}")
+    try:
+        response = httpx.get(url)
+        if response.status_code == 200:
+            return
+
+        echo.debug(f"{response.status_code} {response.text}")
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        if "Connection refused" in str(exc):
+            echo.error("Deepfellow Server is OFF.")
+        else:
+            echo.error("HTTP Exception")
+        raise typer.Exit(1) from exc
+    except Exception as exc:
+        echo.error(f"Unknown error when requesting {url}/health")
+        raise typer.Exit(1) from exc
+
+
+def check_directory_exist(directory: Path) -> None:
+    """Check is directory exist."""
+    if not directory.exists() or not directory.is_dir():
+        echo.error("Create Deepfellow Server first.")
+        raise typer.Exit(1)

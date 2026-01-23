@@ -33,16 +33,16 @@ def revoke(
         echo.debug("Automatically confirming the revoke.")
 
     secrets_file = ctx.obj.get("cli-secrets-file")
-    server = get_server_url(server)
-    token = get_token(secrets_file, server)
+    server_url = get_server_url(server)
+    token = get_token(secrets_file, server_url)
 
-    api_key = get_admin_api_key(server, token, organization_id, api_key_id)
+    api_key = get_admin_api_key(server_url, token, organization_id, api_key_id)
 
     if not yes and not echo.confirm(
         f"Are you sure you want to delete the Organization API Key {api_key.name}?", default=True
     ):
         raise typer.Exit(1)
 
-    delete_admin_api_key(server, token, organization_id, api_key_id)
+    delete_admin_api_key(server_url, token, organization_id, api_key_id)
 
     echo.info("API Key revoked.")
