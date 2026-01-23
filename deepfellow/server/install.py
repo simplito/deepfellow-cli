@@ -89,6 +89,7 @@ def install(
         env_file,
         {
             "DF_SERVER_PORT": port,
+            "DF_SERVER_URL": f"http://localhost:{port}",
             "DF_SERVER_IMAGE": image,
             "DF_INFRA_DOCKER_SUBNET": docker_network,
             **mongo_env,
