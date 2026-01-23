@@ -109,17 +109,29 @@ class Echo(Console):
         message: str,
         validation: ValidationCallback,
         error_message: str | None = None,
+        from_args: str | None = None,
+        original_default: str | None = None,
         **kwargs: Any,
     ) -> Any:
         """Prompt until input is valid."""
-        response: Any = None
-        while not response:
-            try:
-                response = echo.prompt(message, validation=validation, **kwargs)
-            except typer.BadParameter as exc:
-                echo.error(error_message or str(exc))
+        if not is_interactive():
+            if "default" in kwargs:
+                return kwargs["default"]
 
-        return response
+            echo.error(f"Non interactive mode is ON.\nPlease provide the value in args.\nMSG: {message}")
+            raise typer.Exit(1)
+
+        if from_args is not None or original_default is not None or from_args == original_default:
+            response: Any = None
+            while not response:
+                try:
+                    response = echo.prompt(message, validation=validation, **kwargs)
+                except typer.BadParameter as exc:
+                    echo.error(error_message or str(exc))
+
+            return response
+
+        return from_args
 
 
 echo = Echo()
