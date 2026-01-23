@@ -42,23 +42,28 @@ class Echo(Console):
         ctx = click.get_current_context()
         message = str(message_source)
         if ctx and ctx.obj.get("debug"):
-            self.print(f"🔍\t[grey]{add_tabs(message)}[/]", style="dim white")
+            final_msg = f"🔍\t[grey]{add_tabs(message)}[/]" if is_interactive() else message
+            self.print(final_msg, style="dim white")
 
     def info(self, message: str) -> None:
         """Print a success message to the console."""
-        self.print(f"💡\t{add_tabs(message)}")
+        final_msg = f"💡\t{add_tabs(message)}" if is_interactive() else message
+        self.print(final_msg)
 
     def success(self, message: str) -> None:
         """Print a success message to the console."""
-        self.print(f"✅\t[green]{add_tabs(message)}[/]")
+        final_msg = f"✅\t[green]{add_tabs(message)}[/]" if is_interactive() else message
+        self.print(final_msg)
 
     def warning(self, message: str) -> None:
         """Print a warning message to the console."""
-        self.print(f"⚠️\t[yellow]{add_tabs(message)}[/]")
+        final_msg = f"⚠️\t[yellow]{add_tabs(message)}[/]" if is_interactive() else message
+        self.print(final_msg)
 
     def error(self, message: str) -> None:
         """Print an error message to the console."""
-        self.print(f"💀\t[bold red]{add_tabs(message)}[/]")
+        final_msg = f"💀\t[bold red]{add_tabs(message)}[/]" if is_interactive() else message
+        self.print(final_msg)
 
     def confirm(self, message: str, **kwargs: Any) -> bool:
         """Prompt the user for confirmation."""
@@ -68,7 +73,8 @@ class Echo(Console):
         if not is_interactive():
             return kwargs["default"]
 
-        return Confirm.ask(prompt=f"❓\t{COLORS.medium_blue}{add_tabs(message)}{RESET}", **kwargs)
+        final_msg = f"❓\t{COLORS.medium_blue}{add_tabs(message)}{RESET}" if is_interactive() else message
+        return Confirm.ask(prompt=final_msg, **kwargs)
 
     def prompt(self, message: str, validation: ValidationCallback = None, **kwargs: Any) -> Any:
         """Prompt the user for value."""
@@ -79,7 +85,9 @@ class Echo(Console):
             echo.error(f"Non interactive mode is ON.\nPlease provide the value in args.\nMSG: {message}")
             raise typer.Exit(1)
 
-        value = Prompt.ask(prompt=f"❓\t{COLORS.medium_blue}{add_tabs(message)}{RESET}", show_default=True, **kwargs)
+        final_msg = f"❓\t{COLORS.medium_blue}{add_tabs(message)}{RESET}" if is_interactive() else message
+        value = Prompt.ask(prompt=final_msg, show_default=True, **kwargs)
+
         if validation is not None:
             value = validation(value)
 
