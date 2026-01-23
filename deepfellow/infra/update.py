@@ -23,6 +23,7 @@ from deepfellow.common.env import env_set
 from deepfellow.common.system import run
 from deepfellow.infra.utils.docker import start_infra, stop_infra
 from deepfellow.infra.utils.options import directory_option
+from deepfellow.infra.utils.validation import check_infra_directory
 
 app = typer.Typer()
 
@@ -35,6 +36,7 @@ def update(
     tag: str | None = typer.Option(None, help="Deepfellow Infra docker image tag (e.g. 0.15.0)"),
 ) -> None:
     """Update DeepFellow Infra."""
+    check_infra_directory(directory)
     # Validate mutual exclusive image and tag
     if tag and image != DF_INFRA_IMAGE:
         raise typer.BadParameter("Only one if the `--tag` or `--image` options can be provided.")

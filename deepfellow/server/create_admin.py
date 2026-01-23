@@ -16,6 +16,7 @@ import typer
 from deepfellow.common.validation import validate_email
 from deepfellow.server.utils.options import directory_option
 from deepfellow.server.utils.users import create_admin as create_admin_util
+from deepfellow.server.utils.validation import check_server_directory
 
 app = typer.Typer()
 
@@ -28,4 +29,5 @@ def create_admin(
     password: str | None = typer.Option(None, help="Admin password"),
 ) -> None:
     """Create admin."""
+    check_server_directory(directory)
     create_admin_util(directory, name, email, password)

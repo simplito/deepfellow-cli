@@ -18,6 +18,7 @@ from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get, env_set
 from deepfellow.common.system import run
 from deepfellow.infra.utils.options import directory_option
+from deepfellow.infra.utils.validation import check_infra_directory
 
 app = typer.Typer()
 
@@ -27,6 +28,8 @@ def disconnect(
     directory: Path = directory_option(exists=True),
 ) -> None:
     """Disconnect infra. This infra is child."""
+    check_infra_directory(directory)
+
     if not is_service_running("infra", cwd=directory):
         echo.error("DeepFellow Infra is not running")
         echo.info("Call `deepfellow infra start`")

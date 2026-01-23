@@ -16,6 +16,7 @@ import typer
 from deepfellow.common.echo import echo
 from deepfellow.common.system import run
 from deepfellow.server.utils.options import directory_option
+from deepfellow.server.utils.validation import check_server_directory
 
 app = typer.Typer()
 
@@ -25,6 +26,7 @@ def stop(
     directory: Path = directory_option("Target directory for the server installation.", exists=True),
 ) -> None:
     """Stop DeepFellow Server."""
+    check_server_directory(directory)
     echo.debug("Stopping DeepFellow Server")
     run(["docker", "compose", "down"], cwd=directory)
     echo.success("DeepFellow Server is down")

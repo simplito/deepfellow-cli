@@ -21,6 +21,7 @@ from deepfellow.common.env import env_set
 from deepfellow.common.system import run
 from deepfellow.server.utils.docker import start_server, stop_server
 from deepfellow.server.utils.options import directory_option
+from deepfellow.server.utils.validation import check_server_directory
 
 app = typer.Typer()
 
@@ -33,6 +34,7 @@ def update(
     tag: str | None = typer.Option(None, help="Deepfellow Server docker image tag (e.g. 0.15.0)"),
 ) -> None:
     """Update DeepFellow Server."""
+    check_server_directory(directory)
     # Validate mutual exclusive image and tag
     if tag and image != DF_SERVER_IMAGE:
         raise typer.BadParameter("Only one if the `--tag` or `--image` options can be provided.")
