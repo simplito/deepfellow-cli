@@ -18,7 +18,7 @@ from deepfellow.common.system import run
 def start_server(directory: Path) -> None:
     """Ensure network and start server."""
     ensure_network(get_docker_network(directory))
-    run(["docker", "compose", "up", "-d", "--remove-orphans"], cwd=directory)
+    run(["docker", "compose", "up", "-d", "--wait", "--remove-orphans"], cwd=directory)
 
 
 def stop_server(directory: Path) -> None:

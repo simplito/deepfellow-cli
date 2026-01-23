@@ -13,6 +13,7 @@ from pathlib import Path
 
 import typer
 
+from deepfellow.common.config import read_env_file_to_dict
 from deepfellow.common.echo import echo
 from deepfellow.server.utils.docker import start_server
 from deepfellow.server.utils.options import directory_option
@@ -25,6 +26,8 @@ def start(
     directory: Path = directory_option("Target directory for the server installation.", exists=True),
 ) -> None:
     """Start DeepFellow Server."""
+    env_file = directory / ".env"
+    original_env_content = read_env_file_to_dict(env_file)
     echo.info("Starting DeepFellow Server")
     start_server(directory)
-    echo.info("DeepFellow Server started.")
+    echo.info(f"DeepFellow Server started on http://localhost:{original_env_content['df_server_port']}")
