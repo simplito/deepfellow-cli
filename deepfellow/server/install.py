@@ -209,7 +209,14 @@ def install(
     for _, service in services.items():
         add_network_to_service(service, docker_network)
 
-    services["server"]["volumes"] = [f"{DF_SERVER_STORAGE_DIRECTORY}:/app/storage"]
+    # Create directory for plugins
+    plugins_directory = directory / "plugins"
+    plugins_directory.mkdir(exist_ok=True)
+
+    services["server"]["volumes"] = [
+        f"{DF_SERVER_STORAGE_DIRECTORY}:/app/storage",
+        f"{plugins_directory.as_posix()}:/app/plugins",
+    ]
 
     save_compose_file(
         {"services": services, "volumes": volumes, "networks": {docker_network: {"external": True}}},
