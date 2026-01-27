@@ -28,6 +28,7 @@ def uninstall(
     ctx: typer.Context,
     server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Infra address"),
     name: str = typer.Argument(..., help="service name (e.g. ollama)"),
+    purge: bool = typer.Option(False, help="Remove service with all its files."),
 ) -> None:
     """Uninstall service."""
     # Get token for the server
@@ -63,7 +64,7 @@ def uninstall(
             method="DELETE",
             url=url,
             token=api_key,
-            data={"purge": False},
+            data={"purge": purge},
             err_msg="Unable to uninstall Service.",
             reraise=True,
         )
