@@ -46,3 +46,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Service and model management for infra
 - SSL configuration support
 - Environment configuration and management
+- `deepfellow service uninstall` get `--purge` option to clear its files
+- `deepfellow model uninstall` get `--purge` option to clear its files
