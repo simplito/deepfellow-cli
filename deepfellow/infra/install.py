@@ -48,7 +48,7 @@ app = typer.Typer()
 
 
 @app.command()
-def install(  # noqa: C901
+def install(
     ctx: typer.Context,
     directory: Path = directory_option("Target directory for the DeepFellow Infra installation."),
     port: int = typer.Option(
@@ -141,7 +141,12 @@ def install(  # noqa: C901
         echo.info(f"DF_MESH_KEY: {df_mesh_key}")
 
     # Find out which docker network to use
-    docker_network = echo.prompt("Provide a docker network name", default=docker_network)
+    docker_network = echo.prompt(
+        "Provide a docker network name",
+        from_args=docker_network,
+        original_default=DF_INFRA_DOCKER_NETWORK,
+        default=docker_network,
+    )
 
     # Create the network if needed
     ensure_network(docker_network)
@@ -187,28 +192,22 @@ def install(  # noqa: C901
         "DF_INFRA_STORAGE_DIR": storage.expanduser().resolve().as_posix(),
     }
 
-    if original_env_content.get("df_hugging_face_api_key") and echo.confirm(
-        "Do you want to keep your existing Hugging Face API Key?", default=False
-    ):
-        hugging_face_api_key = str(original_env_content["df_hugging_face_api_key"])
-
     hugging_face_api_key = hugging_face_api_key or echo.prompt(
         "Provide an optional Hugging Face API Key",
         from_args=hugging_face_api_key,
-        original_default="",
-        default="",
+        original_default=None,
+        default=original_env_content.get("df_hugging_face_api_key", hugging_face_api_key),
         password=True,
     )
     if hugging_face_api_key:
         infra_values["DF_HUGGING_FACE_API_KEY"] = hugging_face_api_key
 
-    if original_env_content.get("df_civitai_token") and echo.confirm(
-        "Do you want to keep your existing Civitai Token?", default=False
-    ):
-        civitai_token = str(original_env_content["df_civitai_token"])
-
     civitai_token = civitai_token or echo.prompt(
-        "Provide an optional Civitai Token", from_args=civitai_token, original_default="", default="", password=True
+        "Provide an optional Civitai Token",
+        from_args=civitai_token,
+        original_default=None,
+        default=original_env_content.get("df_civitai_token", civitai_token),
+        password=True,
     )
     if civitai_token:
         infra_values["DF_CIVITAI_TOKEN"] = civitai_token
