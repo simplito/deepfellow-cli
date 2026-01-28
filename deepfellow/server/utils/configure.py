@@ -12,13 +12,14 @@
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import typer
 
 from deepfellow.common.config import dict_to_env
 from deepfellow.common.defaults import (
     DEFAULT_OTEL_URL,
+    DF_INFRA_URL,
     DF_MONGO_DB,
     DF_MONGO_PASSWORD,
     DF_MONGO_URL,
@@ -68,37 +69,69 @@ def configure_vector_db(
         },
     }
     if custom:
-        vector_db_config["provider"].update(
+        cast("dict[str, str]", vector_db_config["provider"]).update(
             {
                 "url": echo.prompt_until_valid(
-                    "Provide Milvus instance URL", validate_url, default=original_provider.get("url")
+                    "Provide Milvus instance URL",
+                    validate_url,
+                    from_args=vectordb_url,
+                    original_default=VECTOR_DATABASE["provider"]["url"],
+                    default=original_provider.get("url"),
                 ),
                 "db": echo.prompt_until_valid(
-                    "Provide Milvus provider database name", validate_truthy, default=original_provider.get("db")
+                    "Provide Milvus provider database name",
+                    validate_truthy,
+                    from_args=vectordb_db,
+                    original_default=VECTOR_DATABASE["provider"]["db"],
+                    default=original_provider.get("db"),
                 ),
                 "user": echo.prompt_until_valid(
-                    "Provide Milvus provider user", validate_truthy, default=original_provider.get("user")
+                    "Provide Milvus provider user",
+                    validate_truthy,
+                    from_args=vectordb_user,
+                    original_default=VECTOR_DATABASE["provider"]["user"],
+                    default=original_provider.get("user"),
                 ),
-                "password": echo.prompt_until_valid("Provide Milvus provider password", validate_truthy, password=True),
+                "password": echo.prompt_until_valid(
+                    "Provide Milvus provider password",
+                    validate_truthy,
+                    from_args=vectordb_password,
+                    original_default=VECTOR_DATABASE["provider"]["password"],
+                    password=True,
+                ),
             }
         )
     else:
-        if not echo.confirm("Do you want to run Milvus from this machine?", default=True):
+        if (
+            not vectordb_active
+            and not embedding
+            and not echo.confirm("Do you want to run Milvus from this machine?", default=True)
+        ):
             vector_db_config = {"provider": {"active": 0}, "embedding": {"active": 0}}
 
     if int(vector_db_config["embedding"]["active"]) == 1:
         vector_db_config["embedding"]["endpoint"] = infra_url
         vector_db_config["embedding"].update(
             {
-                "model": echo.prompt("Provide the model for embedding", default=vector_db_config["embedding"]["model"]),
-                "size": echo.prompt("Provide the embedding size", default=vector_db_config["embedding"]["size"]),
+                "model": echo.prompt(
+                    "Provide the model for embedding",
+                    from_args=embedding_model,
+                    original_default=VECTOR_DATABASE["embedding"]["model"],
+                    default=vector_db_config["embedding"]["model"],
+                ),
+                "size": echo.prompt(
+                    "Provide the embedding size",
+                    from_args=embedding_model,
+                    original_default=VECTOR_DATABASE["embedding"]["size"],
+                    default=vector_db_config["embedding"]["size"],
+                ),
             }
         )
 
     return dict_to_env(vector_db_config, parent_key="DF_VECTOR_DATABASE")
 
 
-def configure_infra(infra_api_key: str, default_infra_url: str = "http://infra:8086") -> dict[str, Any]:
+def configure_infra(infra_api_key: str, infra_url: str, original_env: dict[str, Any] | None = None) -> dict[str, Any]:
     """Configure single infra."""
     infra = {}
 
@@ -106,17 +139,22 @@ def configure_infra(infra_api_key: str, default_infra_url: str = "http://infra:8
     while not correct:
         try:
             infra["DF_INFRA__URL"] = echo.prompt(
-                "Provide DeepFellow Infra URL", default=default_infra_url, validation=validate_url
+                "Provide DeepFellow Infra URL",
+                from_args=infra_url,
+                original_default=DF_INFRA_URL,
+                default=(original_env or {}).get("df_infra", {}).get("url"),
+                validation=validate_url,
             )
             correct = True
         except typer.BadParameter:
             echo.error("Invalid DeepFellow Infra URL. Please try again.")
             correct = False
 
-    infra["DF_INFRA__API_KEY"] = (
-        infra_api_key
-        if infra_api_key
-        else echo.prompt_until_valid("Provide Deepfellow Infra API KEY", validation=validate_truthy, password=True)
+    infra["DF_INFRA__API_KEY"] = echo.prompt_until_valid(
+        "Provide Deepfellow Infra API KEY",
+        validation=validate_truthy,
+        default=infra_api_key,
+        password=True,
     )
     return infra
 
@@ -147,16 +185,30 @@ def configure_mongo(
         mongo_config["DF_MONGO_URL"] = echo.prompt_until_valid(
             "Provide host:port for MongoDB e.g. 192.168.1.5:27017",
             validate_connection_string,
+            from_args=mongo_url,
+            original_default=DF_MONGO_URL,
             default=original_env.get("df_mongo_url"),
         )
         mongo_config["DF_MONGO_DB"] = echo.prompt_until_valid(
-            "Provide database name for MongoDB", validate_truthy, default=original_env.get("df_mongo_db")
+            "Provide database name for MongoDB",
+            validate_truthy,
+            from_args=mongo_db,
+            original_default=DF_MONGO_DB,
+            default=original_env.get("df_mongo_db"),
         )
         mongo_config["DF_MONGO_USER"] = echo.prompt_until_valid(
-            "Provide username for MongoDB", validate_truthy, default=original_env.get("df_mongo_user")
+            "Provide username for MongoDB",
+            validate_truthy,
+            from_args=mongo_user,
+            original_default=DF_MONGO_USER,
+            default=original_env.get("df_mongo_user"),
         )
         mongo_config["DF_MONGO_PASSWORD"] = echo.prompt_until_valid(
-            "Provide password for MongoDB", validate_truthy, password=True
+            "Provide password for MongoDB",
+            validate_truthy,
+            from_args=mongo_password,
+            original_default=DF_MONGO_PASSWORD,
+            password=True,
         )
     else:
         echo.info("A default MongoDB setup is created.")
