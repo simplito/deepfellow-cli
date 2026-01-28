@@ -25,6 +25,7 @@ from deepfellow.common.config import (
 from deepfellow.common.defaults import (
     DF_INFRA_DOCKER_NETWORK,
     DF_INFRA_IMAGE,
+    DF_INFRA_NAME,
     DF_INFRA_PORT,
     DF_INFRA_STORAGE_DIR,
     DF_INFRA_URL,
@@ -63,7 +64,7 @@ def install(  # noqa: C901
         None, envvar="DF_HUGGING_FACE_API_KEY", help="Hugging Face API Key"
     ),
     civitai_token: str | None = typer.Option(None, envvar="DF_CIVITAI_TOKEN", help="Civitai Token"),
-    infra_name: str = typer.Option("infra", help="Deepfellow Infra name"),
+    infra_name: str = typer.Option(DF_INFRA_NAME, help="Deepfellow Infra name"),
     infra_url: str = typer.Option(DF_INFRA_URL, envvar="DF_INFRA_URL", help="Deepfellow Infra URL"),
     docker_network: str = typer.Option(
         DF_INFRA_DOCKER_NETWORK, envvar="DF_INFRA_DOCKER_NETWORK", help="Docker network"
@@ -82,7 +83,9 @@ def install(  # noqa: C901
     secrets_file = ctx.obj.get("cli-secrets-file")
 
     # Check if overriding existing installation
-    ensure_directory(directory, error_message="Unable to create DeepFellow Infra directory.")
+    ensure_directory(
+        directory, error_message="Unable to create DeepFellow Infra directory.", force_install=force_install
+    )
 
     # Create empty docker config if needed
     docker_config = docker_config or directory / "docker-config.json"
@@ -97,24 +100,18 @@ def install(  # noqa: C901
         "Provide a DF_NAME for this Infra",
         validation=validate_df_name,
         from_args=infra_name,
-        original_default="infra",
+        original_default=DF_INFRA_NAME,
         default=original_env_content.get("df_infra_name", infra_name),
     )
 
-    original_infra_url = original_env_content.get("df_infra_url")
-    df_infra_url = None
-    if original_infra_url is not None and echo.confirm(
-        f"Would you like to keep the previously configured DF_INFRA_URL '{original_infra_url}'?",
-        default=not force_install,
-    ):
-        df_infra_url = original_infra_url
-    else:
-        df_infra_url = echo.prompt_until_valid(
-            "Provide a DF_INFRA_URL for this Infra",
-            validate_url,
-            error_message="Invalid DF_INFRA_URL. Please try again.",
-            default=infra_url,
-        )
+    df_infra_url = echo.prompt_until_valid(
+        "Provide a DF_INFRA_URL for this Infra",
+        validate_url,
+        error_message="Invalid DF_INFRA_URL. Please try again.",
+        from_args=infra_url,
+        original_default=DF_INFRA_URL,
+        default=original_env_content.get("df_infra_url", infra_url),
+    )
 
     flag_print_keys = echo.confirm("Is it safe to print API keys here?")
 
@@ -191,22 +188,28 @@ def install(  # noqa: C901
     }
 
     if original_env_content.get("df_hugging_face_api_key") and echo.confirm(
-        "Do you want to keep your existing Hugging Face API Key?", default=True
+        "Do you want to keep your existing Hugging Face API Key?", default=False
     ):
         hugging_face_api_key = str(original_env_content["df_hugging_face_api_key"])
 
     hugging_face_api_key = hugging_face_api_key or echo.prompt(
-        "Provide an optional Hugging Face API Key", password=True
+        "Provide an optional Hugging Face API Key",
+        from_args=hugging_face_api_key,
+        original_default="",
+        default="",
+        password=True,
     )
     if hugging_face_api_key:
         infra_values["DF_HUGGING_FACE_API_KEY"] = hugging_face_api_key
 
     if original_env_content.get("df_civitai_token") and echo.confirm(
-        "Do you want to keep your existing Civitai Token?", default=True
+        "Do you want to keep your existing Civitai Token?", default=False
     ):
         civitai_token = str(original_env_content["df_civitai_token"])
 
-    civitai_token = civitai_token or echo.prompt("Provide an optional Civitai Token", password=True)
+    civitai_token = civitai_token or echo.prompt(
+        "Provide an optional Civitai Token", from_args=civitai_token, original_default="", default="", password=True
+    )
     if civitai_token:
         infra_values["DF_CIVITAI_TOKEN"] = civitai_token
 

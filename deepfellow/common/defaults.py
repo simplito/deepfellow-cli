@@ -25,6 +25,7 @@ DF_INFRA_PORT = 8086
 DF_INFRA_URL = f"http://infra:{DF_INFRA_PORT}"
 DF_INFRA_DOCKER_NETWORK = "deepfellow-infra-net"
 DF_INFRA_STORAGE_DIR = DF_INFRA_DIRECTORY / "storage"
+DF_INFRA_NAME = "infra"
 
 DF_SERVER_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / "server"
 DF_SERVER_REPO = "ssh://git@github.com/simplito/deepfellow-server.git"
@@ -58,7 +59,7 @@ DF_ADMIN_KEY = "some-admin-key"
 
 
 DOCKER_COMPOSE_INFRA = {
-    "infra": {
+    DF_INFRA_NAME: {
         "image": "${DF_INFRA_IMAGE}",
         "ports": ["${DF_INFRA_PORT}:8086"],
         "environment": [
