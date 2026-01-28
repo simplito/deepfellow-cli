@@ -92,9 +92,17 @@ class Echo(Console):
             echo.error(f"Non interactive mode is ON.\nPlease provide the value in args.\nMSG: {message}")
             raise typer.Exit(1)
 
+        show_default = True
+
+        if kwargs.get("password") and kwargs.get("default"):
+            password = kwargs["default"]
+            masked_password = f"{password[0:2]}***{password[-2:]}"
+            message = message + f" \x1b[36m[bold]({masked_password})[/bold]{RESET}"
+            show_default = False
+
         if from_args is not None or original_default is not None or from_args == original_default:
             value = Prompt.ask(
-                prompt=f"❓\t{COLORS.medium_blue}{add_tabs(message)}{RESET}", show_default=True, **kwargs
+                prompt=f"❓\t{COLORS.medium_blue}{add_tabs(message)}{RESET}", show_default=show_default, **kwargs
             )
         else:
             value = from_args
