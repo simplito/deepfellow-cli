@@ -238,7 +238,7 @@ def configure_otel(directory: Path, otel_url: str | None, original_env: dict[str
             )
         elif echo.confirm(
             "Do you want to run Open Telemetry from this machine?\n(You need an existing ElasticSearch server running)",
-            default=True,
+            default=False,
         ):
             config_file = directory / "otel-collector-config.yaml"
             docker_compose = DOCKER_COMPOSE_OTEL_COLLECTOR
