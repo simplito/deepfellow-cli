@@ -47,7 +47,7 @@ app = typer.Typer()
 
 
 @app.command()
-def install(
+def install(  # noqa: C901
     directory: Path = directory_option("Target directory for the DeepFellow Server installation."),
     port: int = typer.Option(
         DF_SERVER_PORT, envvar="DF_SERVER_PORT", help="Port to use to serve the DeepFellow Server from."
@@ -112,7 +112,16 @@ def install(
     original_env_content = read_env_file_to_dict(env_file)
 
     echo.info("DeepFellow Server requires a MongoDB to be installed.")
-    custom_mongo_db_server = echo.confirm("Do you have MongoDB installed for DeepFellow Server?", default=False)
+    if (
+        mongodb_url != DF_MONGO_URL
+        or mongodb_database_name != DF_MONGO_DB
+        or mongodb_username != DF_MONGO_USER
+        or mongodb_password != DF_MONGO_PASSWORD
+    ):
+        custom_mongo_db_server = True
+    else:
+        custom_mongo_db_server = echo.confirm("Do you have MongoDB installed for DeepFellow Server?", default=False)
+
     mongo_env = configure_mongo(
         custom_mongo_db_server,
         original_env_content,
@@ -123,16 +132,36 @@ def install(
     )
 
     echo.info("DeepFellow Server is communicating with DeepFellow Infra.")
-    infra_env = configure_infra(infra_api_key, infra_url)
+    infra_env = configure_infra(infra_api_key, infra_url, original_env_content)
 
     # Find out which docker network to use
-    docker_network = echo.prompt("Provide a docker network name", default=docker_network)
+    docker_network = echo.prompt(
+        "Provide a docker network name",
+        from_args=docker_network,
+        original_default=DF_INFRA_DOCKER_NETWORK,
+        default=original_env_content.get("df_infra_docker_subnet"),
+    )
 
     # Create the network if needed
     ensure_network(docker_network)
 
     echo.info("DeepFellow Server might use a vector DB. If not provided some features will not work.")
-    custom_vector_db_server = echo.confirm("Do you have a vector DB ready?", default=False)
+    if (
+        vectordb_local != bool(VECTOR_DATABASE["provider"]["active"])
+        or vectordb_type != VECTOR_DATABASE["provider"]["type"]
+        or vectordb_url != VECTOR_DATABASE["provider"]["url"]
+        or vectordb_database_name != VECTOR_DATABASE["provider"]["db"]
+        or vectordb_username != VECTOR_DATABASE["provider"]["user"]
+        or vectordb_password != VECTOR_DATABASE["provider"]["password"]
+        or embedding_active != bool(VECTOR_DATABASE["embedding"]["active"])
+        or embedding_endpoint != VECTOR_DATABASE["embedding"]["endpoint"]
+        or embedding_model != VECTOR_DATABASE["embedding"]["model"]
+        or embedding_size != VECTOR_DATABASE["embedding"]["size"]
+    ):
+        custom_vector_db_server = True
+    else:
+        custom_vector_db_server = echo.confirm("Do you have a vector DB ready?", default=False)
+
     vector_db_envs = configure_vector_db(
         custom_vector_db_server,
         infra_env["DF_INFRA__URL"],
