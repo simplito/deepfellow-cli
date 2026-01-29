@@ -71,8 +71,8 @@ def install(  # noqa: C901
     mongodb_database_name: str = typer.Option(DF_MONGO_DB, help="The name of the MongoDB database to use"),
     mongodb_username: str = typer.Option(DF_MONGO_USER, help="Username for MongoDB authentication"),
     mongodb_password: str = typer.Option(DF_MONGO_PASSWORD, help="Password for MongoDB authentication"),
-    vectordb_local: bool = typer.Option(
-        bool(VECTOR_DATABASE["provider"]["active"]), help="Enable to use a local vector database instance"
+    vectordb_local: int = typer.Option(
+        VECTOR_DATABASE["provider"]["active"], help="Enable to use a local vector database instance"
     ),
     vectordb_url: str = typer.Option(
         VECTOR_DATABASE["provider"]["url"], help="The connection URL for the remote Vector DB provider"
@@ -87,14 +87,14 @@ def install(  # noqa: C901
     vectordb_password: str = typer.Option(
         VECTOR_DATABASE["provider"]["password"], help="Password for Vector DB authentication"
     ),
-    embedding_active: bool = typer.Option(bool(VECTOR_DATABASE["embedding"]["active"]), help="Active embedding"),
+    embedding_active: int = typer.Option(VECTOR_DATABASE["embedding"]["active"], help="Active embedding"),
     embedding_endpoint: str = typer.Option(
         VECTOR_DATABASE["embedding"]["endpoint"], help="The model endpoint used for generating vector embeddings"
     ),
     embedding_model: str = typer.Option(
         VECTOR_DATABASE["embedding"]["model"], help="The model name used for generating vector embeddings"
     ),
-    embedding_size: int = typer.Option(
+    embedding_size: str = typer.Option(
         VECTOR_DATABASE["embedding"]["size"], help="The dimensionality/size of the embedding vectors"
     ),
     force_install: bool = typer.Option(False, help="Force install"),
@@ -147,13 +147,13 @@ def install(  # noqa: C901
 
     echo.info("DeepFellow Server might use a vector DB. If not provided some features will not work.")
     if (
-        vectordb_local != bool(VECTOR_DATABASE["provider"]["active"])
+        vectordb_local != VECTOR_DATABASE["provider"]["active"]
         or vectordb_type != VECTOR_DATABASE["provider"]["type"]
         or vectordb_url != VECTOR_DATABASE["provider"]["url"]
         or vectordb_database_name != VECTOR_DATABASE["provider"]["db"]
         or vectordb_username != VECTOR_DATABASE["provider"]["user"]
         or vectordb_password != VECTOR_DATABASE["provider"]["password"]
-        or embedding_active != bool(VECTOR_DATABASE["embedding"]["active"])
+        or embedding_active != VECTOR_DATABASE["embedding"]["active"]
         or embedding_endpoint != VECTOR_DATABASE["embedding"]["endpoint"]
         or embedding_model != VECTOR_DATABASE["embedding"]["model"]
         or embedding_size != VECTOR_DATABASE["embedding"]["size"]
@@ -218,7 +218,7 @@ def install(  # noqa: C901
         services.update(otel.docker_compose)
         depends_on["otel-collector"] = {"condition": "service_started"}
 
-    if otel.envs.get("DF_OTEL_TRACING_ENABLED") == "true":
+    if otel.envs.get("DF_OTEL_TRACING_ENABLED") == "true" and otel.envs.get("DF_OTEL_EXPORTER_OTLP_ENDPOINT"):
         environment.append("DF_OTEL_EXPORTER_OTLP_ENDPOINT=${DF_OTEL_EXPORTER_OTLP_ENDPOINT}")
         environment.append("DF_OTEL_TRACING_ENABLED=${DF_OTEL_TRACING_ENABLED}")
 

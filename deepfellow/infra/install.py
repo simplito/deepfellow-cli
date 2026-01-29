@@ -60,9 +60,7 @@ def install(
     storage: Path = typer.Option(
         DF_INFRA_STORAGE_DIR, envvar="DF_INFRA_STORAGE_DIR", help="Storage for the DeepFellow Infra services."
     ),
-    hugging_face_api_key: str | None = typer.Option(
-        None, envvar="DF_HUGGING_FACE_API_KEY", help="Hugging Face API Key"
-    ),
+    hugging_face_token: str | None = typer.Option(None, envvar="DF_HUGGING_FACE_TOKEN", help="Hugging Face Token"),
     civitai_token: str | None = typer.Option(None, envvar="DF_CIVITAI_TOKEN", help="Civitai Token"),
     infra_name: str = typer.Option(DF_INFRA_NAME, help="Deepfellow Infra name"),
     infra_url: str = typer.Option(DF_INFRA_URL, envvar="DF_INFRA_URL", help="Deepfellow Infra URL"),
@@ -192,15 +190,15 @@ def install(
         "DF_INFRA_STORAGE_DIR": storage.expanduser().resolve().as_posix(),
     }
 
-    hugging_face_api_key = hugging_face_api_key or echo.prompt(
-        "Provide an optional Hugging Face API Key",
-        from_args=hugging_face_api_key,
+    hugging_face_token = hugging_face_token or echo.prompt(
+        "Provide an optional Hugging Face Token",
+        from_args=hugging_face_token,
         original_default=None,
-        default=original_env_content.get("df_hugging_face_api_key", hugging_face_api_key),
+        default=original_env_content.get("df_hugging_face_token", hugging_face_token),
         password=True,
     )
-    if hugging_face_api_key:
-        infra_values["DF_HUGGING_FACE_API_KEY"] = hugging_face_api_key
+    if hugging_face_token:
+        infra_values["DF_HUGGING_FACE_TOKEN"] = hugging_face_token
 
     civitai_token = civitai_token or echo.prompt(
         "Provide an optional Civitai Token",
