@@ -37,16 +37,16 @@ def configure_vector_db(
     custom: bool,
     infra_url: str,
     original_env: dict[str, Any] | None = None,
-    vectordb_active: bool = bool(VECTOR_DATABASE["provider"]["active"]),
+    vectordb_active: int = VECTOR_DATABASE["provider"]["active"],
     vectordb_type: str = VECTOR_DATABASE["provider"]["type"],
     vectordb_url: str = VECTOR_DATABASE["provider"]["url"],
     vectordb_db: str = VECTOR_DATABASE["provider"]["db"],
     vectordb_user: str = VECTOR_DATABASE["provider"]["user"],
     vectordb_password: str = VECTOR_DATABASE["provider"]["password"],
-    embedding: bool = bool(VECTOR_DATABASE["embedding"]["active"]),
+    embedding: int = VECTOR_DATABASE["embedding"]["active"],
     embedding_endpoint: str = VECTOR_DATABASE["embedding"]["endpoint"],
     embedding_model: str = VECTOR_DATABASE["embedding"]["model"],
-    embedding_size: int = VECTOR_DATABASE["embedding"]["size"],
+    embedding_size: str = VECTOR_DATABASE["embedding"]["size"],
 ) -> dict[str, str]:
     """Collect info about vector db."""
     original_env = original_env or {}
@@ -102,11 +102,7 @@ def configure_vector_db(
             }
         )
     else:
-        if (
-            not vectordb_active
-            and not embedding
-            and not echo.confirm("Do you want to run Milvus from this machine?", default=True)
-        ):
+        if not echo.confirm("Do you want to run Milvus from this machine?", default=True):
             vector_db_config = {"provider": {"active": 0}, "embedding": {"active": 0}}
 
     if int(vector_db_config["embedding"]["active"]) == 1:
@@ -121,7 +117,7 @@ def configure_vector_db(
                 ),
                 "size": echo.prompt(
                     "Provide the embedding size",
-                    from_args=embedding_model,
+                    from_args=embedding_size,
                     original_default=VECTOR_DATABASE["embedding"]["size"],
                     default=vector_db_config["embedding"]["size"],
                 ),
@@ -153,7 +149,9 @@ def configure_infra(infra_api_key: str, infra_url: str, original_env: dict[str, 
     infra["DF_INFRA__API_KEY"] = echo.prompt_until_valid(
         "Provide Deepfellow Infra API KEY",
         validation=validate_truthy,
-        default=infra_api_key,
+        from_args=infra_api_key,
+        original_default=None,
+        default=cast("dict[str, dict[str, str]]", original_env.get("df_infra", {})).get("api_key", ""),  # type: ignore[union-attr]
         password=True,
     )
     return infra
@@ -264,7 +262,7 @@ def configure_otel(directory: Path, otel_url: str | None, original_env: dict[str
                 "Please review its content before starting the DeepFellow Server."
             )
 
-    envs = {"DF_OTEL_EXPORTER_OTLP_ENDPOINT": otel_url, "DF_OTEL_TRACING_ENABLED": "true"}
+    envs = {"DF_OTEL_EXPORTER_OTLP_ENDPOINT": otel_url, "DF_OTEL_TRACING_ENABLED": "true"} if otel_url else {}
 
     return OtelConfig(
         envs=envs,
