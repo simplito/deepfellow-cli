@@ -139,7 +139,7 @@ def install(  # noqa: C901
         "Provide a docker network name",
         from_args=docker_network,
         original_default=DF_INFRA_DOCKER_NETWORK,
-        default=original_env_content.get("df_infra_docker_subnet"),
+        default=original_env_content.get("df_infra_docker_subnet", docker_network),
     )
 
     # Create the network if needed
