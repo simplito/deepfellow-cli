@@ -138,7 +138,7 @@ def configure_infra(infra_api_key: str, infra_url: str, original_env: dict[str, 
                 "Provide DeepFellow Infra URL",
                 from_args=infra_url,
                 original_default=DF_INFRA_URL,
-                default=(original_env or {}).get("df_infra", {}).get("url"),
+                default=(original_env or {}).get("df_infra", {}).get("url", infra_url),
                 validation=validate_url,
             )
             correct = True
