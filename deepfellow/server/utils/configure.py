@@ -12,124 +12,219 @@
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import typer
 
 from deepfellow.common.config import dict_to_env
 from deepfellow.common.defaults import (
+    ALLOWED_VECTOR_DB_TYPES,
     DEFAULT_OTEL_URL,
+    DEFAULT_VECTOR_DATABASE,
+    DEFAULT_VECTOR_DATABASE_TYPE,
     DF_INFRA_URL,
     DF_MONGO_DB,
     DF_MONGO_PASSWORD,
     DF_MONGO_URL,
     DF_MONGO_USER,
     DOCKER_COMPOSE_OTEL_COLLECTOR,
+    MILVUS_DATABASE,
     OTEL_COLLECTOR_CONFIG,
-    VECTOR_DATABASE,
+    QDRANT_DATABASE,
+    VECTOR_DATABASES,
 )
 from deepfellow.common.docker import save_compose_file
 from deepfellow.common.echo import echo
 from deepfellow.common.validation import validate_connection_string, validate_truthy, validate_url, validate_username
 
 
-def configure_vector_db(
-    custom: bool,
-    infra_url: str,
-    original_env: dict[str, Any] | None = None,
-    vectordb_active: int = VECTOR_DATABASE["provider"]["active"],
-    vectordb_type: str = VECTOR_DATABASE["provider"]["type"],
-    vectordb_url: str = VECTOR_DATABASE["provider"]["url"],
-    vectordb_db: str = VECTOR_DATABASE["provider"]["db"],
-    vectordb_user: str = VECTOR_DATABASE["provider"]["user"],
-    vectordb_password: str = VECTOR_DATABASE["provider"]["password"],
-    embedding: int = VECTOR_DATABASE["embedding"]["active"],
-    embedding_endpoint: str = VECTOR_DATABASE["embedding"]["endpoint"],
-    embedding_model: str = VECTOR_DATABASE["embedding"]["model"],
-    embedding_size: str = VECTOR_DATABASE["embedding"]["size"],
+def should_use_vector_db(
+    vectordb_active: int,
+) -> bool:
+    """Check if server should configure vector database."""
+    # If from the CLI args we've got disable vector DB and this choice is not the default one,
+    # we just display the warning and set the vector DB as inactive.
+    default_vectordb_active = DEFAULT_VECTOR_DATABASE["provider"]["active"]
+    if not vectordb_active and vectordb_active != default_vectordb_active:
+        echo.warning("You've chosen to not use vector database.")
+        return False
+
+    # If we are in interactive mode, user will answer the question if the vector DB is wanted.
+    # In non-interactive mode the default answer will be taken (default_vectordb_active)
+    if not echo.confirm("Do you want to use a vector database with DeepFellow?", default=bool(default_vectordb_active)):
+        echo.warning("You've chosen to not use vector database.")
+        return False
+
+    return True
+
+
+def is_custom_vectordb(
+    vectordb_type: str,
+    vectordb_url: str,
+    vectordb_database_name: str,
+    vectordb_username: str,
+    vectordb_password: str,
+) -> bool:
+    """Check if user wants DeepFellow to create its own instance of vector database."""
+    any_milvus_arg_provided = (
+        vectordb_url != MILVUS_DATABASE["provider"]["url"]
+        or vectordb_database_name != MILVUS_DATABASE["provider"]["db"]
+        or vectordb_username != MILVUS_DATABASE["provider"]["user"]
+        or vectordb_password != MILVUS_DATABASE["provider"]["password"]
+    )
+
+    if (vectordb_type == "qdrant" and (vectordb_url != QDRANT_DATABASE["provider"]["url"])) or (
+        vectordb_type == "milvus" and any_milvus_arg_provided
+    ):
+        return True
+
+    return echo.confirm("Do you have a vector DB ready?", default=False)
+
+
+def configure_milvus_specific_fields(
+    original_provider: dict[str, str],
+    vectordb_database_name: str,
+    vectordb_username: str,
+    vectordb_password: str,
 ) -> dict[str, str]:
-    """Collect info about vector db."""
-    original_env = original_env or {}
-    original_provider = original_env.get("df_vector_database", {}).get("provider", {})
-    vector_db_config: dict[str, Any] = VECTOR_DATABASE
-    vector_db_config = {
-        "provider": {
-            "active": vectordb_active,
-            "type": vectordb_type,
-            "url": vectordb_url,
-            "db": vectordb_db,
-            "user": vectordb_user,
-            "password": vectordb_password,
-        },
-        "embedding": {
-            "active": embedding,
-            "endpoint": embedding_endpoint,
-            "model": embedding_model,
-            "size": embedding_size,
-        },
+    """Configure fields specific for milvus."""
+    return {
+        "db": echo.prompt_until_valid(
+            "Provide Milvus provider database name",
+            validate_truthy,
+            from_args=vectordb_database_name,
+            original_default=MILVUS_DATABASE["provider"]["db"],
+            default=original_provider.get("db", vectordb_database_name),
+        ),
+        "user": echo.prompt_until_valid(
+            "Provide Milvus provider user",
+            validate_truthy,
+            from_args=vectordb_username,
+            original_default=MILVUS_DATABASE["provider"]["user"],
+            default=original_provider.get("user", vectordb_username),
+        ),
+        "password": echo.prompt_until_valid(
+            "Provide Milvus provider password",
+            validate_truthy,
+            from_args=vectordb_password,
+            original_default=MILVUS_DATABASE["provider"]["password"],
+            default=original_provider.get("password", vectordb_password),
+            password=True,
+        ),
     }
-    if custom:
-        cast("dict[str, str]", vector_db_config["provider"]).update(
-            {
-                "url": echo.prompt_until_valid(
-                    "Provide Milvus instance URL",
-                    validate_url,
-                    from_args=vectordb_url,
-                    original_default=VECTOR_DATABASE["provider"]["url"],
-                    default=original_provider.get("url"),
-                ),
-                "db": echo.prompt_until_valid(
-                    "Provide Milvus provider database name",
-                    validate_truthy,
-                    from_args=vectordb_db,
-                    original_default=VECTOR_DATABASE["provider"]["db"],
-                    default=original_provider.get("db"),
-                ),
-                "user": echo.prompt_until_valid(
-                    "Provide Milvus provider user",
-                    validate_truthy,
-                    from_args=vectordb_user,
-                    original_default=VECTOR_DATABASE["provider"]["user"],
-                    default=original_provider.get("user"),
-                ),
-                "password": echo.prompt_until_valid(
-                    "Provide Milvus provider password",
-                    validate_truthy,
-                    from_args=vectordb_password,
-                    original_default=VECTOR_DATABASE["provider"]["password"],
-                    password=True,
-                ),
-            }
-        )
-    else:
-        if not echo.confirm("Do you want to run Milvus from this machine?", default=True):
-            vector_db_config = {"provider": {"active": 0}, "embedding": {"active": 0}}
 
-    if int(vector_db_config["embedding"]["active"]) == 1:
-        vector_db_config["embedding"]["endpoint"] = infra_url
-        vector_db_config["embedding"].update(
-            {
-                "model": echo.prompt(
-                    "Provide the model for embedding",
-                    from_args=embedding_model,
-                    original_default=VECTOR_DATABASE["embedding"]["model"],
-                    default=vector_db_config["embedding"]["model"],
-                ),
-                "size": echo.prompt(
-                    "Provide the embedding size",
-                    from_args=embedding_size,
-                    original_default=VECTOR_DATABASE["embedding"]["size"],
-                    default=vector_db_config["embedding"]["size"],
-                ),
-            }
+
+def configure_embedding(
+    infra_url: str,
+    original_env: dict[str, Any],
+    embedding_model: str,
+    embedding_size: str,
+) -> dict[str, str | int]:
+    """Configure embedding fields."""
+    original_embedding = original_env.get("df_vector_database", {}).get("embedding", {})
+
+    return {
+        # Embedding is always active if vector db is active
+        "active": 1,
+        "endpoint": infra_url,
+        "model": echo.prompt(
+            "Provide the model for embedding",
+            from_args=embedding_model,
+            original_default=DEFAULT_VECTOR_DATABASE["embedding"]["model"],
+            default=original_embedding.get("model", embedding_model),
+        ),
+        "size": echo.prompt(
+            "Provide the embedding size",
+            from_args=embedding_size,
+            original_default=DEFAULT_VECTOR_DATABASE["embedding"]["size"],
+            default=original_embedding.get("size", embedding_size),
+        ),
+    }
+
+
+def configure_vector_db(
+    infra_url: str,
+    original_env_content: dict[str, Any],
+    vectordb_active: int,
+    vectordb_type: str,
+    vectordb_url: str,
+    vectordb_database_name: str,
+    vectordb_username: str,
+    vectordb_password: str,
+    embedding_model: str,
+    embedding_size: str,
+) -> tuple[bool, dict[str, str]]:
+    """Collect info about vector db."""
+    if not should_use_vector_db(vectordb_active):
+        return False, dict_to_env(
+            {"provider": {"active": 0}, "embedding": {"active": 0}}, parent_key="DF_VECTOR_DATABASE"
         )
 
-    return dict_to_env(vector_db_config, parent_key="DF_VECTOR_DATABASE")
+    # vectordb_type might be provided by the user or be default (VECTOR_DATABASE["provider"]["type"])
+    # Ask user to choose type only if default value is provided.
+    if vectordb_type == DEFAULT_VECTOR_DATABASE_TYPE:
+        vectordb_type = echo.choice(
+            "Choose the type of the vector database",
+            choices=ALLOWED_VECTOR_DB_TYPES,
+            default=DEFAULT_VECTOR_DATABASE_TYPE,
+        )
+
+    # Change default url if user changed the type of vector db
+    if vectordb_type != DEFAULT_VECTOR_DATABASE_TYPE and vectordb_url == DEFAULT_VECTOR_DATABASE["provider"]["url"]:
+        vectordb_url = VECTOR_DATABASES[vectordb_type]["provider"]["url"]
+
+    # We do not ask detailed questions if we need to serve our version of vector DB
+    if not is_custom_vectordb(
+        vectordb_type,
+        vectordb_url,
+        vectordb_database_name,
+        vectordb_username,
+        vectordb_password,
+    ):
+        # update embedding fields
+        vector_database = deepcopy(VECTOR_DATABASES[vectordb_type])
+        vector_database["embedding"]["model"] = embedding_model
+        vector_database["embedding"]["size"] = embedding_size
+        return False, dict_to_env(vector_database, parent_key="DF_VECTOR_DATABASE")
+
+    # Ask user the detailed questions, handling if setting is provided via args is solved in prompt
+    original_env = original_env_content or {}
+    original_provider = original_env.get("df_vector_database", {}).get("provider", {})
+
+    provider = {
+        "active": 1,
+        "type": vectordb_type,
+        "url": echo.prompt_until_valid(
+            f"Provide {vectordb_type.capitalize()} instance URL",
+            validate_url,
+            default=original_provider.get("url", vectordb_url),
+            from_args=vectordb_url,
+            original_default=VECTOR_DATABASES[vectordb_type]["provider"]["url"],
+        ),
+    }
+
+    if vectordb_type == "milvus":
+        provider |= configure_milvus_specific_fields(
+            original_provider,
+            vectordb_database_name,
+            vectordb_username,
+            vectordb_password,
+        )
+
+    embedding = configure_embedding(
+        infra_url,
+        original_env,
+        embedding_model,
+        embedding_size,
+    )
+
+    return True, dict_to_env({"provider": provider, "embedding": embedding}, parent_key="DF_VECTOR_DATABASE")
 
 
 def configure_infra(infra_api_key: str, infra_url: str, original_env: dict[str, Any] | None = None) -> dict[str, Any]:
     """Configure single infra."""
     infra = {}
+    original_env = original_env or {}
 
     correct = False
     while not correct:
@@ -151,7 +246,7 @@ def configure_infra(infra_api_key: str, infra_url: str, original_env: dict[str, 
         validation=validate_truthy,
         from_args=infra_api_key,
         original_default=None,
-        default=cast("dict[str, dict[str, str]]", original_env.get("df_infra", {})).get("api_key", ""),  # type: ignore[union-attr]
+        default=original_env.get("df_infra", {}).get("api_key"),
         password=True,
     )
     return infra

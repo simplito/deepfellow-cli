@@ -9,6 +9,7 @@
 
 """Default config values."""
 
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -43,21 +44,47 @@ DF_MONGO_DB = "deepfellow"
 
 API_ENDPOINTS = {"openai": {"url": "https://api.openai.com", "api_key": "some-fake-key", "name": "openai"}}
 
-DF_VECTOR_DATABASE_URL = "http://milvus:19530"
-VECTOR_DATABASE: dict[str, Any] = {
+# ================
+# Vector databases
+# ================
+
+
+class VectorDBTypeChoice(str, Enum):
+    milvus = "milvus"
+    qdrant = "qdrant"
+
+
+ALLOWED_VECTOR_DB_TYPES = [e.value for e in VectorDBTypeChoice]
+QDRANT_DATABASE_URL = "http://qdrant:6333"
+DEFAULT_EMBEDDING = {
+    "embedding": {"active": 1, "endpoint": "openai", "model": "mxbai-embed-large", "size": "1024"},
+}
+QDRANT_DATABASE: dict[str, Any] = {
+    "provider": {
+        "active": 1,
+        "type": "qdrant",
+        "url": QDRANT_DATABASE_URL,
+    }
+} | DEFAULT_EMBEDDING
+MILVUS_DATABASE_URL = "http://milvus:19530"
+MILVUS_DATABASE: dict[str, Any] = {
     "provider": {
         "active": 1,
         "type": "milvus",
-        "url": DF_VECTOR_DATABASE_URL,
+        "url": MILVUS_DATABASE_URL,
         "db": "deepfellow",
         "user": "deepfellow_usr",
         "password": "some-fake-password",
-    },
-    "embedding": {"active": 1, "endpoint": "openai", "model": "mxbai-embed-large", "size": "1024"},
-}
-DF_ADMIN_KEY = "some-admin-key"
+    }
+} | DEFAULT_EMBEDDING
+# Define the default vector database.
+DEFAULT_VECTOR_DATABASE_TYPE = "qdrant"
+VECTOR_DATABASES = {"qdrant": QDRANT_DATABASE, "milvus": MILVUS_DATABASE}
+DEFAULT_VECTOR_DATABASE = VECTOR_DATABASES[DEFAULT_VECTOR_DATABASE_TYPE]
 
-
+# ==============
+# Docker compose
+# ==============
 DOCKER_COMPOSE_INFRA = {
     DF_INFRA_NAME: {
         "image": "${DF_INFRA_IMAGE}",
@@ -102,15 +129,6 @@ DOCKER_COMPOSE_SERVER = {
             "DF_MONGO_PASSWORD=${DF_MONGO_PASSWORD}",
             "DF_MONGO_DB=${DF_MONGO_DB}",
             "DF_VECTOR_DATABASE__PROVIDER__ACTIVE=${DF_VECTOR_DATABASE__PROVIDER__ACTIVE}",
-            "DF_VECTOR_DATABASE__PROVIDER__TYPE=${DF_VECTOR_DATABASE__PROVIDER__TYPE}",
-            "DF_VECTOR_DATABASE__PROVIDER__URL=${DF_VECTOR_DATABASE__PROVIDER__URL}",
-            "DF_VECTOR_DATABASE__PROVIDER__DB=${DF_VECTOR_DATABASE__PROVIDER__DB}",
-            "DF_VECTOR_DATABASE__PROVIDER__USER=${DF_VECTOR_DATABASE__PROVIDER__USER}",
-            "DF_VECTOR_DATABASE__PROVIDER__PASSWORD=${DF_VECTOR_DATABASE__PROVIDER__PASSWORD}",
-            "DF_VECTOR_DATABASE__EMBEDDING__ACTIVE=${DF_VECTOR_DATABASE__EMBEDDING__ACTIVE}",
-            "DF_VECTOR_DATABASE__EMBEDDING__ENDPOINT=${DF_VECTOR_DATABASE__EMBEDDING__ENDPOINT}",
-            "DF_VECTOR_DATABASE__EMBEDDING__MODEL=${DF_VECTOR_DATABASE__EMBEDDING__MODEL}",
-            "DF_VECTOR_DATABASE__EMBEDDING__SIZE=${DF_VECTOR_DATABASE__EMBEDDING__SIZE}",
         ],
         "restart": "unless-stopped",
         "healthcheck": {
@@ -123,7 +141,33 @@ DOCKER_COMPOSE_SERVER = {
     }
 }
 
-DOCKER_COMPOSE_VECTOR_DB = {
+DOCKER_COMPOSE_SERVER_VECTOR_DB_ENVS = [
+    "DF_VECTOR_DATABASE__PROVIDER__TYPE=${DF_VECTOR_DATABASE__PROVIDER__TYPE}",
+    "DF_VECTOR_DATABASE__PROVIDER__URL=${DF_VECTOR_DATABASE__PROVIDER__URL}",
+    "DF_VECTOR_DATABASE__EMBEDDING__ACTIVE=${DF_VECTOR_DATABASE__EMBEDDING__ACTIVE}",
+    "DF_VECTOR_DATABASE__EMBEDDING__ENDPOINT=${DF_VECTOR_DATABASE__EMBEDDING__ENDPOINT}",
+    "DF_VECTOR_DATABASE__EMBEDDING__MODEL=${DF_VECTOR_DATABASE__EMBEDDING__MODEL}",
+    "DF_VECTOR_DATABASE__EMBEDDING__SIZE=${DF_VECTOR_DATABASE__EMBEDDING__SIZE}",
+]
+
+DOCKER_COMPOSE_SERVER_VECTOR_DB_MILVUS_ENVS = [
+    "DF_VECTOR_DATABASE__PROVIDER__DB=${DF_VECTOR_DATABASE__PROVIDER__DB}",
+    "DF_VECTOR_DATABASE__PROVIDER__USER=${DF_VECTOR_DATABASE__PROVIDER__USER}",
+    "DF_VECTOR_DATABASE__PROVIDER__PASSWORD=${DF_VECTOR_DATABASE__PROVIDER__PASSWORD}",
+]
+
+DOCKER_COMPOSE_QDRANT = {
+    "qdrant": {
+        "container_name": "qdrant",
+        "image": "qdrant/qdrant:v1.15",
+        "restart": "always",
+        "ports": ["6333:6333", "6334:6334"],
+        "expose": [6333, 6334, 6335],
+        "volumes": ["qdrant_data:/qdrant/storage"],
+    }
+}
+
+DOCKER_COMPOSE_MILVUS = {
     "etcd": {
         "container_name": "etcd",
         "image": "quay.io/coreos/etcd:v3.5.18",
