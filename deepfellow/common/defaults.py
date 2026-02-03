@@ -182,7 +182,10 @@ DOCKER_COMPOSE_VECTOR_DB = {
         },
         "expose": ["19530", "9091"],
         "ports": ["19530:19530", "9091:9091"],
-        "depends_on": ["etcd", "minio"],
+        "depends_on": {
+            "etcd": {"condition": "service_healthy"},
+            "minio": {"condition": "service_healthy"},
+        },
     },
 }
 
