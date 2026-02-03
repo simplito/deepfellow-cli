@@ -11,12 +11,14 @@
 
 from copy import deepcopy
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import typer
 
 from deepfellow.common.config import read_env_file_to_dict, save_env_file
 from deepfellow.common.defaults import (
+    DEFAULT_VECTOR_DATABASE,
+    DEFAULT_VECTOR_DATABASE_TYPE,
     DF_INFRA_DOCKER_NETWORK,
     DF_INFRA_URL,
     DF_MONGO_DB,
@@ -26,10 +28,14 @@ from deepfellow.common.defaults import (
     DF_SERVER_IMAGE,
     DF_SERVER_PORT,
     DF_SERVER_STORAGE_DIRECTORY,
+    DOCKER_COMPOSE_MILVUS,
     DOCKER_COMPOSE_MONGO_DB,
+    DOCKER_COMPOSE_QDRANT,
     DOCKER_COMPOSE_SERVER,
-    DOCKER_COMPOSE_VECTOR_DB,
-    VECTOR_DATABASE,
+    DOCKER_COMPOSE_SERVER_VECTOR_DB_ENVS,
+    DOCKER_COMPOSE_SERVER_VECTOR_DB_MILVUS_ENVS,
+    MILVUS_DATABASE,
+    VectorDBTypeChoice,
 )
 from deepfellow.common.docker import (
     add_network_to_service,
@@ -63,7 +69,7 @@ def install(  # noqa: C901
     infra_url: str = typer.Option(
         DF_INFRA_URL, help="Deepfellow Infra url. Can be docker service url inside network or outside."
     ),
-    infra_api_key: str = typer.Option("", help="Deepfellow Infra api key"),
+    infra_api_key: str = typer.Option(None, help="Deepfellow Infra api key"),
     docker_network: str = typer.Option(
         DF_INFRA_DOCKER_NETWORK, help="The Docker network name for container communication"
     ),
@@ -71,37 +77,32 @@ def install(  # noqa: C901
     mongodb_database_name: str = typer.Option(DF_MONGO_DB, help="The name of the MongoDB database to use"),
     mongodb_username: str = typer.Option(DF_MONGO_USER, help="Username for MongoDB authentication"),
     mongodb_password: str = typer.Option(DF_MONGO_PASSWORD, help="Password for MongoDB authentication"),
-    vectordb_local: int = typer.Option(
-        VECTOR_DATABASE["provider"]["active"], help="Enable to use a local vector database instance"
+    vectordb_active: bool = typer.Option(
+        bool(DEFAULT_VECTOR_DATABASE["provider"]["active"]), help="Enable to use a vector database instance"
     ),
+    vectordb_type: VectorDBTypeChoice = typer.Option(DEFAULT_VECTOR_DATABASE_TYPE, help="Type of Vector DB"),
     vectordb_url: str = typer.Option(
-        VECTOR_DATABASE["provider"]["url"], help="The connection URL for the remote Vector DB provider"
+        DEFAULT_VECTOR_DATABASE["provider"]["url"], help="The connection URL for the remote Vector DB provider"
     ),
-    vectordb_type: str = typer.Option(VECTOR_DATABASE["provider"]["type"], help="Type of Vector DB"),
     vectordb_database_name: str = typer.Option(
-        VECTOR_DATABASE["provider"]["db"], help="The collection or database name in the Vector DB"
+        MILVUS_DATABASE["provider"]["db"], help="The collection or database name in the Vector DB"
     ),
     vectordb_username: str = typer.Option(
-        VECTOR_DATABASE["provider"]["user"], help="Username for Vector DB authentication"
+        MILVUS_DATABASE["provider"]["user"], help="Username for Vector DB authentication"
     ),
     vectordb_password: str = typer.Option(
-        VECTOR_DATABASE["provider"]["password"], help="Password for Vector DB authentication"
-    ),
-    embedding_active: int = typer.Option(VECTOR_DATABASE["embedding"]["active"], help="Active embedding"),
-    embedding_endpoint: str = typer.Option(
-        VECTOR_DATABASE["embedding"]["endpoint"], help="The model endpoint used for generating vector embeddings"
+        MILVUS_DATABASE["provider"]["password"], help="Password for Vector DB authentication"
     ),
     embedding_model: str = typer.Option(
-        VECTOR_DATABASE["embedding"]["model"], help="The model name used for generating vector embeddings"
+        DEFAULT_VECTOR_DATABASE["embedding"]["model"], help="The model name used for generating vector embeddings"
     ),
     embedding_size: str = typer.Option(
-        VECTOR_DATABASE["embedding"]["size"], help="The dimensionality/size of the embedding vectors"
+        DEFAULT_VECTOR_DATABASE["embedding"]["size"], help="The dimensionality/size of the embedding vectors"
     ),
     force_install: bool = typer.Option(False, help="Force install"),
 ) -> None:
     """Install DeepFellow Server with docker."""
     echo.info("Installing DeepFellow Server.")
-
     assert_docker()
 
     ensure_directory(
@@ -146,38 +147,22 @@ def install(  # noqa: C901
     ensure_network(docker_network)
 
     echo.info("DeepFellow Server might use a vector DB. If not provided some features will not work.")
-    if (
-        vectordb_local != VECTOR_DATABASE["provider"]["active"]
-        or vectordb_type != VECTOR_DATABASE["provider"]["type"]
-        or vectordb_url != VECTOR_DATABASE["provider"]["url"]
-        or vectordb_database_name != VECTOR_DATABASE["provider"]["db"]
-        or vectordb_username != VECTOR_DATABASE["provider"]["user"]
-        or vectordb_password != VECTOR_DATABASE["provider"]["password"]
-        or embedding_active != VECTOR_DATABASE["embedding"]["active"]
-        or embedding_endpoint != VECTOR_DATABASE["embedding"]["endpoint"]
-        or embedding_model != VECTOR_DATABASE["embedding"]["model"]
-        or embedding_size != VECTOR_DATABASE["embedding"]["size"]
-    ):
-        custom_vector_db_server = True
-    else:
-        custom_vector_db_server = echo.confirm("Do you have a vector DB ready?", default=False)
 
-    vector_db_envs = configure_vector_db(
-        custom_vector_db_server,
+    # Configure vector database
+    is_custom_vector_db_server, vectordb_envs = configure_vector_db(
         infra_env["DF_INFRA__URL"],
         original_env_content,
-        vectordb_local,
-        vectordb_type,
+        int(vectordb_active),
+        vectordb_type.value,
         vectordb_url,
         vectordb_database_name,
         vectordb_username,
         vectordb_password,
-        embedding_active,
-        embedding_endpoint,
         embedding_model,
         embedding_size,
     )
-    vector_db_active = vector_db_envs.get("DF_VECTOR_DATABASE__PROVIDER__ACTIVE") == "1"
+    is_vectordb_active = vectordb_envs.get("DF_VECTOR_DATABASE__PROVIDER__ACTIVE") == "1"
+    vectordb_type_str = vectordb_envs.get("DF_VECTOR_DATABASE__PROVIDER__TYPE", "")
 
     otel = configure_otel(directory, otel_url, original_env_content)
 
@@ -190,26 +175,42 @@ def install(  # noqa: C901
             "DF_INFRA_DOCKER_SUBNET": docker_network,
             **mongo_env,
             **infra_env,
-            **vector_db_envs,
+            **vectordb_envs,
             **otel.envs,
         },
     )
 
     volumes: dict[str, None] = {}
-    services = {}
+    services: dict[str, Any] = {}
     depends_on = {}
+    compose_server = deepcopy(DOCKER_COMPOSE_SERVER)
+    # TODO Clean up the `cast` after https://gitlab2.simplito.com/df/df-cli/-/issues/258
+    server_docker_envs = cast("list[str]", compose_server["server"]["environment"])
 
-    if not custom_vector_db_server and vector_db_active:
-        services.update(DOCKER_COMPOSE_VECTOR_DB)
-        volumes.update({"milvus": None, "etcd": None, "minio": None})
-        depends_on.update({"milvus": {"condition": "service_healthy"}})
+    if is_vectordb_active:
+        # Update server's docker environment
+        server_docker_envs.extend(DOCKER_COMPOSE_SERVER_VECTOR_DB_ENVS)
+        if vectordb_type_str == "milvus":
+            server_docker_envs.extend(DOCKER_COMPOSE_SERVER_VECTOR_DB_MILVUS_ENVS)
+
+        # Add vector database docker compose definitions if user did not provided custom fields
+        if not is_custom_vector_db_server:
+            if vectordb_type_str == "qdrant":
+                services.update(DOCKER_COMPOSE_QDRANT)
+                volumes.update({"qdrant_data": None})
+                depends_on.update({"qdrant": {"condition": "service_started"}})
+            else:
+                services.update(DOCKER_COMPOSE_MILVUS)
+                volumes.update({"milvus": None, "etcd": None, "minio": None})
+                depends_on.update({"milvus": {"condition": "service_healthy"}})
+
+            echo.info(f"A default {vectordb_type_str.capitalize()} setup is created.")
 
     if not custom_mongo_db_server:
         services.update(DOCKER_COMPOSE_MONGO_DB)
         volumes["mongo"] = None
         depends_on.update({"mongo": {"condition": "service_healthy"}})
 
-    compose_server = deepcopy(DOCKER_COMPOSE_SERVER)
     environment = cast("list", compose_server["server"]["environment"])
     for api_endpoint_key in infra_env:
         environment.append(api_endpoint_key + "=${" + api_endpoint_key + "}")
@@ -222,7 +223,7 @@ def install(  # noqa: C901
         environment.append("DF_OTEL_EXPORTER_OTLP_ENDPOINT=${DF_OTEL_EXPORTER_OTLP_ENDPOINT}")
         environment.append("DF_OTEL_TRACING_ENABLED=${DF_OTEL_TRACING_ENABLED}")
 
-    if not vector_db_active:
+    if not is_vectordb_active:
         compose_server["server"]["environment"] = [
             env for env in environment if not env.startswith("DF_VECTOR_DATABASE__") or "ACTIVE" in env
         ]

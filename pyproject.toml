@@ -1,6 +1,6 @@
 [project]
 name = "deepfellow-cli"
-version = "0.1.1"
+version = "0.2.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -11,6 +11,7 @@ dependencies = [
     "typer>=0.16.0",
     "types-pyyaml>=6.0.12.20250915",
     "tzlocal>=5.3.1",
+    "questionary>=2.0.0",
 ]
 
 [project.scripts]
