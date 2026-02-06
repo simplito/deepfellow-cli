@@ -24,9 +24,7 @@ from deepfellow.common.defaults import (
     DEFAULT_VECTOR_DATABASE_TYPE,
     DF_INFRA_URL,
     DF_MONGO_DB,
-    DF_MONGO_PASSWORD,
     DF_MONGO_URL,
-    DF_MONGO_USER,
     DOCKER_COMPOSE_OTEL_COLLECTOR,
     MILVUS_DATABASE,
     OTEL_COLLECTOR_CONFIG,
@@ -35,6 +33,7 @@ from deepfellow.common.defaults import (
 )
 from deepfellow.common.docker import save_compose_file
 from deepfellow.common.echo import echo
+from deepfellow.common.generate import generate_password
 from deepfellow.common.validation import validate_connection_string, validate_truthy, validate_url, validate_username
 
 
@@ -62,15 +61,11 @@ def is_custom_vectordb(
     vectordb_type: str,
     vectordb_url: str,
     vectordb_database_name: str,
-    vectordb_username: str,
-    vectordb_password: str,
 ) -> bool:
     """Check if user wants DeepFellow to create its own instance of vector database."""
     any_milvus_arg_provided = (
         vectordb_url != MILVUS_DATABASE["provider"]["url"]
         or vectordb_database_name != MILVUS_DATABASE["provider"]["db"]
-        or vectordb_username != MILVUS_DATABASE["provider"]["user"]
-        or vectordb_password != MILVUS_DATABASE["provider"]["password"]
     )
 
     if (vectordb_type == "qdrant" and (vectordb_url != QDRANT_DATABASE["provider"]["url"])) or (
@@ -84,8 +79,8 @@ def is_custom_vectordb(
 def configure_milvus_specific_fields(
     original_provider: dict[str, str],
     vectordb_database_name: str,
-    vectordb_username: str,
-    vectordb_password: str,
+    vectordb_username: str | None,
+    vectordb_password: str | None,
 ) -> dict[str, str]:
     """Configure fields specific for milvus."""
     return {
@@ -173,22 +168,31 @@ def configure_vector_db(
     if vectordb_type != DEFAULT_VECTOR_DATABASE_TYPE and vectordb_url == DEFAULT_VECTOR_DATABASE["provider"]["url"]:
         vectordb_url = VECTOR_DATABASES[vectordb_type]["provider"]["url"]
 
+    original_env = original_env_content or {}
+
     # We do not ask detailed questions if we need to serve our version of vector DB
     if not is_custom_vectordb(
         vectordb_type,
         vectordb_url,
         vectordb_database_name,
-        vectordb_username,
-        vectordb_password,
     ):
         # update embedding fields
         vector_database = deepcopy(VECTOR_DATABASES[vectordb_type])
         vector_database["embedding"]["model"] = embedding_model
         vector_database["embedding"]["size"] = embedding_size
+        # generate random login and password if not provided
+        if not vectordb_username:
+            vector_database["provider"]["user"] = vectordb_username = str(
+                original_env.get("df_vector_database", {}).get("provider", {}).get("user") or generate_password(8)
+            )
+        if not vectordb_password:
+            vector_database["provider"]["password"] = vectordb_password = original_env.get(
+                "df_vector_database", {}
+            ).get("provider", {}).get("password") or generate_password(12)
+
         return False, dict_to_env(vector_database, parent_key="DF_VECTOR_DATABASE")
 
     # Ask user the detailed questions, handling if setting is provided via args is solved in prompt
-    original_env = original_env_content or {}
     original_provider = original_env.get("df_vector_database", {}).get("provider", {})
 
     provider = {
@@ -260,11 +264,11 @@ class Infras:
 
 def configure_mongo(
     custom: bool,
-    original_env: dict[str, Any] | None = None,
+    mongo_user: str,
+    mongo_password: str,
     mongo_url: str = DF_MONGO_URL,
-    mongo_user: str = DF_MONGO_USER,
-    mongo_password: str = DF_MONGO_PASSWORD,
     mongo_db: str = DF_MONGO_DB,
+    original_env: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """Collect info about MongoDB."""
     original_env = original_env or {}
@@ -293,17 +297,22 @@ def configure_mongo(
             "Provide username for MongoDB",
             validate_truthy,
             from_args=mongo_user,
-            original_default=DF_MONGO_USER,
+            original_default="",
             default=original_env.get("df_mongo_user"),
         )
         mongo_config["DF_MONGO_PASSWORD"] = echo.prompt_until_valid(
             "Provide password for MongoDB",
             validate_truthy,
             from_args=mongo_password,
-            original_default=DF_MONGO_PASSWORD,
+            original_default="",
+            default=original_env.get("df_mongo_password"),
             password=True,
         )
     else:
+        if not mongo_user:
+            mongo_config["DF_MONGO_USER"] = original_env.get("df_mongo_user") or generate_password(8)
+        if not mongo_password:
+            mongo_config["DF_MONGO_PASSWORD"] = original_env.get("df_mongo_password") or generate_password(12)
         echo.info("A default MongoDB setup is created.")
 
     return mongo_config
