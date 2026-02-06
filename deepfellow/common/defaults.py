@@ -102,6 +102,8 @@ DOCKER_COMPOSE_INFRA = {
             "DF_HUGGING_FACE_TOKEN=${DF_HUGGING_FACE_TOKEN}",
             "DF_CIVITAI_TOKEN=${DF_CIVITAI_TOKEN}",
             "DF_STORAGE_DIR=${DF_INFRA_STORAGE_DIR}",
+            "DF_METRICS_USERNAME=${DF_METRICS_USERNAME}",
+            "DF_METRICS_PASSWORD=${DF_METRICS_PASSWORD}",
             "DOCKER_HOST=unix:///var/run/docker.sock",
         ],
         "restart": "unless-stopped",
@@ -124,6 +126,8 @@ DOCKER_COMPOSE_SERVER = {
         "image": "${DF_SERVER_IMAGE}",
         "ports": ["${DF_SERVER_PORT}:8000"],
         "environment": [
+            "DF_METRICS_USERNAME=${DF_METRICS_USERNAME}",
+            "DF_METRICS_PASSWORD=${DF_METRICS_PASSWORD}",
             "DF_MONGO_URL=${DF_MONGO_URL}",
             "DF_MONGO_USER=${DF_MONGO_USER}",
             "DF_MONGO_PASSWORD=${DF_MONGO_PASSWORD}",
