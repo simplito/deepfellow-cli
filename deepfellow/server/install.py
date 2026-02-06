@@ -43,6 +43,7 @@ from deepfellow.common.docker import (
     save_compose_file,
 )
 from deepfellow.common.echo import echo
+from deepfellow.common.generate import generate_password
 from deepfellow.common.install import assert_docker, ensure_directory
 from deepfellow.common.system import run
 from deepfellow.common.validation import validate_url
@@ -146,6 +147,20 @@ def install(  # noqa: C901
     # Create the network if needed
     ensure_network(docker_network)
 
+    original_metrics_username = original_env_content.get("df_metrics_username")
+    original_metrics_password = original_env_content.get("df_metrics_password")
+
+    if (
+        original_metrics_username is not None
+        and original_metrics_password is not None
+        and echo.confirm("Would you like to keep the previously configured metrics credentials?", default=True)
+    ):
+        metrics_username = str(original_metrics_username)
+        metrics_password = str(original_metrics_password)
+    else:
+        metrics_username = generate_password(8)
+        metrics_password = generate_password(12)
+
     echo.info("DeepFellow Server might use a vector DB. If not provided some features will not work.")
 
     # Configure vector database
@@ -173,6 +188,8 @@ def install(  # noqa: C901
             "DF_SERVER_URL": f"http://localhost:{port}",
             "DF_SERVER_IMAGE": image,
             "DF_INFRA_DOCKER_SUBNET": docker_network,
+            "DF_METRICS_USERNAME": metrics_username,
+            "DF_METRICS_PASSWORD": metrics_password,
             **mongo_env,
             **infra_env,
             **vectordb_envs,

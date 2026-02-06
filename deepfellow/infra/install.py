@@ -39,6 +39,7 @@ from deepfellow.common.docker import (
 )
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
+from deepfellow.common.generate import generate_password
 from deepfellow.common.install import assert_docker, ensure_directory
 from deepfellow.common.system import run
 from deepfellow.common.validation import validate_df_name, validate_url
@@ -48,7 +49,7 @@ app = typer.Typer()
 
 
 @app.command()
-def install(
+def install(  # noqa: C901
     ctx: typer.Context,
     directory: Path = directory_option("Target directory for the DeepFellow Infra installation."),
     port: int = typer.Option(
@@ -173,6 +174,20 @@ def install(
     ):
         storage = original_storage
 
+    original_metrics_username = original_env_content.get("df_metrics_username")
+    original_metrics_password = original_env_content.get("df_metrics_password")
+
+    if (
+        original_metrics_username is not None
+        and original_metrics_password is not None
+        and echo.confirm("Would you like to keep the previously configured metrics credentials?", default=True)
+    ):
+        metrics_username = original_metrics_username
+        metrics_password = original_metrics_password
+    else:
+        metrics_username = generate_password(8)
+        metrics_password = generate_password(12)
+
     # Save the envs to the .env file (existing envs are NOT overwritten)
     infra_values = {
         "DF_NAME": df_name,
@@ -188,6 +203,8 @@ def install(
         "DF_INFRA_COMPOSE_PREFIX": compose_prefix,
         "DF_INFRA_DOCKER_CONFIG": str(docker_config),
         "DF_INFRA_STORAGE_DIR": storage.expanduser().resolve().as_posix(),
+        "DF_METRICS_USERNAME": metrics_username,
+        "DF_METRICS_PASSWORD": metrics_password,
     }
 
     hugging_face_token = hugging_face_token or echo.prompt(
