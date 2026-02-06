@@ -38,8 +38,6 @@ DF_OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4317"
 DF_SERVER_STORAGE_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / DF_SERVER_DIRECTORY / "storage"
 
 DF_MONGO_URL = "mongo:27017"
-DF_MONGO_USER = "deepfellow-usr"
-DF_MONGO_PASSWORD = "some-fake-password"
 DF_MONGO_DB = "deepfellow"
 
 API_ENDPOINTS = {"openai": {"url": "https://api.openai.com", "api_key": "some-fake-key", "name": "openai"}}
@@ -73,8 +71,6 @@ MILVUS_DATABASE: dict[str, Any] = {
         "type": "milvus",
         "url": MILVUS_DATABASE_URL,
         "db": "deepfellow",
-        "user": "deepfellow_usr",
-        "password": "some-fake-password",
     }
 } | DEFAULT_EMBEDDING
 # Define the default vector database.

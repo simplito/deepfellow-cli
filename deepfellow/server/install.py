@@ -22,9 +22,7 @@ from deepfellow.common.defaults import (
     DF_INFRA_DOCKER_NETWORK,
     DF_INFRA_URL,
     DF_MONGO_DB,
-    DF_MONGO_PASSWORD,
     DF_MONGO_URL,
-    DF_MONGO_USER,
     DF_SERVER_IMAGE,
     DF_SERVER_PORT,
     DF_SERVER_STORAGE_DIRECTORY,
@@ -76,8 +74,8 @@ def install(  # noqa: C901
     ),
     mongodb_url: str = typer.Option(DF_MONGO_URL, help="The connection URL for the MongoDB instance"),
     mongodb_database_name: str = typer.Option(DF_MONGO_DB, help="The name of the MongoDB database to use"),
-    mongodb_username: str = typer.Option(DF_MONGO_USER, help="Username for MongoDB authentication"),
-    mongodb_password: str = typer.Option(DF_MONGO_PASSWORD, help="Password for MongoDB authentication"),
+    mongodb_username: str = typer.Option("", help="Username for MongoDB authentication"),
+    mongodb_password: str = typer.Option("", help="Password for MongoDB authentication"),
     vectordb_active: bool = typer.Option(
         bool(DEFAULT_VECTOR_DATABASE["provider"]["active"]), help="Enable to use a vector database instance"
     ),
@@ -88,12 +86,8 @@ def install(  # noqa: C901
     vectordb_database_name: str = typer.Option(
         MILVUS_DATABASE["provider"]["db"], help="The collection or database name in the Vector DB"
     ),
-    vectordb_username: str = typer.Option(
-        MILVUS_DATABASE["provider"]["user"], help="Username for Vector DB authentication"
-    ),
-    vectordb_password: str = typer.Option(
-        MILVUS_DATABASE["provider"]["password"], help="Password for Vector DB authentication"
-    ),
+    vectordb_username: str = typer.Option("", help="Username for Vector DB authentication"),
+    vectordb_password: str = typer.Option("", help="Password for Vector DB authentication"),
     embedding_model: str = typer.Option(
         DEFAULT_VECTOR_DATABASE["embedding"]["model"], help="The model name used for generating vector embeddings"
     ),
@@ -114,23 +108,18 @@ def install(  # noqa: C901
     original_env_content = read_env_file_to_dict(env_file)
 
     echo.info("DeepFellow Server requires a MongoDB to be installed.")
-    if (
-        mongodb_url != DF_MONGO_URL
-        or mongodb_database_name != DF_MONGO_DB
-        or mongodb_username != DF_MONGO_USER
-        or mongodb_password != DF_MONGO_PASSWORD
-    ):
+    if mongodb_url != DF_MONGO_URL or mongodb_database_name != DF_MONGO_DB:
         custom_mongo_db_server = True
     else:
         custom_mongo_db_server = echo.confirm("Do you have MongoDB installed for DeepFellow Server?", default=False)
 
     mongo_env = configure_mongo(
         custom_mongo_db_server,
-        original_env_content,
-        mongodb_url,
         mongodb_username,
         mongodb_password,
+        mongodb_url,
         mongodb_database_name,
+        original_env_content,
     )
 
     echo.info("DeepFellow Server is communicating with DeepFellow Infra.")
