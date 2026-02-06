@@ -211,7 +211,7 @@ def install(  # noqa: C901
         "Provide an optional Hugging Face Token",
         from_args=hugging_face_token,
         original_default=None,
-        default=original_env_content.get("df_hugging_face_token", hugging_face_token),
+        default=original_env_content.get("df_hugging_face_token", hugging_face_token) or "",
         password=True,
     )
     if hugging_face_token:
@@ -221,7 +221,7 @@ def install(  # noqa: C901
         "Provide an optional Civitai Token",
         from_args=civitai_token,
         original_default=None,
-        default=original_env_content.get("df_civitai_token", civitai_token),
+        default=original_env_content.get("df_civitai_token", civitai_token) or "",
         password=True,
     )
     if civitai_token:
