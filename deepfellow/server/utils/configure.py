@@ -250,7 +250,7 @@ def configure_infra(infra_api_key: str, infra_url: str, original_env: dict[str, 
         validation=validate_truthy,
         from_args=infra_api_key,
         original_default=None,
-        default=original_env.get("df_infra", {}).get("api_key"),
+        default=original_env.get("df_infra", {}).get("api_key") or "",
         password=True,
     )
     return infra
