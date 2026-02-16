@@ -18,6 +18,8 @@ from typing import Annotated
 
 import typer
 
+# ruff: noqa: T201
+
 LICENSE_HEADER_TEMPLATE = """\
 # DeepFellow Software Framework.
 # Copyright © {year} Simplito sp. z o.o.

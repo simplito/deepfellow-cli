@@ -46,7 +46,7 @@ def print_name() -> None:
 │                                                 │
 └─────────────────────────────────────────────────┘
 `deepfellow --help` for help with commands.
-""")
+""")  # noqa: T201
 
 
 @app.callback()
