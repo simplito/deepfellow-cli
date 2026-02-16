@@ -160,7 +160,6 @@ cython_debug/
 
 # VSCode
 .vscode/
-*.code-workspace
 
 # OS generated files
 .DS_Store
