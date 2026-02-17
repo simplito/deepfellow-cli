@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+- create random credentials for
+  - metrics endpoint
+  - default mongo
+  - default milvus
+- fix for non interactive:
+  - server
+  - infra civitai key
+  - infra hugging face key
+
 ## [0.2.0]
 - Qdrant as a default vector database
 - `deepfellow infra status` / `deepfelow server status` - displays container status and resource usage
