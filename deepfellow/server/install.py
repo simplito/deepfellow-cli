@@ -46,14 +46,15 @@ from deepfellow.common.install import assert_docker, ensure_directory
 from deepfellow.common.system import run
 from deepfellow.common.validation import validate_url
 from deepfellow.server.utils.configure import configure_infra, configure_mongo, configure_otel, configure_vector_db
-from deepfellow.server.utils.options import directory_option
+from deepfellow.server.utils.options import directory_option, set_default_server_directory
 
 app = typer.Typer()
 
 
 @app.command()
 def install(  # noqa: C901
-    directory: Path = directory_option("Target directory for the DeepFellow Server installation."),
+    ctx: typer.Context,
+    directory: Path = directory_option(help="Target directory for the DeepFellow Server installation."),
     port: int = typer.Option(
         DF_SERVER_PORT, envvar="DF_SERVER_PORT", help="Port to use to serve the DeepFellow Server from."
     ),
@@ -105,6 +106,7 @@ def install(  # noqa: C901
     )
 
     env_file = directory / ".env"
+
     original_env_content = read_env_file_to_dict(env_file)
 
     echo.info("DeepFellow Server requires a MongoDB to be installed.")
@@ -248,6 +250,8 @@ def install(  # noqa: C901
     # Create directory for plugins
     plugins_directory = directory / "plugins"
     plugins_directory.mkdir(exist_ok=True)
+
+    set_default_server_directory(ctx, directory, force=False)
 
     services["server"]["volumes"] = [
         f"{DF_SERVER_STORAGE_DIRECTORY}:/app/storage",

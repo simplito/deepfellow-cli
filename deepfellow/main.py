@@ -15,7 +15,7 @@ from pathlib import Path
 
 import typer
 
-from deepfellow.common.config import EnvDict, env_to_dict, read_env_file
+from deepfellow.common.config import EnvDict, env_to_dict, read_env_file, save_env_file
 from deepfellow.common.defaults import DF_CLI_CONFIG_PATH, DF_CLI_SECRETS_PATH
 from deepfellow.common.validation import validate_system
 
@@ -78,6 +78,8 @@ def main(
     if config.is_file():
         envs = read_env_file(config)
         cli_config = env_to_dict(envs)
+    else:
+        save_env_file(config, {}, docker_note=False)
 
     ctx.obj["cli-config"] = cli_config
     echo.debug(f"{cli_config=}")
