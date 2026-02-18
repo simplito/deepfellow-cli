@@ -17,7 +17,7 @@ import typer
 from deepfellow.common.echo import echo
 from deepfellow.common.install import assert_docker
 from deepfellow.common.system import run
-from deepfellow.server.utils.options import directory_option
+from deepfellow.server.utils.options import directory_option, get_default_server_directory, set_default_server_directory
 from deepfellow.server.utils.validation import check_server_directory
 
 app = typer.Typer()
@@ -25,6 +25,7 @@ app = typer.Typer()
 
 @app.command()
 def uninstall(
+    ctx: typer.Context,
     directory: Path = directory_option("DeepFellow Server directory."),
 ) -> None:
     """Uninstall DeepFellow Server."""
@@ -37,5 +38,10 @@ def uninstall(
 
     echo.info("Removing DeepFellow Server files.")
     shutil.rmtree(directory)
+
+    old_default_server_dir = get_default_server_directory(ctx)
+
+    if old_default_server_dir.resolve() == directory.resolve():
+        set_default_server_directory(ctx, "", True)
 
     echo.success("DeepFellow Server uninstalled.")
