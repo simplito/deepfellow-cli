@@ -166,6 +166,7 @@ def install(  # noqa: C901
         vectordb_password,
         embedding_model,
         embedding_size,
+        str(original_env_content.get("df_vector_database__provider__type", vectordb_type.value)),
     )
     is_vectordb_active = vectordb_envs.get("DF_VECTOR_DATABASE__PROVIDER__ACTIVE") == "1"
     vectordb_type_str = vectordb_envs.get("DF_VECTOR_DATABASE__PROVIDER__TYPE", "")

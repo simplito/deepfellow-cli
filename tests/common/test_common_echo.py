@@ -15,7 +15,9 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 import typer
 
-from deepfellow.common.echo import Echo, echo
+from deepfellow.common.echo import Echo, echo, get_return_value
+
+_IS_INTERACTIVE = "deepfellow.common.echo.is_interactive"
 
 
 @pytest.fixture
@@ -24,7 +26,7 @@ def prompter():
     return Echo()  # Replace with actual class name
 
 
-@patch("deepfellow.common.echo.is_interactive", return_value=False)
+@patch(_IS_INTERACTIVE, return_value=False)
 def test_prompt_non_interactive_with_explicit_cli_value(mock_interactive, prompter):
     """When from_args differs from original_default, return from_args."""
     result = prompter.prompt(
@@ -36,7 +38,7 @@ def test_prompt_non_interactive_with_explicit_cli_value(mock_interactive, prompt
     assert result == "cli_value"
 
 
-@patch("deepfellow.common.echo.is_interactive", return_value=False)
+@patch(_IS_INTERACTIVE, return_value=False)
 def test_prompt_non_interactive_from_args_none_uses_default(mock_interactive, prompter):
     """When from_args is None, return default."""
     result = prompter.prompt(
@@ -48,7 +50,7 @@ def test_prompt_non_interactive_from_args_none_uses_default(mock_interactive, pr
     assert result == "config_default"
 
 
-@patch("deepfellow.common.echo.is_interactive", return_value=False)
+@patch(_IS_INTERACTIVE, return_value=False)
 def test_prompt_non_interactive_from_args_equals_original_uses_default(mock_interactive, prompter):
     """When from_args equals original_default, return default."""
     result = prompter.prompt(
@@ -60,7 +62,7 @@ def test_prompt_non_interactive_from_args_equals_original_uses_default(mock_inte
     assert result == "config_default"
 
 
-@patch("deepfellow.common.echo.is_interactive", return_value=False)
+@patch(_IS_INTERACTIVE, return_value=False)
 def test_prompt_non_interactive_no_value_no_default_exits(mock_interactive, prompter):
     """When no CLI value and no default, raise Exit."""
     with pytest.raises(typer.Exit) as exc_info:
@@ -73,7 +75,7 @@ def test_prompt_non_interactive_no_value_no_default_exits(mock_interactive, prom
     assert exc_info.value.exit_code == 1
 
 
-@patch("deepfellow.common.echo.is_interactive", return_value=False)
+@patch(_IS_INTERACTIVE, return_value=False)
 def test_prompt_non_interactive_from_args_equals_original_no_default_exits(mock_interactive, prompter):
     """When from_args equals original_default and no default, raise Exit."""
     with pytest.raises(typer.Exit) as exc_info:
@@ -86,7 +88,7 @@ def test_prompt_non_interactive_from_args_equals_original_no_default_exits(mock_
     assert exc_info.value.exit_code == 1
 
 
-@patch("deepfellow.common.echo.is_interactive", return_value=False)
+@patch(_IS_INTERACTIVE, return_value=False)
 def test_prompt_non_interactive_explicit_cli_value_skips_validation(mock_interactive, prompter):
     """Validation is NOT applied to explicit CLI values (already validated)."""
     validation = MagicMock(return_value="validated_value")
@@ -102,7 +104,7 @@ def test_prompt_non_interactive_explicit_cli_value_skips_validation(mock_interac
     assert result == "cli_value"
 
 
-@patch("deepfellow.common.echo.is_interactive", return_value=False)
+@patch(_IS_INTERACTIVE, return_value=False)
 def test_prompt_non_interactive_default_skips_validation(mock_interactive, prompter):
     """Validation is NOT applied to default values (already validated)."""
     validation = MagicMock(return_value="validated_value")
@@ -120,7 +122,7 @@ def test_prompt_non_interactive_default_skips_validation(mock_interactive, promp
 
 
 @patch("deepfellow.common.echo.Prompt.ask", return_value="user_input")
-@patch("deepfellow.common.echo.is_interactive", return_value=True)
+@patch(_IS_INTERACTIVE, return_value=True)
 def test_prompt_interactive_user_input_gets_validated(mock_interactive, mock_ask, prompter):
     """Validation IS applied to user input from Prompt.ask()."""
     validation = MagicMock(return_value="validated_input")
@@ -138,7 +140,7 @@ def test_prompt_interactive_user_input_gets_validated(mock_interactive, mock_ask
 
 
 @patch("deepfellow.common.echo.Prompt.ask")
-@patch("deepfellow.common.echo.is_interactive", return_value=True)
+@patch(_IS_INTERACTIVE, return_value=True)
 def test_prompt_interactive_explicit_cli_value_skips_validation(mock_interactive, mock_ask, prompter):
     """Even in interactive mode, explicit CLI values skip validation."""
     validation = MagicMock(return_value="validated_value")
@@ -157,7 +159,7 @@ def test_prompt_interactive_explicit_cli_value_skips_validation(mock_interactive
 
 
 @patch("deepfellow.common.echo.Prompt.ask", return_value="user_input")
-@patch("deepfellow.common.echo.is_interactive", return_value=True)
+@patch(_IS_INTERACTIVE, return_value=True)
 def test_prompt_interactive_from_args_none_prompts_user(mock_interactive, mock_ask, prompter):
     """When from_args is None in interactive mode, prompt user."""
     result = prompter.prompt(
@@ -172,7 +174,7 @@ def test_prompt_interactive_from_args_none_prompts_user(mock_interactive, mock_a
 
 
 @patch("deepfellow.common.echo.Prompt.ask", return_value="user_input")
-@patch("deepfellow.common.echo.is_interactive", return_value=True)
+@patch(_IS_INTERACTIVE, return_value=True)
 def test_prompt_interactive_from_args_equals_original_prompts_user(mock_interactive, mock_ask, prompter):
     """When from_args equals original_default, prompt user."""
     result = prompter.prompt(
@@ -187,7 +189,7 @@ def test_prompt_interactive_from_args_equals_original_prompts_user(mock_interact
 
 
 @patch("deepfellow.common.echo.Prompt.ask")
-@patch("deepfellow.common.echo.is_interactive", return_value=True)
+@patch(_IS_INTERACTIVE, return_value=True)
 def test_prompt_interactive_explicit_cli_value_skips_prompt(mock_interactive, mock_ask, prompter):
     """When from_args differs from original_default, don't prompt."""
     result = prompter.prompt(
@@ -202,7 +204,7 @@ def test_prompt_interactive_explicit_cli_value_skips_prompt(mock_interactive, mo
 
 
 @patch("deepfellow.common.echo.Prompt.ask", return_value="user_input")
-@patch("deepfellow.common.echo.is_interactive", return_value=True)
+@patch(_IS_INTERACTIVE, return_value=True)
 def test_prompt_interactive_with_validation(mock_interactive, mock_ask, prompter):
     """Validation callback is applied to user input."""
     validation = MagicMock(return_value="validated_input")
@@ -220,7 +222,7 @@ def test_prompt_interactive_with_validation(mock_interactive, mock_ask, prompter
 
 
 @patch("deepfellow.common.echo.Prompt.ask", return_value="secret")
-@patch("deepfellow.common.echo.is_interactive", return_value=True)
+@patch(_IS_INTERACTIVE, return_value=True)
 def test_prompt_password_mode_masks_default(mock_interactive, mock_ask, prompter):
     """Password mode masks the default value in the prompt message."""
     prompter.prompt(
@@ -238,7 +240,7 @@ def test_prompt_password_mode_masks_default(mock_interactive, mock_ask, prompter
 
 
 @patch("deepfellow.common.echo.Prompt.ask", return_value="secret")
-@patch("deepfellow.common.echo.is_interactive", return_value=True)
+@patch(_IS_INTERACTIVE, return_value=True)
 def test_prompt_password_mode_without_default(mock_interactive, mock_ask, prompter):
     """Password mode without default doesn't modify message."""
     prompter.prompt(
@@ -254,7 +256,7 @@ def test_prompt_password_mode_without_default(mock_interactive, mock_ask, prompt
     assert call_kwargs.get("show_default") is True
 
 
-@patch("deepfellow.common.echo.is_interactive", return_value=False)
+@patch(_IS_INTERACTIVE, return_value=False)
 def test_prompt_from_args_empty_string_is_user_provided(mock_interactive, prompter):
     """Empty string from_args is treated as user-provided value."""
     result = prompter.prompt(
@@ -266,7 +268,7 @@ def test_prompt_from_args_empty_string_is_user_provided(mock_interactive, prompt
     assert result == ""
 
 
-@patch("deepfellow.common.echo.is_interactive", return_value=False)
+@patch(_IS_INTERACTIVE, return_value=False)
 def test_prompt_from_args_empty_string_equals_original_uses_default(mock_interactive, prompter):
     """Empty string from_args equals original_default uses default."""
     result = prompter.prompt(
@@ -278,7 +280,7 @@ def test_prompt_from_args_empty_string_equals_original_uses_default(mock_interac
     assert result == "default_val"
 
 
-@patch("deepfellow.common.echo.is_interactive", return_value=False)
+@patch(_IS_INTERACTIVE, return_value=False)
 def test_prompt_both_from_args_and_original_default_none(mock_interactive, prompter):
     """When both are None, from_args is not considered user-provided."""
     result = prompter.prompt(
@@ -291,7 +293,7 @@ def test_prompt_both_from_args_and_original_default_none(mock_interactive, promp
 
 
 @patch("deepfellow.common.echo.Prompt.ask", return_value="")
-@patch("deepfellow.common.echo.is_interactive", return_value=True)
+@patch(_IS_INTERACTIVE, return_value=True)
 def test_prompt_user_enters_empty_string(mock_interactive, mock_ask, prompter):
     """User entering empty string in interactive mode."""
     result = prompter.prompt(
@@ -304,7 +306,7 @@ def test_prompt_user_enters_empty_string(mock_interactive, mock_ask, prompter):
 
 
 @patch("deepfellow.common.echo.Prompt.ask", return_value="choice1")
-@patch("deepfellow.common.echo.is_interactive", return_value=True)
+@patch(_IS_INTERACTIVE, return_value=True)
 def test_prompt_kwargs_passed_to_prompt_ask(mock_interactive, mock_ask, prompter):
     """Additional kwargs are passed to Prompt.ask."""
     prompter.prompt(
@@ -319,7 +321,7 @@ def test_prompt_kwargs_passed_to_prompt_ask(mock_interactive, mock_ask, prompter
     assert call_kwargs.get("choices") == ["choice1", "choice2", "choice3"]
 
 
-@mock.patch("deepfellow.common.echo.is_interactive")
+@mock.patch(_IS_INTERACTIVE)
 @mock.patch("deepfellow.common.echo.questionary")
 def test_choice_interactive(mock_questionary: Mock, mock_is_interactive: Mock) -> None:
     """Test choice method in interactive mode."""
@@ -332,7 +334,7 @@ def test_choice_interactive(mock_questionary: Mock, mock_is_interactive: Mock) -
     mock_questionary.select.assert_called_once()
 
 
-@mock.patch("deepfellow.common.echo.is_interactive")
+@mock.patch(_IS_INTERACTIVE)
 def test_choice_not_interactive_no_default(mock_is_interactive: Mock) -> None:
     """Test choice method in non-interactive mode without default value."""
     mock_is_interactive.return_value = False
@@ -343,11 +345,82 @@ def test_choice_not_interactive_no_default(mock_is_interactive: Mock) -> None:
     # Check that error was called
 
 
-@mock.patch("deepfellow.common.echo.is_interactive")
-def test_hoice_not_interactive_with_default(mock_is_interactive: Mock) -> None:
+@mock.patch(_IS_INTERACTIVE)
+def test_choice_not_interactive_with_default(mock_is_interactive: Mock) -> None:
     """Test choice method in non-interactive mode with default value."""
     mock_is_interactive.return_value = False
 
     result = echo.choice("Select option", choices=["option1", "option2"], default="option2")
 
     assert result == "option2"
+
+
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_get_return_value_interactive_no_args_returns_none(mock_is_interactive: mock.Mock):
+    assert get_return_value("Enter value") is None
+
+
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_get_return_value_interactive_from_args_provided(mock_is_interactive: mock.Mock):
+    assert get_return_value("Enter value", from_args="custom", original_default="default") == "custom"
+
+
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_get_return_value_interactive_from_args_equals_original_default_returns_none(mock_is_interactive: mock.Mock):
+    assert get_return_value("Enter value", from_args="default", original_default="default") is None
+
+
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_get_return_value_interactive_from_args_none_returns_none(mock_is_interactive: mock.Mock):
+    assert get_return_value("Enter value", from_args=None, original_default="default") is None
+
+
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_get_return_value_interactive_default_ignored_when_no_args(mock_is_interactive: mock.Mock):
+    assert get_return_value("Enter value", default="fallback") is None
+
+
+@patch(_IS_INTERACTIVE, return_value=False)
+def test_get_return_value_non_interactive_from_args_provided(mock_is_interactive: mock.Mock):
+    assert get_return_value("Enter value", from_args="custom", original_default="default") == "custom"
+
+
+@patch(_IS_INTERACTIVE, return_value=False)
+def test_get_return_value_non_interactive_falls_back_to_default(mock_is_interactive: mock.Mock):
+    assert get_return_value("Enter value", default="fallback") == "fallback"
+
+
+@patch(_IS_INTERACTIVE, return_value=False)
+def test_get_return_value_non_interactive_no_args_no_default_exits(mock_is_interactive: mock.Mock):
+    with pytest.raises(typer.Exit):
+        get_return_value("Enter value")
+
+
+@patch(_IS_INTERACTIVE, return_value=False)
+def test_get_return_value_non_interactive_from_args_equals_original_default_uses_default(
+    mock_is_interactive: mock.Mock,
+):
+    assert get_return_value("Enter value", default="fallback", from_args="orig", original_default="orig") == "fallback"
+
+
+@patch(_IS_INTERACTIVE, return_value=False)
+def test_get_return_value_non_interactive_from_args_equals_original_default_no_default_exits(
+    mock_is_interactive: mock.Mock,
+):
+    with pytest.raises(typer.Exit):
+        get_return_value("Enter value", from_args="orig", original_default="orig")
+
+
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_get_return_value_from_args_false_is_valid_value(mock_is_interactive: mock.Mock):
+    assert get_return_value("Enter value", from_args=False, original_default=True) is False
+
+
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_get_return_value_from_args_empty_string_is_valid_value(mock_is_interactive: mock.Mock):
+    assert get_return_value("Enter value", from_args="", original_default="default") == ""
+
+
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_get_return_value_from_args_zero_is_valid_value(mock_is_interactive: mock.Mock):
+    assert get_return_value("Enter value", from_args=0, original_default=1) == 0
