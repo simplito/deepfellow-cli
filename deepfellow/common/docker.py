@@ -189,7 +189,8 @@ def create_network(network_name: str, driver: str = "bridge") -> None:
         DockerNetworkError: When unable to create network
     """
     try:
-        run(["docker", "network", "create", "--driver", driver, network_name], raises=DockerError)
+        run(["docker", "network", "create", "--driver", driver, network_name], raises=DockerError, quiet=True)
+        echo.debug(f"Created docker network {network_name}.")
     except DockerError as exc:
         raise DockerNetworkError(f"Failed to create network '{network_name}'") from exc
 

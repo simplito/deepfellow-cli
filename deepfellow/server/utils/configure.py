@@ -148,6 +148,7 @@ def configure_vector_db(
     vectordb_password: str,
     embedding_model: str,
     embedding_size: str,
+    default_vectordb_type: str,
 ) -> tuple[bool, dict[str, str]]:
     """Collect info about vector db."""
     if not should_use_vector_db(vectordb_active):
@@ -157,12 +158,13 @@ def configure_vector_db(
 
     # vectordb_type might be provided by the user or be default (VECTOR_DATABASE["provider"]["type"])
     # Ask user to choose type only if default value is provided.
-    if vectordb_type == DEFAULT_VECTOR_DATABASE_TYPE:
-        vectordb_type = echo.choice(
-            "Choose the type of the vector database",
-            choices=ALLOWED_VECTOR_DB_TYPES,
-            default=DEFAULT_VECTOR_DATABASE_TYPE,
-        )
+    vectordb_type = echo.choice(
+        "Choose the type of the vector database",
+        from_args=vectordb_type,
+        original_default=DEFAULT_VECTOR_DATABASE_TYPE,
+        choices=ALLOWED_VECTOR_DB_TYPES,
+        default=default_vectordb_type,
+    )
 
     # Change default url if user changed the type of vector db
     if vectordb_type != DEFAULT_VECTOR_DATABASE_TYPE and vectordb_url == DEFAULT_VECTOR_DATABASE["provider"]["url"]:

@@ -46,6 +46,40 @@ def is_interactive() -> bool:
         return True
 
 
+def get_return_value(
+    message: str,
+    default: Any = None,
+    from_args: Any = None,
+    original_default: Any = None,
+) -> str | None:
+    """Determine if user action is required.
+
+    Returns:
+        A value if user will not be asked for answer or None otherwise
+
+    Raises:
+        typer.Exit if non-interactive mode and no default provided.
+    """
+    has_user_provided_value = from_args is not None and from_args != original_default
+    return_value = from_args if has_user_provided_value else None
+
+    if not is_interactive():
+        # The value has to be provided in non-interactive mode
+        if has_user_provided_value:
+            return_value = from_args
+        elif default is not None:
+            return_value = default
+        else:
+            echo.error(f"Non interactive mode is ON.\nPlease provide the value in args.\nMSG: {message}")
+            raise typer.Exit(1)
+
+    # We do not ask user if value is provided in CLI argument
+    if return_value is not None:
+        return return_value
+
+    return None
+
+
 class Echo(Console):
     def debug(self, message_source: Any) -> None:
         """Print a debug message to the console."""
@@ -120,21 +154,10 @@ class Echo(Console):
         Returns:
             The final value (from args, user input, or default)
         """
-        has_user_provided_value = from_args is not None and from_args != original_default
-        return_value = from_args if has_user_provided_value else None
-
-        if not is_interactive():
-            # Determine the return value
-            if has_user_provided_value:
-                return_value = from_args
-            elif default is not None:
-                return_value = default
-            else:
-                echo.error(f"Non interactive mode is ON.\nPlease provide the value in args.\nMSG: {message}")
-                raise typer.Exit(1)
-
-        # We do not ask user if value is provided in CLI
+        return_value = get_return_value(message, default, from_args, original_default)
         if return_value is not None:
+            info = "(set automatically)" if password else f"(set automatically: {return_value})"
+            echo.info(f"{message} {info}")
             return return_value
 
         # Interactive mode - ask user
@@ -217,15 +240,27 @@ class Echo(Console):
         message: str,
         choices: list[str] | list[Any],
         default: Any = None,
+        from_args: Any = None,
+        original_default: Any = None,
         **kwargs: Any,
     ) -> str:
-        """Prompt the user to make a choice from a list of options."""
-        if not is_interactive():
-            if default is not None:
-                return default
+        """Prompt the user to make a choice from a list of options.
 
-            echo.error(f"Non interactive mode is ON.\nPlease provide the value in args.\nMSG: {message}")
-            raise typer.Exit(1)
+        Args:
+            message: The prompt message to display
+            choices: list of values to choose from
+            default: Value read from configuration, or fallback from CLI argument
+            from_args: Value provided via CLI arguments
+            original_default: The original default value for comparison
+            **kwargs: Additional arguments passed to questionary.select
+
+        Returns:
+            The final value (from args, user input, or default)
+        """
+        return_value = get_return_value(message, default, from_args, original_default)
+        if return_value is not None:
+            echo.info(f"{message} (chosen automatically: {return_value})")
+            return return_value
 
         final_msg = f"{add_tabs(message)}" if is_interactive() else message
         return questionary.select(
