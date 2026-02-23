@@ -8,7 +8,7 @@ curl -fsSL https://deepfellow.ai/install.sh | bash
 
 ## Development
 
-### Local installtion
+### Local installation
 
 Clone and then create the virtual environment
 
@@ -24,9 +24,9 @@ uv pip install -e .
 
 The `deepfellow` command will install to the virtual environment (typically `./.venv/bin/deepfellow`). Ensure it's available in the `PATH`.
 
-### Chaning image to development
+### Changing the image for development
 
-To set latest development images for DeepFellow Server and DeepFellow Infra, export enviromental variables.
+To set latest development images for DeepFellow Server and DeepFellow Infra, export environmental variables.
 
 Pattern for Linux based OS:
 ```bash
