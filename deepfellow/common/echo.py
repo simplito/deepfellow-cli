@@ -15,12 +15,21 @@ from typing import Any
 import click
 import questionary
 import typer
+from questionary import Style
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
 
 from deepfellow.common.colors import COLORS, RESET
 
 ValidationCallback = Callable[[Any], Any] | None
+
+questionary_style = Style(
+    [
+        ("qmark", ""),  # style for the question mark
+        ("question", "fg:#2f6cff nobold"),  # style for the question text
+        ("answer", "fg:ansicyan bold"),  # chosen answer
+    ]
+)
 
 
 def add_tabs(msg: str) -> str:
@@ -219,7 +228,15 @@ class Echo(Console):
             raise typer.Exit(1)
 
         final_msg = f"{add_tabs(message)}" if is_interactive() else message
-        return questionary.select(final_msg, choices=choices, default=default, **kwargs).ask()
+        return questionary.select(
+            final_msg,
+            choices=choices,
+            default=default,
+            qmark="❓     ",  # match typer prefix
+            pointer="       »",  # move pointer to align with question
+            style=questionary_style,
+            **kwargs,
+        ).ask()
 
 
 echo = Echo()
