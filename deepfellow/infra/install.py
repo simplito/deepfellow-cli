@@ -29,6 +29,7 @@ from deepfellow.common.defaults import (
     DF_INFRA_PORT,
     DF_INFRA_STORAGE_DIR,
     DF_INFRA_URL,
+    DOCKER_COMPOSE_CONFIG_FILENAME,
     DOCKER_COMPOSE_INFRA,
 )
 from deepfellow.common.docker import (
@@ -246,7 +247,7 @@ def install(  # noqa: C901
 
     save_compose_file(
         {"services": compose, "networks": {docker_network: {"external": True}}},
-        directory / "docker-compose.yml",
+        directory / DOCKER_COMPOSE_CONFIG_FILENAME,
     )
 
     echo.info("Pulling docker image(s).")

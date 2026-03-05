@@ -14,6 +14,7 @@ from pathlib import Path
 
 import typer
 
+from deepfellow.common.defaults import DOCKER_COMPOSE_CONFIG_FILENAME
 from deepfellow.common.docker import is_service_running, load_compose_file, save_compose_file
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get, env_set
@@ -47,7 +48,7 @@ def ssl_on(
         raise typer.Exit(1)
 
     # Add ssl-volume to docker compose if not there
-    docker_config = load_compose_file(directory / "docker-compose.yml")
+    docker_config = load_compose_file(directory / DOCKER_COMPOSE_CONFIG_FILENAME)
     env_file = directory / ".env"
     docker_infra = docker_config["services"]["infra"]
     ssl_dir = directory / "ssl"
@@ -56,7 +57,7 @@ def ssl_on(
     if not any(ssl_dir_str in volume for volume in docker_infra["volumes"]):
         docker_infra["volumes"].append(f"{ssl_dir_str}:/ssl")
 
-    save_compose_file(docker_config, compose_file=directory / "docker-compose.yml", quiet=True)
+    save_compose_file(docker_config, compose_file=directory / DOCKER_COMPOSE_CONFIG_FILENAME, quiet=True)
 
     # Create directory on the server
     run(["docker", "compose", "exec", "infra", "mkdir", "/ssl", "-p"], cwd=directory)
@@ -126,7 +127,7 @@ def ssl_on(
         ' --host "0.0.0.0" --port 8086 --reload --log-level debug'
         " --ssl-keyfile /ssl/key.pem --ssl-certfile /ssl/cert.pem"
     )
-    save_compose_file(docker_config, compose_file=directory / "docker-compose.yml", quiet=True)
+    save_compose_file(docker_config, compose_file=directory / DOCKER_COMPOSE_CONFIG_FILENAME, quiet=True)
 
     echo.info("Restarting docker.")
     # Restart docker with rebuild

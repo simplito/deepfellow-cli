@@ -42,6 +42,8 @@ DF_MONGO_DB = "deepfellow"
 
 API_ENDPOINTS = {"openai": {"url": "https://api.openai.com", "api_key": "some-fake-key", "name": "openai"}}
 
+DOCKER_COMPOSE_CONFIG_FILENAME = "compose.yaml"
+
 # ================
 # Vector databases
 # ================

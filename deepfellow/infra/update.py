@@ -16,7 +16,7 @@ import typer
 from deepfellow.common.config import (
     read_env_file_to_dict,
 )
-from deepfellow.common.defaults import DF_INFRA_IMAGE, DF_INFRA_IMAGE_HUB
+from deepfellow.common.defaults import DF_INFRA_IMAGE, DF_INFRA_IMAGE_HUB, DOCKER_COMPOSE_CONFIG_FILENAME
 from deepfellow.common.docker import load_compose_file, save_compose_file
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
@@ -46,7 +46,7 @@ def update(
     infra_values = read_env_file_to_dict(env_file)
 
     # Prepare the docker compose data
-    compose_file = directory / "docker-compose.yml"
+    compose_file = directory / DOCKER_COMPOSE_CONFIG_FILENAME
     compose = load_compose_file(compose_file=compose_file)
     infra_service = compose["services"]["infra"]
 
@@ -63,7 +63,7 @@ def update(
     if update_compose:
         save_compose_file(
             compose,
-            directory / "docker-compose.yml",
+            directory / DOCKER_COMPOSE_CONFIG_FILENAME,
         )
 
     if tag:

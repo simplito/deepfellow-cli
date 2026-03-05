@@ -14,6 +14,7 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
+from deepfellow.common.defaults import DOCKER_COMPOSE_CONFIG_FILENAME
 from deepfellow.common.docker import (
     DockerError,
     is_docker_installed,
@@ -32,7 +33,7 @@ def temp_env_file(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def temp_compose_file(tmp_path: Path) -> Path:
-    return tmp_path / "docker-compose.yml"
+    return tmp_path / DOCKER_COMPOSE_CONFIG_FILENAME
 
 
 @pytest.fixture
@@ -123,11 +124,11 @@ def test_save_compose_file_uses_default_path(mock_write_text: mock.Mock, mock_ec
     assert yaml.safe_load(yaml_content) == expected
 
     assert mock_echo.info.call_count == 1
-    assert "docker-compose.yml" in mock_echo.info.call_args[0][0]
+    assert DOCKER_COMPOSE_CONFIG_FILENAME in mock_echo.info.call_args[0][0]
 
 
 def test_load_compose_file_returns_empty_services_when_not_exists() -> None:
-    non_existent_file = Path("nonexistent-compose.yml")
+    non_existent_file = Path("nonexistent-compose.yaml")
 
     result = load_compose_file(non_existent_file)
 
