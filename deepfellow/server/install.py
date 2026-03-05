@@ -26,6 +26,7 @@ from deepfellow.common.defaults import (
     DF_SERVER_IMAGE,
     DF_SERVER_PORT,
     DF_SERVER_STORAGE_DIRECTORY,
+    DOCKER_COMPOSE_CONFIG_FILENAME,
     DOCKER_COMPOSE_MILVUS,
     DOCKER_COMPOSE_MONGO_DB,
     DOCKER_COMPOSE_QDRANT,
@@ -261,7 +262,7 @@ def install(  # noqa: C901
 
     save_compose_file(
         {"services": services, "volumes": volumes, "networks": {docker_network: {"external": True}}},
-        directory / "docker-compose.yml",
+        directory / DOCKER_COMPOSE_CONFIG_FILENAME,
     )
     run(["docker", "compose", "pull"], directory)
     echo.success("DeepFellow Server Installed.\nCall `deepfellow server start`.")

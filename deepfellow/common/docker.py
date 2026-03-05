@@ -17,6 +17,7 @@ import typer
 import yaml
 
 from deepfellow.common.config import env_to_dict, read_env_file
+from deepfellow.common.defaults import DOCKER_COMPOSE_CONFIG_FILENAME
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import DockerNetworkError, DockerSocketNotFoundError
 from deepfellow.common.system import run
@@ -85,19 +86,30 @@ def represent_none(self: yaml.representer.BaseRepresenter, _: None) -> yaml.Scal
 yaml.add_representer(type(None), represent_none)
 
 
+def remove_old_docker_compose(compose_file: Path) -> None:
+    """Remove old docker-compose.yml file.
+
+    Args:
+        compose_file: Project's compose file path
+    """
+    compose_file = compose_file.parent / "docker-compose.yml"
+    compose_file.unlink(missing_ok=True)
+
+
 def save_compose_file(
     compose_dict: dict[str, Any],
-    compose_file: Path = Path("docker-compose.yml"),
+    compose_file: Path = Path(DOCKER_COMPOSE_CONFIG_FILENAME),
     quiet: bool = False,
     file_info: str = "Docker Compose configuration",
 ) -> None:
     """Saves Docker Compose configuration to YAML file."""
     compose_file.write_text(yaml.dump(compose_dict, default_flow_style=False, sort_keys=False, width=1000))
     msg = echo.debug if quiet else echo.info
+    remove_old_docker_compose(compose_file)
     msg(f"Saved {file_info} to {compose_file.as_posix()}")
 
 
-def load_compose_file(compose_file: Path = Path("docker-compose.yml")) -> dict[str, Any]:
+def load_compose_file(compose_file: Path = Path(DOCKER_COMPOSE_CONFIG_FILENAME)) -> dict[str, Any]:
     """Loads existing Docker Compose file and returns dictionary."""
     if not compose_file.exists():
         return {"services": {}}
