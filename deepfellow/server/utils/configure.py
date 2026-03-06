@@ -27,6 +27,7 @@ from deepfellow.common.defaults import (
     DF_MONGO_URL,
     DOCKER_COMPOSE_OTEL_COLLECTOR,
     MILVUS_DATABASE,
+    MONGO_DB_INIT_SH,
     OTEL_COLLECTOR_CONFIG,
     QDRANT_DATABASE,
     VECTOR_DATABASES,
@@ -265,6 +266,7 @@ class Infras:
 
 
 def configure_mongo(
+    directory: Path,
     custom: bool,
     mongo_user: str,
     mongo_password: str,
@@ -311,10 +313,24 @@ def configure_mongo(
             password=True,
         )
     else:
+        # generate admin user and password
+        mongo_admin_user = generate_password(12)
+        mongo_admin_password = generate_password(24)
+        mongo_config |= {
+            "DF_MONGO_INITDB_ROOT_USERNAME": mongo_admin_user,
+            "DF_MONGO_INITDB_ROOT_PASSWORD": mongo_admin_password,
+        }
+
         if not mongo_user:
             mongo_config["DF_MONGO_USER"] = original_env.get("df_mongo_user") or generate_password(8)
         if not mongo_password:
             mongo_config["DF_MONGO_PASSWORD"] = original_env.get("df_mongo_password") or generate_password(12)
+
+        # Store the create user script
+        init_mongo_path = directory / "init-mongo.sh"
+        init_mongo_path.write_text(MONGO_DB_INIT_SH)
+        init_mongo_path.chmod(0o755)
+
         echo.info("A default MongoDB setup is created.")
 
     return mongo_config

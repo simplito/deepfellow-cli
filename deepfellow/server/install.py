@@ -117,6 +117,7 @@ def install(  # noqa: C901
         custom_mongo_db_server = echo.confirm("Do you have MongoDB installed for DeepFellow Server?", default=False)
 
     mongo_env = configure_mongo(
+        directory,
         custom_mongo_db_server,
         mongodb_username,
         mongodb_password,
