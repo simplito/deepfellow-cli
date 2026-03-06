@@ -235,6 +235,18 @@ DOCKER_COMPOSE_MILVUS = {
     },
 }
 
+MONGO_DB_INIT_SH = """
+#!/bin/bash
+mongosh -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin <<EOF
+db = db.getSiblingDB("admin");
+db.createUser({
+  user: "$DF_MONGO_USER",
+  pwd: "$DF_MONGO_PASSWORD",
+  roles: [{ role: "readWrite", db: "$DF_MONGO_DB" }],
+});
+EOF
+"""
+
 DOCKER_COMPOSE_MONGO_DB = {
     "mongo": {
         "container_name": "mongo",
@@ -242,10 +254,16 @@ DOCKER_COMPOSE_MONGO_DB = {
         "restart": "always",
         "expose": ["27017"],
         "ports": ["27017:27017"],
-        "volumes": ["mongo:/data/db"],
+        "volumes": [
+            "mongo:/data/db",
+            "./init-mongo.sh:/docker-entrypoint-initdb.d/init-mongo.sh:ro",
+        ],
         "environment": [
-            "MONGO_INITDB_ROOT_USERNAME=${DF_MONGO_USER}",
-            "MONGO_INITDB_ROOT_PASSWORD=${DF_MONGO_PASSWORD}",
+            "MONGO_INITDB_ROOT_USERNAME=${DF_MONGO_INITDB_ROOT_USERNAME}",
+            "MONGO_INITDB_ROOT_PASSWORD=${DF_MONGO_INITDB_ROOT_PASSWORD}",
+            "DF_MONGO_USER=${DF_MONGO_USER}",
+            "DF_MONGO_PASSWORD=${DF_MONGO_PASSWORD}",
+            "DF_MONGO_DB=${DF_MONGO_DB}",
         ],
         "healthcheck": {
             "test": "mongosh --eval 'db.runCommand(\"ping\")'",
