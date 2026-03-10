@@ -166,6 +166,20 @@ DOCKER_COMPOSE_QDRANT = {
         "ports": ["6333:6333", "6334:6334"],
         "expose": [6333, 6334, 6335],
         "volumes": ["qdrant_data:/qdrant/storage"],
+        "healthcheck": {
+            "test": [
+                "CMD",
+                "bash",
+                "-c",
+                "exec 3<>/dev/tcp/127.0.0.1/6333 && "
+                "echo -e 'GET /readyz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && "
+                "grep -q 'HTTP/1.1 200' <&3",
+            ],
+            "interval": "10s",
+            "timeout": "5s",
+            "retries": 5,
+            "start_period": "5s",
+        },
     }
 }
 
