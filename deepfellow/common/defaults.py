@@ -163,7 +163,6 @@ DOCKER_COMPOSE_QDRANT = {
         "container_name": "qdrant",
         "image": "qdrant/qdrant:v1.15",
         "restart": "always",
-        "ports": ["6333:6333", "6334:6334"],
         "expose": [6333, 6334, 6335],
         "volumes": ["qdrant_data:/qdrant/storage"],
         "healthcheck": {
@@ -193,7 +192,7 @@ DOCKER_COMPOSE_MILVUS = {
             "ETCD_QUOTA_BACKEND_BYTES=4294967296",
             "ETCD_SNAPSHOT_COUNT=50000",
         ],
-        "ports": ["2379:2379"],
+        "expose": ["2379"],
         "volumes": ["etcd:/etcd"],
         "command": (
             "etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd"
@@ -212,7 +211,7 @@ DOCKER_COMPOSE_MILVUS = {
             "MINIO_ACCESS_KEY=minioadmin",
             "MINIO_SECRET_KEY=minioadmin",
         ],
-        "ports": ["9001:9001", "9000:9000"],
+        "expose": ["9001", "9000"],
         "volumes": ["minio:/minio_data"],
         "command": 'minio server /minio_data --console-address ":9001"',
         "healthcheck": {
@@ -241,7 +240,6 @@ DOCKER_COMPOSE_MILVUS = {
             "retries": 3,
         },
         "expose": ["19530", "9091"],
-        "ports": ["19530:19530", "9091:9091"],
         "depends_on": {
             "etcd": {"condition": "service_healthy"},
             "minio": {"condition": "service_healthy"},
@@ -267,7 +265,6 @@ DOCKER_COMPOSE_MONGO_DB = {
         "image": "mongo:8",
         "restart": "always",
         "expose": ["27017"],
-        "ports": ["27017:27017"],
         "volumes": [
             "mongo:/data/db",
             "./init-mongo.sh:/docker-entrypoint-initdb.d/init-mongo.sh:ro",
@@ -296,15 +293,21 @@ DOCKER_COMPOSE_OTEL_COLLECTOR = {
         "container_name": "otel-collector",
         "image": "otel/opentelemetry-collector-contrib:0.133.0",
         "volumes": ["./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml"],
-        "ports": [
-            "1888:1888",  # pprof extension
-            "8888:8888",  # Prometheus metrics exposed by the Collector
-            "8889:8889",  # Prometheus exporter metrics
-            "13133:13133",  # health_check extension
-            "4317:4317",  # OTLP gRPC receiver
-            "4318:4318",  # OTLP http receiver
-            "55679:55679",  # zpages extension
+        "expose": [
+            "4317",  # OTLP gRPC receiver
+            "4318",  # OTLP HTTP receiver
+            "8889",  # Prometheus exporter metrics
+            "13133",  # health_check extension
         ],
+        # if we allow systems from outside docker network to send telemetry:
+        # "ports": [
+        #     "4317:4317",  # OTLP gRPC receiver
+        #     "4318:4318",  # OTLP HTTP receiver
+        # ],
+        # "expose": [
+        #     "8889",   # Prometheus exporter metrics
+        #     "13133",  # health_check extension
+        # ],
     }
 }
 
