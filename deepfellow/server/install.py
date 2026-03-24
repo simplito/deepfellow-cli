@@ -52,6 +52,13 @@ from deepfellow.server.utils.options import directory_option, set_default_server
 app = typer.Typer()
 
 
+def expose_ports_to_host(services: dict[str, Any]) -> None:
+    """Add host port mappings for services that only have 'expose' (no 'ports')."""
+    for service in services.values():
+        if "expose" in service and "ports" not in service:
+            service["ports"] = [f"{port}:{port}" for port in service["expose"]]
+
+
 @app.command()
 def install(  # noqa: C901
     ctx: typer.Context,
@@ -97,6 +104,7 @@ def install(  # noqa: C901
         DEFAULT_VECTOR_DATABASE["embedding"]["size"], help="The dimensionality/size of the embedding vectors"
     ),
     force_install: bool = typer.Option(False, help="Force install"),
+    dev: bool = typer.Option(False, "--dev", help="Expose internal service ports to host for development."),
 ) -> None:
     """Install DeepFellow Server with docker."""
     echo.info("Installing DeepFellow Server.")
@@ -260,6 +268,10 @@ def install(  # noqa: C901
         f"{DF_SERVER_STORAGE_DIRECTORY}:/app/storage",
         f"{plugins_directory.as_posix()}:/app/plugins",
     ]
+
+    if dev:
+        expose_ports_to_host(services)
+        echo.warning("Dev mode: internal service ports are exposed to the host. Do not use in production.")
 
     save_compose_file(
         {"services": services, "volumes": volumes, "networks": {docker_network: {"external": True}}},
