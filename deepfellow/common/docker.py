@@ -117,11 +117,14 @@ def load_compose_file(compose_file: Path = Path(DOCKER_COMPOSE_CONFIG_FILENAME))
     return yaml.safe_load(compose_file.read_text())
 
 
-def get_socket() -> str:
+def get_socket(allow_rootful: bool = False) -> str:
     """Get the Docker socket.
 
     Detect active docker socket with `docker context inspect`
     https://docs.docker.com/reference/cli/docker/context/inspect/
+
+    Args:
+        allow_rootful: do not ask user if rootful Docker detected
 
     Returns:
         str: the path to the socket
@@ -156,10 +159,14 @@ def get_socket() -> str:
     if Path(rootless_path).is_file():
         return rootless_path
 
-    # Let's try with rootfull
+    # Let's try with rootful
     rootful_path = f"/run/{socket_file}"
     if Path(rootful_path).is_file():
-        return rootful_path
+        echo.warning("You're using rootful Docker. This is a security risk.")
+        if allow_rootful or echo.confirm("Do you want to continue?", default=False):
+            return rootful_path
+
+        raise typer.Exit(1)
 
     raise DockerSocketNotFoundError()
 

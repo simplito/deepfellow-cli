@@ -70,6 +70,7 @@ def install(  # noqa: C901
         DF_INFRA_DOCKER_NETWORK, envvar="DF_INFRA_DOCKER_NETWORK", help="Docker network"
     ),
     force_install: bool = typer.Option(False, help="Force install"),
+    allow_rootful: bool = typer.Option(False, help="Allow rootful Docker without asking user for permission"),
 ) -> None:
     """Install infra with docker."""
     # Retrieve the docker info to fail early in the process in docker is not running or configured differently
@@ -77,7 +78,7 @@ def install(  # noqa: C901
 
     assert_docker()
 
-    docker_socket = get_socket()
+    docker_socket = get_socket(allow_rootful=allow_rootful)
 
     config_file = ctx.obj.get("cli-config-file")
     secrets_file = ctx.obj.get("cli-secrets-file")
