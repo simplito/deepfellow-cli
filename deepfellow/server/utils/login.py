@@ -22,7 +22,7 @@ from deepfellow.common.validation import validate_email, validate_password
 def get_token(secrets_file: Path, server: str) -> str:
     """Load token from the secrets file.
 
-    Fallback to get_token_from login if not stored yet or expired.
+    Fallback to refresh_token if access token is expired, then to get_token_from_login.
 
     Args:
         secrets_file (Path): DeepFellow Server secrets
@@ -37,7 +37,7 @@ def get_token(secrets_file: Path, server: str) -> str:
     secrets = read_env_file(secrets_file) if secrets_file.is_file() else {}
     token = secrets.get("DF_USER_TOKEN")
     if token is None:
-        echo.info("Token not found in secrets file or it does not exist. Falling back to login.")
+        echo.debug("Token not found in secrets file or it does not exist. Falling back to login.")
         return get_token_from_login(secrets_file, server)
 
     # Authenticate to check if user is able to log in.
@@ -49,7 +49,13 @@ def get_token(secrets_file: Path, server: str) -> str:
             headers={"Authorization": f"Bearer {token}"},
         )
         if response.status_code == 401:
-            echo.info("Retrieved token is not valid. Falling back to login.")
+            echo.debug("Retrieved token is not valid. Attempting token refresh.")
+            new_token = try_refresh_token(secrets_file, server)
+            if new_token is not None:
+                echo.debug("Token refreshed successfully.")
+                return new_token
+
+            echo.error("Token refresh failed. Falling back to login.")
             return get_token_from_login(secrets_file, server)
 
         response.raise_for_status()
@@ -59,6 +65,41 @@ def get_token(secrets_file: Path, server: str) -> str:
         raise typer.Exit(1) from exc
 
     return token
+
+
+def try_refresh_token(secrets_file: Path, server: str) -> str | None:
+    """Attempt to obtain a new access token using the stored refresh token against /auth/refresh.
+
+    Args:
+        secrets_file (Path): DeepFellow Server secrets
+        server (str): DeepFellow Server URL
+
+    Returns:
+        New access token string on success, None if refresh is not possible or fails
+    """
+    secrets = read_env_file(secrets_file) if secrets_file.is_file() else {}
+    refresh_token = secrets.get("DF_USER_REFRESH_TOKEN")
+    if refresh_token is None:
+        return None
+
+    url = f"{server}/auth/refresh"
+    echo.debug(f"POST {url}")
+    try:
+        response = httpx.post(url, headers={"Authorization": f"Bearer {refresh_token}"}, timeout=10.0)
+        if response.status_code == 401:
+            return None
+
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        echo.debug(exc)
+        return None
+
+    data = response.json()
+    new_token = data["access_token"]
+    secrets["DF_USER_TOKEN"] = new_token
+    secrets["DF_USER_REFRESH_TOKEN"] = data["refresh_token"]
+    save_env_file(secrets_file, secrets, docker_note=False, quiet=True)
+    return new_token
 
 
 def get_token_from_login(secrets_file: Path, server: str, email: str | None = None, password: str | None = None) -> str:
@@ -102,10 +143,9 @@ def get_token_from_login(secrets_file: Path, server: str, email: str | None = No
     data = response.json()
     token = data["access_token"]
 
-    # Store token
     secrets = read_env_file(secrets_file) if secrets_file.is_file() else {}
     secrets["DF_USER_TOKEN"] = token
-    secrets["DF_USER_TOKEN_EXPIRY"] = data["expires_at"]
+    secrets["DF_USER_REFRESH_TOKEN"] = data["refresh_token"]
 
     save_env_file(secrets_file, secrets, docker_note=False)
 
