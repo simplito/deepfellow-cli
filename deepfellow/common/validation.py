@@ -23,7 +23,7 @@ from .system import is_command_available
 # Empty as no system command is required for server login and organization or project commands
 REQUIRED_COMMANDS: set[str] = set()
 USERNAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_]{2,19}$"
-PASSWORD_REGEX = r"^[a-zA-Z0-9_!@#$%^&*()_=+\-]{8,19}$"
+PASSWORD_REGEX = r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[_!@#$%^&*()\-=+])[a-zA-Z0-9_!@#$%^&*()\-=+]{10,19}$"
 
 
 def validate_system() -> None:
@@ -145,6 +145,10 @@ def validate_password(value: str | None) -> str | None:
         return None
 
     if not re.match(PASSWORD_REGEX, value):
-        raise typer.BadParameter("Invalid password - min 8 characters of 'a-zA-Z0-9_!@#$%^&*()_=+-'.")
+        # e.g. "Invalid password - must be 10-19 characters with uppercase, lowercase, digit and special char."
+        raise typer.BadParameter(
+            "Invalid password - must be 10-19 characters with at least "
+            "1 uppercase, 1 lowercase, 1 digit and 1 special character (_!@#$%^&*()-=+)."
+        )
 
     return value

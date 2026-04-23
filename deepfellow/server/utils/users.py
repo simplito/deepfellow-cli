@@ -9,6 +9,7 @@
 
 """Server admin util."""
 
+import re
 from pathlib import Path
 
 import typer
@@ -53,6 +54,19 @@ def create_admin(directory: Path, name: str | None, email: str | None, password:
     except UserActionError as exc:
         if "User with that email already exists" in str(exc):
             echo.error("Unable to create an admin: user with that email already exists")
+        elif "HTTPException" in str(exc):
+            # If validation changes on server user still gets usable message.
+            # For example:
+            # HTTPException: 422: Password is too short, need min 10 characters.
+            match = re.search(r"HTTPException: (\d{3}):\s*(.*)", str(exc))
+            if match and (result := match.group(2).strip()):
+                echo.error(result)
+            else:
+                if match and (status := match.group(1)):
+                    echo.error(f"Unable to create an admin: {status}.")
+                else:
+                    echo.error("Unable to create an admin.")
+                raise typer.Exit(1) from exc
         else:
             echo.error("Unable to create an admin.")
         raise typer.Exit(1) from exc
