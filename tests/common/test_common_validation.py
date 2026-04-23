@@ -20,9 +20,9 @@ def test_validate_password_none_returns_none():
 @pytest.mark.parametrize(
     "password",
     [
-        "abcdefgh",  # minimal valid length
-        "Abc123456",  # alphanumeric
-        "a1!@#$%^&*()-_=+",  # all allowed special chars
+        "Abcde1@hij",  # minimal valid length with all required types
+        "Abc123456!",  # alphanumeric with special char
+        "aA1!@#$%^&*()-_=+",  # all allowed special chars with uppercase and digit
         "Password123_+=",
     ],
 )
@@ -37,6 +37,10 @@ def test_validate_password_valid(password):
         "short",  # too short
         "no$pecials?",  # contains '?'
         "toolongpassword123456789",  # too long (20+)
+        "abcde1234!",  # no uppercase
+        "ABCDE1234!",  # no lowercase
+        "Abcdefghij",  # no digit
+        "Abcde12345",  # no special char
     ],
 )
 def test_validate_password_invalid(password):
