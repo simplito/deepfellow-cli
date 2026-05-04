@@ -32,7 +32,7 @@ from deepfellow.common.defaults import (
     QDRANT_DATABASE,
     VECTOR_DATABASES,
 )
-from deepfellow.common.docker import save_compose_file
+from deepfellow.common.docker import load_compose_file, save_compose_file
 from deepfellow.common.echo import echo
 from deepfellow.common.generate import generate_password
 from deepfellow.common.validation import validate_connection_string, validate_truthy, validate_url, validate_username
@@ -348,35 +348,45 @@ def configure_otel(directory: Path, otel_url: str | None, original_env: dict[str
     docker_compose = {}
     envs = {}
 
+    config_file: Path = directory / "otel-collector-config.yaml"
+    existing_otel_config: dict[str, Any] = load_compose_file(config_file)
+    prev_endpoint: str = existing_otel_config.get("exporters", {}).get("elasticsearch", {}).get("endpoint")
+    prev_traces_index: str = existing_otel_config.get("exporters", {}).get("elasticsearch", {}).get("traces_index")
+    prev_username: str = (
+        existing_otel_config.get("extensions", {}).get("basicauth", {}).get("client_auth", {}).get("username")
+    )
+    prev_password: str = (
+        existing_otel_config.get("extensions", {}).get("basicauth", {}).get("client_auth", {}).get("password")
+    )
+
     if not otel_url:
         echo.info("DeepFellow Server might use an Open Telemetry.")
         if echo.confirm("Do you have an Open Telemetry server ready?"):
             otel_url = echo.prompt_until_valid(
                 "Provide OTL url",
-                default=original_env.get("df_otel_exporter_orlp_endpoint", DEFAULT_OTEL_URL),
+                default=original_env.get("df_otel_exporter_otlp_endpoint", DEFAULT_OTEL_URL),
                 validation=validate_url,
             )
         elif echo.confirm(
             "Do you want to run Open Telemetry from this machine?\n(You need an existing ElasticSearch server running)",
-            default=False,
+            default=config_file.exists(),
         ):
-            config_file = directory / "otel-collector-config.yaml"
             docker_compose = DOCKER_COMPOSE_OTEL_COLLECTOR
             otel_url = DEFAULT_OTEL_URL
             # store Open Telemetry yaml config
             echo.info("Let's configure Open Telemetry")
             otel_config: dict[str, Any] = deepcopy(OTEL_COLLECTOR_CONFIG)
             otel_config["exporters"]["elasticsearch"]["endpoint"] = echo.prompt_until_valid(
-                "Provide your ElasticSearch endpoint", validation=validate_url
+                "Provide your ElasticSearch endpoint", validation=validate_url, default=prev_endpoint
             )
             otel_config["exporters"]["elasticsearch"]["traces_index"] = echo.prompt_until_valid(
-                "Provide traces index", validation=validate_truthy
+                "Provide traces index", validation=validate_truthy, default=prev_traces_index
             )
             otel_config["extensions"]["basicauth"]["client_auth"]["username"] = echo.prompt_until_valid(
-                "Provide username", validation=validate_username
+                "Provide username", validation=validate_username, default=prev_username
             )
             otel_config["extensions"]["basicauth"]["client_auth"]["password"] = echo.prompt_until_valid(
-                "Provide password", validation=validate_truthy, password=True
+                "Provide password", validation=validate_truthy, password=True, default=prev_password
             )
             save_compose_file(otel_config, config_file, quiet=True, file_info="Open Telemetry collector configuration")
             echo.warning(
