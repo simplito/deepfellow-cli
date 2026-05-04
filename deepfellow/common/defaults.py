@@ -262,7 +262,7 @@ EOF
 DOCKER_COMPOSE_MONGO_DB = {
     "mongo": {
         "container_name": "mongo",
-        "image": "mongo:8",
+        "image": "mongo:8.2.7@sha256:7abfba0d07c9330373f8173981ea4d09cd8a82cdf0e86ccaf7008848d1d24f62",
         "restart": "always",
         "expose": ["27017"],
         "volumes": [
@@ -275,6 +275,7 @@ DOCKER_COMPOSE_MONGO_DB = {
             "DF_MONGO_USER=${DF_MONGO_USER}",
             "DF_MONGO_PASSWORD=${DF_MONGO_PASSWORD}",
             "DF_MONGO_DB=${DF_MONGO_DB}",
+            "GLIBC_TUNABLES=glibc.cpu.hwcaps=-SHSTK",
         ],
         "healthcheck": {
             "test": "mongosh --eval 'db.runCommand(\"ping\")'",
