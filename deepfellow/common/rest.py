@@ -116,10 +116,10 @@ def post(
     timeout: float = 60 * 60 * 24,
 ) -> dict[str, Any]:
     """POST request on url using data."""
-    echo.debug(f"POST {url} {data=}")
     headers = headers or {}
     item_name = item_name or "Item"
     data = data or {}
+    echo.debug(f"POST {url} {headers=} {data=}")
     try:
         response = httpx.post(
             url,
@@ -128,7 +128,7 @@ def post(
             timeout=timeout,
         )
 
-        if response.status_code in (401, 403):
+        if response.status_code in (400, 401, 403):
             try:
                 response_data = response.json()
                 message = response_data["detail"]
@@ -160,9 +160,9 @@ def make_request(
     timeout: float = 60 * 60 * 24,
 ) -> dict[str, Any]:
     """POST request on url using data."""
-    echo.debug(f"POST {url} {data=}")
     headers = headers or {}
     data = data or {}
+    echo.debug(f"{method} {url} {headers=} {data=}")
     try:
         response = httpx.request(
             method=method,

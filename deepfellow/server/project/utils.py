@@ -23,6 +23,7 @@ class Project:
     status: Literal["active", "archived"]
     models: list[str] | str
     custom_endpoints: list[str]
+    mcp_prefixes: list[str] | str
     created_at: float
 
     def created_at_to_str(self) -> str:
@@ -38,6 +39,7 @@ class Project:
             "created_at": self.created_at_to_str(),
             "models": self.models,
             "custom_endpoints": self.custom_endpoints,
+            "mcp_prefixes": self.mcp_prefixes,
         }
 
     def __str__(self) -> str:
