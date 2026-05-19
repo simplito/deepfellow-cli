@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 - styling for the `echo.choice`
+- `echo.choice` now handles `from_args`
+- `install --directory` sets storage path automatically
+- vector database selection text styling consistency
 - create random credentials for
   - metrics endpoint
   - default mongo
@@ -15,6 +18,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - server
   - infra civitai key
   - infra hugging face key
+- server install now persists OTEL data between runs
+- fix: mongo compatibility on some systems
+- fix: password minimum length enforced to 10 characters
+- refresh token automatically on server login
+- bind docker ports to localhost only (do not expose publicly)
+- recommend rootless Docker mode for infra installs
+- add healthcheck for Qdrant container
+- fix: too wide permissions on mongo database
+- fix: outdated Docker Compose service names
 
 ## [0.2.0]
 - Qdrant as a default vector database
