@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.3.0] - 2026-05-20
+
+- `deepfellow infra prune` — removes all infra containers, volumes, and files
+- `deepfellow server prune` — removes all server containers, volumes, and files
+
 ## [0.2.2] - 2026-05-19
 
 - fix release process
