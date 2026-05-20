@@ -20,6 +20,7 @@ from .opentelemetry import app as opentelemetry_app
 from .organization import app as organization_app
 from .password_reset import app as reset_password_app
 from .project import app as project_app
+from .prune import app as prune_app
 from .ssl_on import app as ssl_on_app
 from .start import app as start_app
 from .status import app as status_app
@@ -46,3 +47,4 @@ app.add_typer(login_app)
 app.add_typer(logout_app)
 app.add_typer(organization_app, name="organization", help="Manage Organizations.")
 app.add_typer(project_app, name="project", help="Manage Projects.")
+app.add_typer(prune_app)
