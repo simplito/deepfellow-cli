@@ -68,6 +68,34 @@ def test_get_token_from_login_writes_token_key(
     assert saved_secrets["DF_USER_REFRESH_TOKEN"] == "dfuserrefresh_xyz"
 
 
+@_MOCK_CLICK_CTX
+@mock.patch("deepfellow.server.utils.login.save_env_file")
+@mock.patch("deepfellow.server.utils.login.read_env_file", return_value={})
+@mock.patch("deepfellow.server.utils.login.httpx.post")
+@mock.patch("deepfellow.server.utils.login.echo.prompt_until_valid", side_effect=["user@example.com", "password123"])
+def test_get_token_from_login_no_refresh_token_in_response(
+    mock_prompt: mock.Mock,
+    mock_post: mock.Mock,
+    mock_read: mock.Mock,
+    mock_save: mock.Mock,
+    mock_ctx: mock.Mock,
+    tmp_path: Path,
+):
+    secrets_file = tmp_path / "secrets"
+    secrets_file.touch()
+    mock_response = mock.Mock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"access_token": "dfuser_abc", "token_type": "bearer", "expires_at": 9999999999}
+    mock_post.return_value = mock_response
+
+    token = get_token_from_login(secrets_file, SERVER)
+
+    assert token == "dfuser_abc"
+    saved_secrets = mock_save.call_args[0][1]
+    assert saved_secrets["DF_USER_TOKEN"] == "dfuser_abc"
+    assert "DF_USER_REFRESH_TOKEN" not in saved_secrets
+
+
 # ── try_refresh_token ─────────────────────────────────────────────────────────
 
 
