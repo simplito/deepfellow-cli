@@ -145,7 +145,8 @@ def get_token_from_login(secrets_file: Path, server: str, email: str | None = No
 
     secrets = read_env_file(secrets_file) if secrets_file.is_file() else {}
     secrets["DF_USER_TOKEN"] = token
-    secrets["DF_USER_REFRESH_TOKEN"] = data["refresh_token"]
+    if refresh_token := data.get("refresh_token"):
+        secrets["DF_USER_REFRESH_TOKEN"] = refresh_token
 
     save_env_file(secrets_file, secrets, docker_note=False)
 
