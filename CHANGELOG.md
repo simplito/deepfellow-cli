@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.3.1] - 2026-05-21
+
+- fix: `infra install` — docker compose pull failure now shows error message
+- fix: `server login` — fix KeyError crash when server response lacks `refresh_token`
+
 ## [0.3.0] - 2026-05-20
 
 - `deepfellow infra prune` — removes all infra containers, volumes, and files
@@ -38,6 +43,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - fix: outdated Docker Compose service names
 
 ## [0.2.0]
+
 - Qdrant as a default vector database
 - `deepfellow infra status` / `deepfelow server status` - displays container status and resource usage
 - Added non-interactive mode support with `--non-interactive` flag for all commands
@@ -45,6 +51,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [0.1.0] - 2026-01-16
 
 ### Added
+
 - Initial release of DeepFellow CLI
 - Server management commands:
   - `deepfellow server install` - Install DeepFellow Server with docker
