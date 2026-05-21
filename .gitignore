@@ -184,6 +184,8 @@ tasks/
 # Installation
 build
 
-openspec/changes
-.claude/settings.local.json
+# Claude
 CLAUDE.local.md
+.claude
+.claude/settings.local.json
+openspec/changes

@@ -1,20 +1,27 @@
 # Release Process
 
+## Overview
+
+Releases go through a Merge Request to `main`. The tag is pushed **after** the MR is merged, not before.
+
 ## Steps
 
-1. Update `[Unreleased]` section in `CHANGELOG.md` — rename it to the new version with today's date, e.g. `## [0.3.0] - 2026-05-19`.
-2. Update `version` in `pyproject.toml`.
-3. Commit:
+1. Create a release branch from `main`:
+   ```bash
+   git checkout main && git pull
+   git checkout -b release/0.3.0
+   ```
+2. Update `[Unreleased]` section in `CHANGELOG.md` — rename it to the new version with today's date, e.g. `## [0.3.0] - 2026-05-19`.
+3. Update `version` in `pyproject.toml`.
+4. Commit:
    ```bash
    git commit -am "Release 0.3.0"
+   git push origin release/0.3.0
    ```
-4. Tag the commit:
+5. Open an MR targeting `main` and get it reviewed and merged via the GitLab UI.
+6. After the MR is merged, tag the merge commit on `main`:
    ```bash
    git tag v0.3.0
-   ```
-5. Push branch and tag:
-   ```bash
-   git push origin main
    git push origin v0.3.0
    ```
 
