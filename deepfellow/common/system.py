@@ -75,7 +75,7 @@ def run(
 
     if quiet:
         kwargs["stdout"] = subprocess.DEVNULL
-        kwargs["stderr"] = subprocess.DEVNULL
+        kwargs["stderr"] = subprocess.PIPE
 
     try:
         process = subprocess.run(
@@ -92,6 +92,14 @@ def run(
         if raises is not None:
             raise raises(exc_info.stderr) from exc_info
 
+        if exc_info.stderr:
+            error_lines = [
+                line
+                for line in exc_info.stderr.splitlines()
+                if "level=warning" not in line and "level=info" not in line
+            ]
+            if error_lines:
+                echo.error("\n".join(error_lines).strip())
         reraise_if_debug(exc_info)
     else:
         return process.stdout
