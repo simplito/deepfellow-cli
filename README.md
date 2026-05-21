@@ -141,6 +141,10 @@ All state lives in `~/.deepfellow/` — env files, Docker Compose configs, secre
 - [Running on AWS](https://docs.deepfellow.ai/docs/aws) — Cloud deployment guide
 - [API Reference](https://docs.deepfellow.ai/docs/reference) — OpenAI-compatible endpoints
 
+## Contributing & Releasing
+
+See [RELEASE.md](RELEASE.md) for the release process.
+
 ## License
 
 [DeepFellow Free License](https://deepfellow.ai/deepfellow-free-license) — free for personal use and organizational R&D. Commercial use requires a [commercial license](https://deepfellow.ai).
