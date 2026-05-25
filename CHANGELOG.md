@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - `infra info` and `server info` now display styled output: `DF_` prefix stripped, sensitive values masked by default (`--secret` to reveal), undefined variables shown as `undefined`, and `--doc` flag for per-variable descriptions
+- Added unit tests for `infra stop` command
 
 ## [0.3.1] - 2026-05-21
 
