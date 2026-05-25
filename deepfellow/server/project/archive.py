@@ -28,9 +28,18 @@ def archive(
     project_id: str = typer.Argument(...),
 ) -> None:
     """Archive a Project."""
+    yes = ctx.obj.get("yes", False)
+    if yes:
+        echo.debug("Automatically confirming the archive.")
+
     secrets_file = ctx.obj.get("cli-secrets-file")
     server_url = get_server_url(server)
     token = get_token(secrets_file, server_url)
+
+    if not yes and not echo.confirm(
+        "Are you sure you want to archive this project? This action cannot be undone.", default=False
+    ):
+        raise typer.Exit(1)
 
     project = archive_project(server_url, token, organization_id, project_id)
 
