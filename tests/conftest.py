@@ -7,6 +7,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -18,3 +19,8 @@ def context() -> Context:
     ctx = Mock(spec=Context)
     ctx.obj = {}
     return ctx
+
+
+@pytest.fixture
+def directory() -> Path:
+    return Path("/fake/dir")
