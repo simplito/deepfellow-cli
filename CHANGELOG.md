@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `infra info` and `server info` now display styled output: `DF_` prefix stripped, sensitive values masked by default (`--secret` to reveal), undefined variables shown as `undefined`, and `--doc` flag for per-variable descriptions
 - Added unit tests for `infra stop` command
 - Added unit tests for `infra update` command
+- Added unit tests for `infra ssl-on` command (100% branch coverage)
 
 ## [0.3.1] - 2026-05-21
 
@@ -27,8 +28,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [0.2.1] - 2026-05-19
 
-
->>>>>>> CHANGELOG.md
 - styling for the `echo.choice`
 - `echo.choice` now handles `from_args`
 - `install --directory` sets storage path automatically
