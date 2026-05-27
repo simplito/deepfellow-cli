@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added unit tests for `infra stop` command
 - Added unit tests for `infra update` command
 - Added unit tests for `infra ssl-on` command (100% branch coverage)
+- Added unit tests for `infra install` command
 
 ## [0.3.1] - 2026-05-21
 
@@ -27,7 +28,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - fix release process
 
 ## [0.2.1] - 2026-05-19
-
 - styling for the `echo.choice`
 - `echo.choice` now handles `from_args`
 - `install --directory` sets storage path automatically
