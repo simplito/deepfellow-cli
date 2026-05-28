@@ -9,6 +9,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 - pin `typer~=0.16.0` to prevent crash on startup caused by Typer 0.26+ vendoring its own Click fork with a separate context stack, breaking `click.get_current_context()` calls
 
+### Fixed
+- `server reconfigure` now preserves existing MongoDB admin credentials instead of regenerating them
+
 ### Added
 - `infra info` and `server info` now display styled output: `DF_` prefix stripped, sensitive values masked by default (`--secret` to reveal), undefined variables shown as `undefined`, and `--doc` flag for per-variable descriptions
 - Added unit tests for `infra stop` command

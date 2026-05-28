@@ -313,9 +313,9 @@ def configure_mongo(
             password=True,
         )
     else:
-        # generate admin user and password
-        mongo_admin_user = generate_password(12)
-        mongo_admin_password = generate_password(24)
+        # generate admin user and password, preserving existing values on reconfigure
+        mongo_admin_user = original_env.get("df_mongo_initdb_root_username") or generate_password(12)
+        mongo_admin_password = original_env.get("df_mongo_initdb_root_password") or generate_password(24)
         mongo_config |= {
             "DF_MONGO_INITDB_ROOT_USERNAME": mongo_admin_user,
             "DF_MONGO_INITDB_ROOT_PASSWORD": mongo_admin_password,
