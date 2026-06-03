@@ -23,9 +23,22 @@ from deepfellow.common.env import env_set
 from deepfellow.common.system import run
 from deepfellow.infra.utils.docker import start_infra, stop_infra
 from deepfellow.infra.utils.options import directory_option
+from deepfellow.infra.utils.registry import get_newest_image_tag
 from deepfellow.infra.utils.validation import check_infra_directory
 
 app = typer.Typer()
+
+
+def _resolve_image(image: str, tag: str | None) -> str:
+    """Return the final image reference to use for update."""
+    if tag:
+        return f"{DF_INFRA_IMAGE_HUB}:{tag}"
+    if image == DF_INFRA_IMAGE:
+        newest = get_newest_image_tag()
+        if newest != image:
+            echo.info(f"Newest image: {newest}")
+        return newest
+    return image
 
 
 @app.command()
@@ -66,8 +79,7 @@ def update(
             directory / DOCKER_COMPOSE_CONFIG_FILENAME,
         )
 
-    if tag:
-        image = f"{DF_INFRA_IMAGE_HUB}:{tag}"
+    image = _resolve_image(image, tag)
 
     if infra_values["df_infra_image"] != image:
         env_set(env_file, "INFRA_IMAGE", image, quiet=False, docker_note=False)
