@@ -24,6 +24,7 @@ def test_validate_password_none_returns_none():
         "Abc123456!",  # alphanumeric with special char
         "aA1!@#$%^&*()-_=+",  # all allowed special chars with uppercase and digit
         "Password123_+=",
+        "Aa1!" + "a" * 124,  # exactly 128 characters
     ],
 )
 def test_validate_password_valid(password):
@@ -36,7 +37,7 @@ def test_validate_password_valid(password):
         "",  # empty
         "short",  # too short
         "no$pecials?",  # contains '?'
-        "toolongpassword123456789",  # too long (20+)
+        "Aa1!" + "a" * 125,  # too long (129 characters)
         "abcde1234!",  # no uppercase
         "ABCDE1234!",  # no lowercase
         "Abcdefghij",  # no digit
