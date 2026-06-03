@@ -19,6 +19,7 @@ from deepfellow.common.config import EnvDict, env_to_dict, read_env_file, save_e
 from deepfellow.common.defaults import DF_CLI_CONFIG_PATH, DF_CLI_SECRETS_PATH
 from deepfellow.common.validation import validate_system
 
+from .cli import app as cli_app
 from .common.colors import COLORS, RESET
 from .common.echo import echo
 from .infra import app as infra_app
@@ -98,6 +99,7 @@ def version() -> None:
 
 
 # Add object-based command groups
+app.add_typer(cli_app, name="cli", help="Manage DeepFellow CLI.")
 app.add_typer(infra_app, name="infra")
 app.add_typer(server_app, name="server")
 
