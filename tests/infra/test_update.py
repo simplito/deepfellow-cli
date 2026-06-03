@@ -262,6 +262,7 @@ def test_update_with_tag(
 
 
 @mock.patch("deepfellow.infra.update.start_infra")
+@mock.patch("deepfellow.infra.update.get_newest_image_tag")
 @mock.patch("deepfellow.infra.update.stop_infra")
 @mock.patch("deepfellow.infra.update.run")
 @mock.patch("deepfellow.infra.update.env_set")
@@ -279,7 +280,7 @@ def test_update_calls_env_set_when_env_image_differs_from_provided(
     mock_env_set: Mock,
     mock_run: Mock,
     mock_stop: Mock,
-    mock_start: Mock,
+    mock_newest: Mock,
     infra_values: dict,
     compose_data: dict,
     default_update_kwargs: dict,
@@ -287,6 +288,7 @@ def test_update_calls_env_set_when_env_image_differs_from_provided(
     mock_read.return_value = infra_values
     mock_load.return_value = compose_data
     mock_echo.confirm.return_value = False
+    mock_newest.return_value = DF_INFRA_IMAGE
 
     update(**default_update_kwargs)
 
@@ -297,6 +299,7 @@ def test_update_calls_env_set_when_env_image_differs_from_provided(
     )
 
 
+@mock.patch("deepfellow.infra.update.get_newest_image_tag")
 @mock.patch("deepfellow.infra.update.start_infra")
 @mock.patch("deepfellow.infra.update.stop_infra")
 @mock.patch("deepfellow.infra.update.run")
@@ -316,12 +319,14 @@ def test_update_does_not_call_env_set_when_image_unchanged(
     mock_run: Mock,
     mock_stop: Mock,
     mock_start: Mock,
+    mock_newest: Mock,
     compose_data: dict,
     default_update_kwargs: dict,
 ) -> None:
     mock_read.return_value = {"df_infra_image": DF_INFRA_IMAGE}
     mock_load.return_value = compose_data
     mock_echo.confirm.return_value = False
+    mock_newest.return_value = DF_INFRA_IMAGE
 
     update(**default_update_kwargs)
 

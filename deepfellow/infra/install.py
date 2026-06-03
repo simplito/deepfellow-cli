@@ -45,6 +45,7 @@ from deepfellow.common.install import assert_docker, ensure_directory
 from deepfellow.common.system import run
 from deepfellow.common.validation import validate_df_name, validate_url
 from deepfellow.infra.utils.options import directory_option
+from deepfellow.infra.utils.registry import get_newest_image_tag
 
 app = typer.Typer()
 
@@ -82,6 +83,9 @@ def install(  # noqa: C901
 
     config_file = ctx.obj.get("cli-config-file")
     secrets_file = ctx.obj.get("cli-secrets-file")
+
+    if not local_image and image == DF_INFRA_IMAGE:
+        image = get_newest_image_tag()
 
     # Check if overriding existing installation
     ensure_directory(
