@@ -79,9 +79,17 @@ push_to_github:
   image:
     name: alpine/git:latest
     entrypoint: [""]
+  variables:
+    GIT_DEPTH: 0
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
   script:
+    - git fetch origin main
+    - |
+      if ! git merge-base --is-ancestor "$CI_COMMIT_SHA" origin/main; then
+        echo "Tag $CI_COMMIT_TAG ($CI_COMMIT_SHA) is not on main — aborting push to GitHub." >&2
+        exit 1
+      fi
     - git remote add github https://oauth2:${GITHUB_MIRROR_TOKEN}@github.com/simplito/deepfellow-cli.git
     - git push github HEAD:refs/heads/main
     - git push github $CI_COMMIT_TAG
