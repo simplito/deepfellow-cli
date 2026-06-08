@@ -9,7 +9,8 @@
 
 """infra service install command."""
 
-from typing import cast
+import json
+from typing import Any, cast
 
 import httpx
 import typer
@@ -23,14 +24,32 @@ from deepfellow.common.validation import validate_server, validate_url
 app = typer.Typer()
 
 
+def _parse_spec(spec: str | None) -> dict[str, Any]:
+    if spec is None:
+        return {}
+    try:
+        parsed = json.loads(spec)
+    except json.JSONDecodeError as exc:
+        echo.error(f"Invalid JSON in --spec: {exc}")
+        raise typer.Exit(1) from exc
+    if not isinstance(parsed, dict):
+        echo.error("--spec must be a JSON object, not an array or scalar.")
+        raise typer.Exit(1)
+    return parsed
+
+
 @app.command()
 def install(
     ctx: typer.Context,
     server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Infra address"),
     name: str = typer.Argument(..., help="service name (e.g. ollama)"),
+    spec: str | None = typer.Option(
+        None, help='Service configuration as a JSON object (e.g. \'{"url": "http://host:11434"}\')'
+    ),
 ) -> None:
     """Install service."""
-    # Get token for the server
+    parsed_spec = _parse_spec(spec)
+
     config_file = ctx.obj.get("cli-config-file")
     config = ctx.obj.get("cli-config")
     config_external_server = config.get("df_infra_external_url")
@@ -59,7 +78,7 @@ def install(
     url = f"{server}/admin/services/{name}"
 
     try:
-        data = post(url, api_key, item_name="Service", data={"spec": {}}, reraise=True)
+        data = post(url, api_key, item_name="Service", data={"spec": parsed_spec}, reraise=True)
     except httpx.ConnectError as exc:
         echo.error("No connection with DeepFellow Infra. Is it up? (deepfellow infra start)")
         raise typer.Exit(1) from exc
