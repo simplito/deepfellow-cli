@@ -76,6 +76,31 @@ ENV_METADATA: dict[str, EnvMetadata] = {
 }
 
 
+def show_server_env_info(directory: Path, secret: bool, doc: bool, show_prefix: bool) -> None:
+    """Print server environment configuration.
+
+    Args:
+        directory: Server installation directory containing the ``.env`` file.
+        secret: Whether to reveal sensitive values.
+        doc: Whether to render environment variables documentation.
+        show_prefix: Whether to keep the ``DF_`` prefix on rendered keys.
+    """
+    check_server_directory(directory)
+
+    env_file = directory / ".env"
+    envs = get_envs_list(env_file)
+    env_values = dict(e.split("=", 1) for e in envs)
+
+    print_env_info(
+        "Information about DeepFellow Server:",
+        ENV_METADATA,
+        env_values,
+        show_secret=secret,
+        doc=doc,
+        show_prefix=show_prefix,
+    )
+
+
 @app.command()
 def info(
     directory: Path = directory_option(),
@@ -90,11 +115,5 @@ def info(
         help="Display environment variables documentation.",
     ),
 ) -> None:
-    """Display environment configuration."""
-    check_server_directory(directory)
-
-    env_file = directory / ".env"
-    envs = get_envs_list(env_file)
-    env_values = dict(e.split("=", 1) for e in envs)
-
-    print_env_info("Information about DeepFellow Server:", ENV_METADATA, env_values, show_secret=secret, doc=doc)
+    """Display environment variables with their DF_ prefix."""
+    show_server_env_info(directory, secret=secret, doc=doc, show_prefix=True)

@@ -65,6 +65,14 @@ def test_render_key_without_df_prefix_unchanged():
     assert "MY_VAR" in result
 
 
+def test_render_df_prefix_kept_when_show_prefix():
+    meta = EnvMetadata(description="desc")
+
+    result = meta.render("DF_SERVER_PORT", "8080", show_prefix=True)
+
+    assert result.startswith("[cyan bold]DF_SERVER_PORT")
+
+
 @mock.patch("deepfellow.common.env.echo")
 def test_print_env_info_doc_calls_echo_info_with_doc_header(mock_echo: Mock):
     metadata = {"DF_FOO": EnvMetadata(description="Foo desc")}

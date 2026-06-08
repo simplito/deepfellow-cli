@@ -11,7 +11,7 @@ import typer
 
 from .create_admin import app as create_admin_app
 from .env_command import app as env_app
-from .env_command.info import app as info_app
+from .info import app as info_app
 from .install import app as install_app
 from .login import app as login_app
 from .logout import app as logout_app
