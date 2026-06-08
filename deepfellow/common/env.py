@@ -27,8 +27,16 @@ class EnvMetadata:
     description: str = ""
     sensitive: bool = False
 
-    def render(self, key: str, value: str, show_secret: bool = False) -> str:
-        """Return styled env name and value."""
+    def render(self, key: str, value: str, show_secret: bool = False, show_prefix: bool = False) -> str:
+        """Return styled env name and value.
+
+        Args:
+            key: Environment variable name (with ``DF_`` prefix).
+            value: Environment variable value.
+            show_secret: Whether to reveal sensitive values.
+            show_prefix: Whether to keep the ``DF_`` prefix on the key. When
+                ``False`` the prefix is stripped (runtime configuration view).
+        """
         if not value:
             display = "[dim]undefined[/dim]"
         elif self.sensitive and not show_secret:
@@ -36,7 +44,8 @@ class EnvMetadata:
         else:
             display = f"[yellow]{escape(value)}[/yellow]"
 
-        styled_key = f"[cyan bold]{escape(key.removeprefix('DF_'))}[/]"
+        key_name = key if show_prefix else key.removeprefix("DF_")
+        styled_key = f"[cyan bold]{escape(key_name)}[/]"
         return f"{styled_key}: {display}"
 
 
@@ -95,19 +104,29 @@ def print_env_info(
     env_values: dict[str, str],
     show_secret: bool = False,
     doc: bool = False,
+    show_prefix: bool = False,
 ) -> None:
-    """Print environment info or documentation via echo.info."""
+    """Print environment info or documentation via echo.info.
+
+    Args:
+        header: Header line shown in non-documentation mode.
+        env_metadata: Metadata describing each known environment variable.
+        env_values: Mapping of env names (with ``DF_`` prefix) to their values.
+        show_secret: Whether to reveal sensitive values.
+        doc: Whether to render documentation instead of the plain info view.
+        show_prefix: Whether to keep the ``DF_`` prefix on rendered keys.
+    """
     if doc:
         lines = ["Environment variables documentation:"]
         for key, meta in env_metadata.items():
             value = env_values.get(key, "")
-            lines.append(meta.render(key, value, show_secret=show_secret))
+            lines.append(meta.render(key, value, show_secret=show_secret, show_prefix=show_prefix))
             lines.append(f"[italic][grey50]{meta.description}[/grey50][/italic]")
     else:
         lines = [header]
         for k, v in env_values.items():
             env_meta = env_metadata.get(k, EnvMetadata())
-            lines.append(env_meta.render(k, v, show_secret=show_secret))
+            lines.append(env_meta.render(k, v, show_secret=show_secret, show_prefix=show_prefix))
     echo.info("\n".join(lines))
 
 
