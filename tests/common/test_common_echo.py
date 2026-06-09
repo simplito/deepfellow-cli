@@ -15,7 +15,8 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 import typer
 
-from deepfellow.common.echo import Echo, echo, get_return_value
+from deepfellow.common.echo import Echo, echo, get_return_value, is_interactive
+from deepfellow.common.state import state
 
 _IS_INTERACTIVE = "deepfellow.common.echo.is_interactive"
 
@@ -424,3 +425,15 @@ def test_get_return_value_from_args_empty_string_is_valid_value(mock_is_interact
 @patch(_IS_INTERACTIVE, return_value=True)
 def test_get_return_value_from_args_zero_is_valid_value(mock_is_interactive: mock.Mock):
     assert get_return_value("Enter value", from_args=0, original_default=1) == 0
+
+
+def test_is_interactive_returns_true_when_non_interactive_false():
+    state.non_interactive = False
+
+    assert is_interactive() is True
+
+
+def test_is_interactive_returns_false_when_non_interactive_true():
+    state.non_interactive = True
+
+    assert is_interactive() is False

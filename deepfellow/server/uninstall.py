@@ -25,7 +25,6 @@ app = typer.Typer()
 
 @app.command()
 def uninstall(
-    ctx: typer.Context,
     directory: Path = directory_option("DeepFellow Server directory."),
 ) -> None:
     """Uninstall DeepFellow Server."""
@@ -39,9 +38,9 @@ def uninstall(
     echo.info("Removing DeepFellow Server files.")
     shutil.rmtree(directory)
 
-    old_default_server_dir = get_default_server_directory(ctx)
+    old_default_server_dir = get_default_server_directory()
 
     if old_default_server_dir.resolve() == directory.resolve():
-        set_default_server_directory(ctx, "", True)
+        set_default_server_directory("", True)
 
     echo.success("DeepFellow Server uninstalled.")

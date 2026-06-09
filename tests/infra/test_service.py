@@ -10,9 +10,9 @@
 from unittest import mock
 from unittest.mock import Mock
 
-import click
 import httpx
 import pytest
+import typer
 
 from deepfellow.infra.service.install import install
 from deepfellow.infra.service.uninstall import uninstall
@@ -21,11 +21,6 @@ from deepfellow.infra.service.uninstall import uninstall
 @pytest.fixture(name="name")
 def name_fixture() -> str:
     return "name"
-
-
-@pytest.fixture(name="ctx")
-def ctx_fixture() -> Mock:
-    return Mock()
 
 
 @mock.patch("deepfellow.infra.service.install.echo")
@@ -39,13 +34,12 @@ def test_install_connection_error(
     mock_cast: Mock,
     mock_post: Mock,
     mock_echo: Mock,
-    ctx: Mock,
     name: str,
 ) -> None:
     mock_post.side_effect = httpx.ConnectError("TEST")
 
-    with pytest.raises(click.exceptions.Exit):
-        install(ctx=ctx, name=name, spec=None)
+    with pytest.raises(typer.Exit):
+        install(name=name, spec=None)
 
     assert mock_echo.error.call_count == 1
     assert mock_echo.error.call_args == mock.call(
@@ -64,12 +58,11 @@ def test_install_with_valid_spec(
     mock_cast: Mock,
     mock_post: Mock,
     mock_echo: Mock,
-    ctx: Mock,
     name: str,
 ) -> None:
     mock_post.return_value = {"status": "OK"}
 
-    install(ctx=ctx, name=name, spec='{"url": "http://host:11434"}')
+    install(name=name, spec='{"url": "http://host:11434"}')
 
     assert mock_post.call_count == 1
     assert mock_post.call_args == mock.call(
@@ -77,15 +70,15 @@ def test_install_with_valid_spec(
     )
 
 
-def test_install_with_invalid_json_spec(ctx: Mock, name: str) -> None:
-    with pytest.raises(click.exceptions.Exit):
-        install(ctx=ctx, name=name, spec="not-json")
+def test_install_with_invalid_json_spec(name: str) -> None:
+    with pytest.raises(typer.Exit):
+        install(name=name, spec="not-json")
 
 
 @mock.patch("deepfellow.infra.service.install.echo")
-def test_install_with_non_object_json_spec(mock_echo: Mock, ctx: Mock, name: str) -> None:
-    with pytest.raises(click.exceptions.Exit):
-        install(ctx=ctx, name=name, spec='["a", "b"]')
+def test_install_with_non_object_json_spec(mock_echo: Mock, name: str) -> None:
+    with pytest.raises(typer.Exit):
+        install(name=name, spec='["a", "b"]')
 
     assert mock_echo.error.call_count == 1
     assert mock_echo.error.call_args == mock.call("--spec must be a JSON object, not an array or scalar.")
@@ -102,13 +95,12 @@ def test_uninstall_connection_error(
     mock_cast: Mock,
     mock_make_request: Mock,
     mock_echo: Mock,
-    ctx: Mock,
     name: str,
 ) -> None:
     mock_make_request.side_effect = httpx.ConnectError("TEST")
 
-    with pytest.raises(click.exceptions.Exit):
-        uninstall(ctx=ctx, name=name)
+    with pytest.raises(typer.Exit):
+        uninstall(name=name)
 
     assert mock_echo.error.call_count == 1
     assert mock_echo.error.call_args == mock.call(

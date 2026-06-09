@@ -12,7 +12,6 @@
 from collections.abc import Callable
 from typing import Any
 
-import click
 import questionary
 import typer
 from questionary import Style
@@ -20,6 +19,7 @@ from rich.console import Console
 from rich.prompt import Confirm, Prompt
 
 from deepfellow.common.colors import COLORS, RESET
+from deepfellow.common.state import state
 
 ValidationCallback = Callable[[Any], Any] | None
 
@@ -39,11 +39,7 @@ def add_tabs(msg: str) -> str:
 
 def is_interactive() -> bool:
     """Check if in interactive mode."""
-    try:
-        ctx = click.get_current_context()
-        return bool(ctx and not ctx.obj.get("non-interactive", False))
-    except RuntimeError:
-        return True
+    return not state.non_interactive
 
 
 def get_return_value(
@@ -83,9 +79,8 @@ def get_return_value(
 class Echo(Console):
     def debug(self, message_source: Any) -> None:
         """Print a debug message to the console."""
-        ctx = click.get_current_context()
-        message = str(message_source)
-        if ctx and ctx.obj.get("debug"):
+        if state.debug:
+            message = str(message_source)
             final_msg = f"🔍\t[grey]{add_tabs(message)}[/]" if is_interactive() else message
             self.print(final_msg, style="dim white")
 

@@ -61,7 +61,6 @@ def expose_ports_to_host(services: dict[str, Any]) -> None:
 
 @app.command()
 def install(  # noqa: C901
-    ctx: typer.Context,
     directory: Path = directory_option(help="Target directory for the DeepFellow Server installation."),
     port: int = typer.Option(
         DF_SERVER_PORT, envvar="DF_SERVER_PORT", help="Port to use to serve the DeepFellow Server from."
@@ -262,7 +261,7 @@ def install(  # noqa: C901
     plugins_directory = directory / "plugins"
     plugins_directory.mkdir(exist_ok=True)
 
-    set_default_server_directory(ctx, directory, force=False)
+    set_default_server_directory(directory, force=False)
 
     services["server"]["volumes"] = [
         f"{DF_SERVER_STORAGE_DIRECTORY}:/app/storage",

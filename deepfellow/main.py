@@ -17,6 +17,7 @@ import typer
 
 from deepfellow.common.config import EnvDict, env_to_dict, read_env_file, save_env_file
 from deepfellow.common.defaults import DF_CLI_CONFIG_PATH, DF_CLI_SECRETS_PATH
+from deepfellow.common.state import state
 from deepfellow.common.validation import validate_system
 
 from .cli import app as cli_app
@@ -68,13 +69,6 @@ def main(
         print_name()
         raise typer.Exit(0)
 
-    ctx.ensure_object(dict)
-    ctx.obj["debug"] = debug
-    ctx.obj["yes"] = yes
-    ctx.obj["non-interactive"] = non_interactive
-    ctx.obj["cli-secrets-file"] = secrets
-    ctx.obj["cli-config-file"] = config
-    echo.debug(f"{config=}")
     cli_config: EnvDict = {}
     if config.is_file():
         envs = read_env_file(config)
@@ -82,7 +76,14 @@ def main(
     else:
         save_env_file(config, {}, docker_note=False)
 
-    ctx.obj["cli-config"] = cli_config
+    state.debug = debug
+    state.yes = yes
+    state.non_interactive = non_interactive
+    state.cli_config_file = config
+    state.cli_config = cli_config
+    state.cli_secrets_file = secrets
+
+    echo.debug(f"{config=}")
     echo.debug(f"{cli_config=}")
 
     # Check environment if all commands are installed

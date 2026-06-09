@@ -14,7 +14,7 @@ from unittest.mock import Mock
 
 import httpx
 import pytest
-from click.exceptions import Exit
+import typer
 
 from deepfellow.infra.connect import (
     _is_localhost_url,
@@ -200,7 +200,7 @@ def test_connect_fails_when_verification_times_out(
     }.get(key)
     mock_verify.return_value = _VerifyResult.TIMEOUT
 
-    with pytest.raises(Exit):
+    with pytest.raises(typer.Exit):
         connect(directory=directory, parent_infra_url=PARENT_URL, mesh_key=MESH_KEY)
 
     assert mock_echo.error.call_count == 1
@@ -286,7 +286,7 @@ def test_connect_exits_when_infra_not_running(
 ) -> None:
     mock_running.return_value = False
 
-    with pytest.raises(Exit):
+    with pytest.raises(typer.Exit):
         connect(directory=directory, parent_infra_url=PARENT_URL, mesh_key=MESH_KEY)
 
     assert mock_echo.error.call_count == 1
@@ -329,7 +329,7 @@ def test_connect_exits_for_localhost_url(
 ) -> None:
     mock_running.return_value = True
 
-    with pytest.raises(Exit):
+    with pytest.raises(typer.Exit):
         connect(directory=directory, parent_infra_url="ws://127.0.0.1:8088", mesh_key=MESH_KEY)
 
     assert mock_echo.error.call_count == 1
@@ -404,7 +404,7 @@ def test_connect_legacy_fails_when_logs_show_no_connection(
     mock_verify.return_value = _VerifyResult.LEGACY
     mock_logs.return_value = False
 
-    with pytest.raises(Exit):
+    with pytest.raises(typer.Exit):
         connect(directory=directory, parent_infra_url=PARENT_URL, mesh_key=MESH_KEY)
 
     assert mock_echo.error.call_count == 1

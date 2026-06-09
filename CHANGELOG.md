@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- CLI runtime flags now come from an internal `AppState` singleton instead of the Click context, so the CLI runs on Typer 0.26.x (previously pinned to 0.16.x to avoid a startup crash)
+
 ### Fixed
 - `server env info` now displays variable names with the `DF_` prefix (e.g. `DF_SERVER_PORT`) to match the names Docker/shell require, while `server info` keeps showing runtime values without the prefix
 

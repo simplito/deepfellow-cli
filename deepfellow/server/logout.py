@@ -15,15 +15,16 @@ import typer
 from deepfellow.common.config import read_env_file, save_env_file
 from deepfellow.common.echo import echo
 from deepfellow.common.rest import get_server_url
+from deepfellow.common.state import state
 from deepfellow.server.utils.login import get_token
 
 app = typer.Typer()
 
 
 @app.command()
-def logout(ctx: typer.Context) -> None:
+def logout() -> None:
     """Logout user and invalidate token on the server."""
-    secrets_file = ctx.obj.get("cli-secrets-file")
+    secrets_file = state.cli_secrets_file
     server_url = get_server_url(None)
     token = get_token(secrets_file, server_url)
 

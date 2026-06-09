@@ -18,6 +18,7 @@ from deepfellow.common.config import read_env_file
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
 from deepfellow.common.rest import make_request
+from deepfellow.common.state import state
 from deepfellow.common.validation import validate_server
 
 app = typer.Typer()
@@ -25,17 +26,16 @@ app = typer.Typer()
 
 @app.command()
 def uninstall(
-    ctx: typer.Context,
     server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Infra address"),
     name: str = typer.Argument(..., help="service name (e.g. ollama)"),
     purge: bool = typer.Option(False, help="Remove service with all its files."),
 ) -> None:
     """Uninstall service."""
     # Get token for the server
-    config_file = ctx.obj.get("cli-config-file")
-    config = ctx.obj.get("cli-config")
+    config_file = state.cli_config_file
+    config = state.cli_config
     config_external_server = config.get("df_infra_external_url")
-    secrets_file = ctx.obj.get("cli-secrets-file")
+    secrets_file = state.cli_secrets_file
 
     if server is None:
         if config_external_server is not None:
