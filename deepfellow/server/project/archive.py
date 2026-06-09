@@ -13,6 +13,7 @@ import typer
 
 from deepfellow.common.echo import echo
 from deepfellow.common.rest import get_server_url
+from deepfellow.common.state import state
 from deepfellow.common.validation import validate_server
 from deepfellow.server.project.utils import archive_project
 from deepfellow.server.utils.login import get_token
@@ -22,17 +23,16 @@ app = typer.Typer()
 
 @app.command()
 def archive(
-    ctx: typer.Context,
     server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Server address"),
     organization_id: str = typer.Argument(...),
     project_id: str = typer.Argument(...),
 ) -> None:
     """Archive a Project."""
-    yes = ctx.obj.get("yes", False)
+    yes = state.yes
     if yes:
         echo.debug("Automatically confirming the archive.")
 
-    secrets_file = ctx.obj.get("cli-secrets-file")
+    secrets_file = state.cli_secrets_file
     server_url = get_server_url(server)
     token = get_token(secrets_file, server_url)
 

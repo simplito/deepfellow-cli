@@ -189,3 +189,7 @@ CLAUDE.local.md
 .claude
 .claude/settings.local.json
 openspec/changes
+.claude/skills/create-issue
+.claude/skills/fill-mr
+.claude/skills/review-and-fix
+.claude/skills/write-docs

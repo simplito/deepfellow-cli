@@ -19,6 +19,7 @@ from deepfellow.common.config import read_env_file
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
 from deepfellow.common.rest import post
+from deepfellow.common.state import state
 from deepfellow.common.validation import validate_server, validate_url
 
 app = typer.Typer()
@@ -40,7 +41,6 @@ def _parse_spec(spec: str | None) -> dict[str, Any]:
 
 @app.command()
 def install(
-    ctx: typer.Context,
     server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Infra address"),
     name: str = typer.Argument(..., help="service name (e.g. ollama)"),
     spec: str | None = typer.Option(
@@ -50,10 +50,10 @@ def install(
     """Install service."""
     parsed_spec = _parse_spec(spec)
 
-    config_file = ctx.obj.get("cli-config-file")
-    config = ctx.obj.get("cli-config")
+    config_file = state.cli_config_file
+    config = state.cli_config
     config_external_server = config.get("df_infra_external_url")
-    secrets_file = ctx.obj.get("cli-secrets-file")
+    secrets_file = state.cli_secrets_file
 
     if server is None:
         if config_external_server is not None:

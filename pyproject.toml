@@ -8,11 +8,10 @@ dependencies = [
     "email-validator>=2.3.0",
     "httpx>=0.28.1",
     "pyyaml>=6.0.2",
-    "typer~=0.16.0",
+    "typer~=0.26.0",
     "types-pyyaml>=6.0.12.20250915",
     "tzlocal>=5.3.1",
     "questionary>=2.0.0",
-    "click>=8.2.1",
 ]
 
 [project.scripts]

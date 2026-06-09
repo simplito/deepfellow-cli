@@ -8,19 +8,18 @@
 # limitations under the License.
 
 from pathlib import Path
-from unittest.mock import Mock
 
 import pytest
-from typer import Context
 
-
-@pytest.fixture
-def context() -> Context:
-    ctx = Mock(spec=Context)
-    ctx.obj = {}
-    return ctx
+from deepfellow.common.state import state
 
 
 @pytest.fixture
 def directory() -> Path:
     return Path("/fake/dir")
+
+
+@pytest.fixture(autouse=True)
+def reset_app_state():
+    yield
+    state.reset()

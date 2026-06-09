@@ -13,21 +13,20 @@ from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 
-import click
 import httpx
 import typer
 
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
+from deepfellow.common.state import state
 from deepfellow.common.validation import validate_server
 
 
 def get_server_url(server: str | None) -> str:
     """Return server URL. Repeat until a valid URL is provided."""
-    ctx = click.get_current_context()
-    config_file = ctx.obj.get("cli-config-file")
+    config_file = state.cli_config_file
 
-    config_server = ctx.obj.get("cli-config").get("df_server_url")
+    config_server = state.cli_config.get("df_server_url")
     if server is None and config_server:
         server = config_server
 

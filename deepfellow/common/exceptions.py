@@ -9,8 +9,9 @@
 
 """Common exceptions."""
 
-import click
 import typer
+
+from deepfellow.common.state import state
 
 
 class ConfigValidationError(Exception):
@@ -26,9 +27,12 @@ class DockerNetworkError(Exception):
 
 
 def reraise_if_debug(exc_info: Exception) -> None:
-    """Reraise the exception if debug in Context."""
-    ctx = click.get_current_context()
-    if ctx.obj.get("debug", False):
+    """Re-raise the active exception if debug mode is enabled, otherwise exit with code 1.
+
+    Must be called from within an ``except`` block: the debug path uses a bare ``raise`` and
+    therefore re-raises the currently handled exception, not necessarily ``exc_info``.
+    """
+    if state.debug:
         raise
 
     raise typer.Exit(1) from exc_info

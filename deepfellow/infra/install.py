@@ -42,6 +42,7 @@ from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
 from deepfellow.common.generate import generate_password
 from deepfellow.common.install import assert_docker, ensure_directory
+from deepfellow.common.state import state
 from deepfellow.common.system import run
 from deepfellow.common.validation import validate_df_name, validate_url
 from deepfellow.infra.utils.options import directory_option
@@ -52,7 +53,6 @@ app = typer.Typer()
 
 @app.command()
 def install(  # noqa: C901
-    ctx: typer.Context,
     directory: Path = directory_option("Target directory for the DeepFellow Infra installation."),
     port: int = typer.Option(
         DF_INFRA_PORT, envvar="DF_INFRA_PORT", help="Published port to serve the DeepFellow Infra from."
@@ -81,8 +81,8 @@ def install(  # noqa: C901
 
     docker_socket = get_socket(allow_rootful=allow_rootful)
 
-    config_file = ctx.obj.get("cli-config-file")
-    secrets_file = ctx.obj.get("cli-secrets-file")
+    config_file = state.cli_config_file
+    secrets_file = state.cli_secrets_file
 
     if not local_image and image == DF_INFRA_IMAGE:
         image = get_newest_image_tag()

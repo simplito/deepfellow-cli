@@ -43,6 +43,23 @@ Two Typer command groups under `deepfellow/`:
 
 Each final subcommand lives in its own file; wired in the group's `__init__.py`. See @AGENTS.md for details.
 
+### Runtime state (`deepfellow/common/state.py`)
+
+CLI-wide flags set by `main()` are stored in a module-level `AppState` singleton:
+
+```python
+from deepfellow.common.state import state
+
+state.debug            # bool — --debug / --verbose / -v / -vv flag
+state.yes              # bool — --yes / -y flag
+state.non_interactive  # bool — --non-interactive flag
+state.cli_config       # dict — parsed CLI config file
+state.cli_config_file  # Path — path to CLI config file
+state.cli_secrets_file  # Path — path to CLI secrets file
+```
+
+`main()` populates `state` once at startup. Every module — including all final subcommands — reads CLI flags from `state` directly. Subcommands no longer take a `ctx: typer.Context` parameter for this. **Never use `click.get_current_context()`.**
+
 ## Git Workflow
 
 - GitLab-hosted; use `glab` CLI for branches and MRs

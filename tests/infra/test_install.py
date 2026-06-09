@@ -23,6 +23,7 @@ from deepfellow.common.defaults import (
     DF_INFRA_URL,
     DOCKER_COMPOSE_CONFIG_FILENAME,
 )
+from deepfellow.common.state import state
 from deepfellow.infra.install import install
 
 
@@ -34,10 +35,10 @@ def docker_config() -> Mock:
 
 
 @pytest.fixture
-def default_install_kwargs(directory: Path, context: Mock, docker_config: Mock) -> dict:
-    context.obj = {"cli-config-file": Mock(name="config-file"), "cli-secrets-file": Mock(name="secrets-file")}
+def default_install_kwargs(directory: Path, docker_config: Mock) -> dict:
+    state.cli_config_file = Mock(name="config-file")
+    state.cli_secrets_file = Mock(name="secrets-file")
     return {
-        "ctx": context,
         "directory": directory,
         "port": DF_INFRA_PORT,
         "image": DF_INFRA_IMAGE,
@@ -811,7 +812,7 @@ def test_install_calls_env_set_for_config_file(
 ) -> None:
     _setup_echo(mock_echo)
     mock_read.return_value = {}
-    config_file = default_install_kwargs["ctx"].obj["cli-config-file"]
+    config_file = state.cli_config_file
 
     install(**default_install_kwargs)
 
@@ -858,7 +859,7 @@ def test_install_calls_env_set_for_secrets_file(
     _setup_echo(mock_echo)
     mock_read.return_value = {}
     mock_configure_uuid.return_value = "test-admin-key"
-    secrets_file = default_install_kwargs["ctx"].obj["cli-secrets-file"]
+    secrets_file = state.cli_secrets_file
 
     install(**default_install_kwargs)
 

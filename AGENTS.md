@@ -54,6 +54,7 @@ The following common modules are used across both modules:
 - `@deepfellow/common/` - Shared utilities used in both server and infra command groups
   - Contains shared functionality like configuration, validation, Docker helpers, and system utilities
   - Provides common patterns and helpers for both infrastructure and server commands
+  - `state.py` — `AppState` singleton holding CLI runtime flags (`debug`, `yes`, `non_interactive`, `cli_config`, `cli_config_file`, `cli_secrets_file`). Populated once in `main()`, read by any module that needs these values — including final subcommands, which therefore do not take a `ctx: typer.Context` parameter. **Never use `click.get_current_context()` — read from `state` instead.**
 
 - `@deepfellow/infra/utils/` - Infrastructure-specific utilities for the infra command group
   - Contains helpers specific to infrastructure management
