@@ -27,6 +27,9 @@ dev = [
 ]
 
 
+[tool.uv]
+exclude-newer = "1 week"
+
 [tool.setuptools.packages.find]
 include = ["deepfellow*"]
 
