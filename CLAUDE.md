@@ -36,12 +36,74 @@ All commands use `just` (task runner):
 
 ## CLI Architecture
 
-Two Typer command groups under `deepfellow/`:
-- `deepfellow/infra/` — infrastructure management commands
-- `deepfellow/server/` — server management commands
+Three Typer command groups under `deepfellow/`, all registered in `main.py`:
+- `deepfellow/infra/` — infrastructure management (Docker Compose-based infra stack)
+- `deepfellow/server/` — server management (DeepFellow Server API + Docker)
+- `deepfellow/cli/` — CLI self-management (e.g., `cli update`)
 - `deepfellow/common/` — shared utilities
 
 Each final subcommand lives in its own file; wired in the group's `__init__.py`. See @AGENTS.md for details.
+
+Subgroups (nested command groups within `infra/` and `server/`) use `name=` in `add_typer()`:
+- `infra env`, `infra service`, `infra model`
+- `server env`, `server organization`, `server project`
+
+### User I/O (`deepfellow/common/echo.py`)
+
+All output and prompting goes through the `echo` singleton (a `rich.Console` subclass):
+
+```python
+from deepfellow.common.echo import echo
+
+echo.info(msg)          # informational
+echo.success(msg)       # green ✅
+echo.warning(msg)       # yellow ⚠️
+echo.error(msg)         # red 💀
+echo.debug(msg)         # only when state.debug=True
+echo.confirm(msg)       # bool prompt; respects --non-interactive
+echo.prompt(...)        # string prompt with optional validation
+echo.prompt_until_valid(...)  # retries until validation passes
+echo.choice(...)        # questionary select
+```
+
+Interactive mode (default) shows emojis and rich formatting. Non-interactive mode (`--non-interactive`) strips formatting and uses defaults or raises `typer.Exit(1)` if no default.
+
+### Config and secrets files
+
+Both files use `.env` format and live at `~/.deepfellow/`. Paths are in `state.cli_config_file` / `state.cli_secrets_file`.
+
+- **Config** (`~/.deepfellow/config`): CLI preferences, e.g. `df_server_url`
+- **Secrets** (`~/.deepfellow/secrets`): `DF_USER_TOKEN`, `DF_USER_REFRESH_TOKEN`
+
+Environment variable keys use `DF_` prefix and `__` as nesting separator (e.g. `DF_VECTOR_DATABASE__PROVIDER__TYPE`). `config.py` provides `read_env_file`, `save_env_file`, `env_to_dict`, and `dict_to_env` for round-tripping.
+
+### HTTP calls (`deepfellow/common/rest.py`)
+
+REST helpers handle auth headers and common HTTP error codes centrally:
+
+```python
+from deepfellow.common import rest
+
+server = rest.get_server_url(server_arg)   # resolves, saves, health-checks
+data = rest.get(url, token)
+data = rest.post(url, token, data={...})
+rest.delete(url, token)
+rest.make_request(method, url, token, data={...})
+```
+
+Server commands get a valid bearer token via `get_token(state.cli_secrets_file, server)` from `deepfellow/server/utils/login.py` — handles access token validation and refresh automatically.
+
+### Error handling pattern
+
+```python
+from deepfellow.common.exceptions import reraise_if_debug
+
+try:
+    ...
+except SomeError as exc:
+    echo.error("Human-readable message")
+    reraise_if_debug(exc)  # re-raises in debug mode, otherwise typer.Exit(1)
+```
 
 ### Runtime state (`deepfellow/common/state.py`)
 

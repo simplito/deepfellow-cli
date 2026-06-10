@@ -1,7 +1,7 @@
 [project]
 name = "deepfellow-cli"
-version = "0.5.0"
-description = "Add your description here"
+version = "0.6.0"
+description = "Privacy-First AI Infrastructure Framework — deploy and manage private AI on your own infrastructure. Visit deepfellow.ai"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
