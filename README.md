@@ -102,6 +102,7 @@ deepfellow infra start / stop                        # Start / stop DeepFellow I
 deepfellow infra info                                # Show config & env vars
 deepfellow infra ssl-on                              # Configure SSL
 deepfellow infra service install                     # Add model backend (ollama, vllm, …)
+deepfellow infra service list                        # List installed service backends
 deepfellow infra service uninstall                   # Remove backend + its models
 deepfellow infra model install                       # Pull a model
 deepfellow infra model uninstall                     # Remove a model

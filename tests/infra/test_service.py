@@ -15,6 +15,7 @@ import pytest
 import typer
 
 from deepfellow.infra.service.install import install
+from deepfellow.infra.service.list import list as list_services
 from deepfellow.infra.service.uninstall import uninstall
 
 
@@ -235,6 +236,91 @@ def test_uninstall_connection_error(
 
     with pytest.raises(typer.Exit):
         uninstall(name=name)
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call(
+        "No connection with DeepFellow Infra. Is it up? (deepfellow infra start)"
+    )
+
+
+@mock.patch("deepfellow.infra.service.list.echo")
+@mock.patch("deepfellow.infra.service.list.make_request")
+@mock.patch("deepfellow.infra.service.list.cast")
+@mock.patch("deepfellow.infra.service.list.read_env_file")
+@mock.patch("deepfellow.infra.service.list.env_set")
+def test_list_displays_services(
+    mock_env_set: Mock,
+    mock_read_env_file: Mock,
+    mock_cast: Mock,
+    mock_make_request: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_make_request.return_value = {
+        "list": [
+            {
+                "id": "ollama",
+                "type": "ollama",
+                "instance": "default",
+                "description": "Local models.",
+                "downloaded": True,
+                "installed": {"hardware": "CPU"},
+            },
+            {
+                "id": "vllm",
+                "type": "vllm",
+                "instance": "default",
+                "description": "High-throughput model server.",
+                "downloaded": False,
+                "installed": False,
+            },
+        ]
+    }
+
+    list_services(server="http://infra:8086")
+
+    assert mock_make_request.call_count == 1
+    assert mock_echo.info.call_count == 1
+    assert mock_echo.info.call_args == mock.call(
+        "id: ollama\ntype: ollama\ninstance: default\ndescription: Local models.\ndownloaded: True"
+    )
+
+
+@mock.patch("deepfellow.infra.service.list.echo")
+@mock.patch("deepfellow.infra.service.list.make_request")
+@mock.patch("deepfellow.infra.service.list.cast")
+@mock.patch("deepfellow.infra.service.list.read_env_file")
+@mock.patch("deepfellow.infra.service.list.env_set")
+def test_list_with_no_installed_services(
+    mock_env_set: Mock,
+    mock_read_env_file: Mock,
+    mock_cast: Mock,
+    mock_make_request: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_make_request.return_value = {"list": [{"id": "claude", "installed": False}]}
+
+    list_services(server="http://infra:8086")
+
+    assert mock_echo.info.call_count == 1
+    assert mock_echo.info.call_args == mock.call("No services installed.")
+
+
+@mock.patch("deepfellow.infra.service.list.echo")
+@mock.patch("deepfellow.infra.service.list.make_request")
+@mock.patch("deepfellow.infra.service.list.cast")
+@mock.patch("deepfellow.infra.service.list.read_env_file")
+@mock.patch("deepfellow.infra.service.list.env_set")
+def test_list_connection_error(
+    mock_env_set: Mock,
+    mock_read_env_file: Mock,
+    mock_cast: Mock,
+    mock_make_request: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_make_request.side_effect = httpx.ConnectError("TEST")
+
+    with pytest.raises(typer.Exit):
+        list_services(server="http://infra:8086")
 
     assert mock_echo.error.call_count == 1
     assert mock_echo.error.call_args == mock.call(
