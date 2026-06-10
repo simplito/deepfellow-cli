@@ -52,6 +52,52 @@ def test_install_connection_error(
 @mock.patch("deepfellow.infra.service.install.cast")
 @mock.patch("deepfellow.infra.service.install.read_env_file")
 @mock.patch("deepfellow.infra.service.install.env_set")
+def test_install_success_without_api_key(
+    mock_env_set: Mock,
+    mock_read_env_file: Mock,
+    mock_cast: Mock,
+    mock_post: Mock,
+    mock_echo: Mock,
+    name: str,
+) -> None:
+    mock_post.return_value = {"status": "OK"}
+
+    install(name=name, service_api_key=None, spec=None)
+
+    assert mock_post.call_count == 1
+    call_kwargs = mock_post.call_args[1]
+    assert call_kwargs["data"] == {"spec": {}}
+    assert mock_echo.success.call_count == 1
+
+
+@mock.patch("deepfellow.infra.service.install.echo")
+@mock.patch("deepfellow.infra.service.install.post")
+@mock.patch("deepfellow.infra.service.install.cast")
+@mock.patch("deepfellow.infra.service.install.read_env_file")
+@mock.patch("deepfellow.infra.service.install.env_set")
+def test_install_success_with_api_key(
+    mock_env_set: Mock,
+    mock_read_env_file: Mock,
+    mock_cast: Mock,
+    mock_post: Mock,
+    mock_echo: Mock,
+    name: str,
+) -> None:
+    mock_post.return_value = {"status": "OK"}
+
+    install(name=name, service_api_key="sk-test-123", spec=None)
+
+    assert mock_post.call_count == 1
+    call_kwargs = mock_post.call_args[1]
+    assert call_kwargs["data"] == {"spec": {}}
+    assert mock_echo.success.call_count == 1
+
+
+@mock.patch("deepfellow.infra.service.install.echo")
+@mock.patch("deepfellow.infra.service.install.post")
+@mock.patch("deepfellow.infra.service.install.cast")
+@mock.patch("deepfellow.infra.service.install.read_env_file")
+@mock.patch("deepfellow.infra.service.install.env_set")
 def test_install_with_valid_spec(
     mock_env_set: Mock,
     mock_read_env_file: Mock,
@@ -82,6 +128,94 @@ def test_install_with_non_object_json_spec(mock_echo: Mock, name: str) -> None:
 
     assert mock_echo.error.call_count == 1
     assert mock_echo.error.call_args == mock.call("--spec must be a JSON object, not an array or scalar.")
+
+
+@mock.patch("deepfellow.infra.service.install.echo")
+@mock.patch("deepfellow.infra.service.install.post")
+@mock.patch("deepfellow.infra.service.install.cast")
+@mock.patch("deepfellow.infra.service.install.read_env_file")
+@mock.patch("deepfellow.infra.service.install.env_set")
+def test_install_claude_with_api_key(
+    mock_env_set: Mock,
+    mock_read_env_file: Mock,
+    mock_cast: Mock,
+    mock_post: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_post.return_value = {"status": "OK"}
+
+    install(name="claude", service_api_key="sk-test-123", spec=None)
+
+    assert mock_post.call_count == 1
+    call_kwargs = mock_post.call_args[1]
+    assert call_kwargs["data"] == {"spec": {"api_key": "sk-test-123", "anthropic_version": "2023-06-01"}}
+    assert mock_echo.success.call_count == 1
+
+
+@mock.patch("deepfellow.infra.service.install.echo")
+@mock.patch("deepfellow.infra.service.install.post")
+@mock.patch("deepfellow.infra.service.install.cast")
+@mock.patch("deepfellow.infra.service.install.read_env_file")
+@mock.patch("deepfellow.infra.service.install.env_set")
+def test_install_google_with_api_key(
+    mock_env_set: Mock,
+    mock_read_env_file: Mock,
+    mock_cast: Mock,
+    mock_post: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_post.return_value = {"status": "OK"}
+
+    install(name="google", service_api_key="google-key-123", spec=None)
+
+    assert mock_post.call_count == 1
+    call_kwargs = mock_post.call_args[1]
+    assert call_kwargs["data"] == {"spec": {"api_key": "google-key-123"}}
+    assert mock_echo.success.call_count == 1
+
+
+@mock.patch("deepfellow.infra.service.install.echo")
+@mock.patch("deepfellow.infra.service.install.post")
+@mock.patch("deepfellow.infra.service.install.cast")
+@mock.patch("deepfellow.infra.service.install.read_env_file")
+@mock.patch("deepfellow.infra.service.install.env_set")
+def test_install_openai_with_api_key(
+    mock_env_set: Mock,
+    mock_read_env_file: Mock,
+    mock_cast: Mock,
+    mock_post: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_post.return_value = {"status": "OK"}
+
+    install(name="openai", service_api_key="openai-key-123", spec=None)
+
+    assert mock_post.call_count == 1
+    call_kwargs = mock_post.call_args[1]
+    assert call_kwargs["data"] == {"spec": {"api_key": "openai-key-123"}}
+    assert mock_echo.success.call_count == 1
+
+
+@mock.patch("deepfellow.infra.service.install.echo")
+@mock.patch("deepfellow.infra.service.install.post")
+@mock.patch("deepfellow.infra.service.install.cast")
+@mock.patch("deepfellow.infra.service.install.read_env_file")
+@mock.patch("deepfellow.infra.service.install.env_set")
+def test_install_sindri_with_api_key(
+    mock_env_set: Mock,
+    mock_read_env_file: Mock,
+    mock_cast: Mock,
+    mock_post: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_post.return_value = {"status": "OK"}
+
+    install(name="sindri", service_api_key="sindri-key-123", spec=None)
+
+    assert mock_post.call_count == 1
+    call_kwargs = mock_post.call_args[1]
+    assert call_kwargs["data"] == {"spec": {"api_key": "sindri-key-123"}}
+    assert mock_echo.success.call_count == 1
 
 
 @mock.patch("deepfellow.infra.service.uninstall.echo")
