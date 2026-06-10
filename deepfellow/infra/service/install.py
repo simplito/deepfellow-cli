@@ -16,11 +16,12 @@ import httpx
 import typer
 
 from deepfellow.common.config import read_env_file
-from deepfellow.common.echo import echo
+from deepfellow.common.echo import echo, is_interactive
 from deepfellow.common.env import env_set
 from deepfellow.common.rest import post
 from deepfellow.common.state import state
 from deepfellow.common.validation import validate_server, validate_url
+from deepfellow.infra.utils.options import CLOUD_SERVICE_SPECS
 
 app = typer.Typer()
 
@@ -39,16 +40,54 @@ def _parse_spec(spec: str | None) -> dict[str, Any]:
     return parsed
 
 
+def _build_spec(name: str, service_api_key: str | None) -> dict[str, str]:  # noqa: C901
+    """Build spec dict for the given service name.
+
+    For known cloud services, required fields with defaults are included automatically.
+    Required fields without defaults are prompted interactively.
+    Optional fields are omitted (the server applies its own defaults).
+    """
+    if name not in CLOUD_SERVICE_SPECS:
+        return {}
+
+    spec: dict[str, str] = {}
+    for field_def in CLOUD_SERVICE_SPECS[name]:
+        if field_def.name == "api_key":
+            if service_api_key is not None:
+                spec[field_def.name] = service_api_key
+                continue
+            if not field_def.required and not is_interactive():
+                continue
+            value = echo.prompt(
+                f"{field_def.description}",
+                password=True,
+                default=field_def.default,
+            )
+            if not field_def.required and value == "" and is_interactive():
+                confirmed = echo.confirm("Api Key is empty. Do you want to continue?")
+                if not confirmed:
+                    raise typer.Exit(1)
+            if value != "":
+                spec[field_def.name] = value
+        elif field_def.required and field_def.default is not None:
+            spec[field_def.name] = field_def.default
+        elif field_def.required:
+            value = echo.prompt(field_def.description)
+            spec[field_def.name] = value
+    return spec
+
+
 @app.command()
 def install(
     server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Infra address"),
     name: str = typer.Argument(..., help="service name (e.g. ollama)"),
+    service_api_key: str | None = typer.Option(None, "--api-key", help="API key for remote services (e.g. claude)"),
     spec: str | None = typer.Option(
         None, help='Service configuration as a JSON object (e.g. \'{"url": "http://host:11434"}\')'
     ),
 ) -> None:
     """Install service."""
-    parsed_spec = _parse_spec(spec)
+    parsed_spec: dict[str, Any] | None = _parse_spec(spec) if spec is not None else None
 
     config_file = state.cli_config_file
     config = state.cli_config
@@ -77,8 +116,10 @@ def install(
 
     url = f"{server}/admin/services/{name}"
 
+    spec_res = parsed_spec if parsed_spec is not None else _build_spec(name, service_api_key)
+
     try:
-        data = post(url, api_key, item_name="Service", data={"spec": parsed_spec}, reraise=True)
+        data = post(url, api_key, item_name="Service", data={"spec": spec_res}, reraise=True)
     except httpx.ConnectError as exc:
         echo.error("No connection with DeepFellow Infra. Is it up? (deepfellow infra start)")
         raise typer.Exit(1) from exc

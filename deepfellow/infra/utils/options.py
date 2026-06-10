@@ -9,12 +9,24 @@
 
 """Options for infra."""
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import typer
 
 from deepfellow.common.defaults import DF_INFRA_DIRECTORY
+
+
+@dataclass
+class ServiceFieldDef:
+    """Spec field definition for a cloud service."""
+
+    name: str
+    type: Literal["text", "password"]
+    required: bool
+    description: str
+    default: str | None = None
 
 
 def directory_option(
@@ -48,3 +60,47 @@ def directory_option(
         help=help,
         **kwargs,
     )
+
+
+CLOUD_SERVICE_SPECS: dict[str, list[ServiceFieldDef]] = {
+    "claude": [
+        ServiceFieldDef(
+            name="api_url", type="text", required=False, description="API URL", default="https://api.anthropic.com"
+        ),
+        ServiceFieldDef(name="api_key", type="password", required=True, description="API Key"),
+        ServiceFieldDef(
+            name="anthropic_version",
+            type="text",
+            required=True,
+            description="Anthropic API Version",
+            default="2023-06-01",
+        ),
+        ServiceFieldDef(name="anthropic_beta", type="text", required=False, description="Anthropic Beta Header"),
+    ],
+    "google": [
+        ServiceFieldDef(
+            name="api_url",
+            type="text",
+            required=False,
+            description="API URL",
+            default="https://generativelanguage.googleapis.com",
+        ),
+        ServiceFieldDef(name="api_key", type="password", required=False, description="API Key", default=""),
+    ],
+    "openai": [
+        ServiceFieldDef(
+            name="api_url", type="text", required=False, description="API URL", default="https://api.openai.com"
+        ),
+        ServiceFieldDef(name="api_key", type="password", required=False, description="API Key", default=""),
+    ],
+    "sindri": [
+        ServiceFieldDef(
+            name="api_url",
+            type="text",
+            required=False,
+            description="API URL",
+            default="https://sindri.app/api/ai/v1/openai",
+        ),
+        ServiceFieldDef(name="api_key", type="password", required=True, description="API Key"),
+    ],
+}
