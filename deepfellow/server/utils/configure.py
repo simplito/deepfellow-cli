@@ -29,6 +29,7 @@ from deepfellow.common.defaults import (
     MILVUS_DATABASE,
     MONGO_DB_INIT_SH,
     OTEL_COLLECTOR_CONFIG,
+    OTEL_COLLECTOR_CONFIG_DEBUG_ONLY,
     QDRANT_DATABASE,
     VECTOR_DATABASES,
 )
@@ -368,26 +369,28 @@ def configure_otel(directory: Path, otel_url: str | None, original_env: dict[str
                 validation=validate_url,
             )
         elif echo.confirm(
-            "Do you want to run Open Telemetry from this machine?\n(You need an existing ElasticSearch server running)",
+            "Do you want to run Open Telemetry from this machine?",
             default=config_file.exists(),
         ):
             docker_compose = DOCKER_COMPOSE_OTEL_COLLECTOR
             otel_url = DEFAULT_OTEL_URL
-            # store Open Telemetry yaml config
             echo.info("Let's configure Open Telemetry")
-            otel_config: dict[str, Any] = deepcopy(OTEL_COLLECTOR_CONFIG)
-            otel_config["exporters"]["elasticsearch"]["endpoint"] = echo.prompt_until_valid(
-                "Provide your ElasticSearch endpoint", validation=validate_url, default=prev_endpoint
-            )
-            otel_config["exporters"]["elasticsearch"]["traces_index"] = echo.prompt_until_valid(
-                "Provide traces index", validation=validate_truthy, default=prev_traces_index
-            )
-            otel_config["extensions"]["basicauth"]["client_auth"]["username"] = echo.prompt_until_valid(
-                "Provide username", validation=validate_username, default=prev_username
-            )
-            otel_config["extensions"]["basicauth"]["client_auth"]["password"] = echo.prompt_until_valid(
-                "Provide password", validation=validate_truthy, password=True, default=prev_password
-            )
+            if echo.confirm("Do you want to export to Elasticsearch?", default=False):
+                otel_config: dict[str, Any] = deepcopy(OTEL_COLLECTOR_CONFIG)
+                otel_config["exporters"]["elasticsearch"]["endpoint"] = echo.prompt_until_valid(
+                    "Provide your ElasticSearch endpoint", validation=validate_url, default=prev_endpoint
+                )
+                otel_config["exporters"]["elasticsearch"]["traces_index"] = echo.prompt_until_valid(
+                    "Provide traces index", validation=validate_truthy, default=prev_traces_index
+                )
+                otel_config["extensions"]["basicauth"]["client_auth"]["username"] = echo.prompt_until_valid(
+                    "Provide username", validation=validate_username, default=prev_username
+                )
+                otel_config["extensions"]["basicauth"]["client_auth"]["password"] = echo.prompt_until_valid(
+                    "Provide password", validation=validate_truthy, password=True, default=prev_password
+                )
+            else:
+                otel_config = deepcopy(OTEL_COLLECTOR_CONFIG_DEBUG_ONLY)
             save_compose_file(otel_config, config_file, quiet=True, file_info="Open Telemetry collector configuration")
             echo.warning(
                 f"Open Telemetry configuration stored in file:\n{config_file}\n"

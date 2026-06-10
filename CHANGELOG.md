@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- `server install` and `server reconfigure` now offer a debug-only OTel collector mode: when the user opts to run OTel locally, a new prompt asks whether to export to Elasticsearch (default: No); answering No starts the `otel-collector` without any Elasticsearch dependency
+
 ### Changed
 - CLI runtime flags now come from an internal `AppState` singleton instead of the Click context, so the CLI runs on Typer 0.26.x (previously pinned to 0.16.x to avoid a startup crash)
 

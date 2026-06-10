@@ -386,3 +386,59 @@ OTEL_COLLECTOR_CONFIG = {
         },
     },
 }
+
+OTEL_COLLECTOR_CONFIG_DEBUG_ONLY = {
+    "receivers": {
+        "otlp": {
+            "protocols": {
+                "grpc": {
+                    "endpoint": "0.0.0.0:4317",
+                },
+                "http": {
+                    "endpoint": "0.0.0.0:4318",
+                },
+            },
+        },
+    },
+    "exporters": {
+        "debug": {
+            "verbosity": "detailed",
+        },
+    },
+    "processors": {
+        "memory_limiter": {
+            "check_interval": "1s",
+            "limit_mib": 2000,
+        },
+        "batch": {
+            "timeout": "5s",
+            "send_batch_size": 512,
+            "send_batch_max_size": 1024,
+        },
+        "resource": {
+            "attributes": [
+                {"key": "environment", "value": "testing", "action": "upsert"},
+                {"key": "service.version", "value": "1.2.3", "action": "upsert"},
+            ],
+        },
+    },
+    "service": {
+        "pipelines": {
+            "traces": {
+                "receivers": ["otlp"],
+                "processors": ["memory_limiter", "batch", "resource"],
+                "exporters": ["debug"],
+            },
+            "metrics": {
+                "receivers": ["otlp"],
+                "processors": ["memory_limiter", "batch"],
+                "exporters": ["debug"],
+            },
+            "logs": {
+                "receivers": ["otlp"],
+                "processors": ["memory_limiter", "batch"],
+                "exporters": ["debug"],
+            },
+        },
+    },
+}
