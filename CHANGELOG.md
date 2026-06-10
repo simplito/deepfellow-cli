@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased]
+## [0.6.0] - 2026-06-10
 
 ### Added
 - `server install` and `server reconfigure` now offer a debug-only OTel collector mode: when the user opts to run OTel locally, a new prompt asks whether to export to Elasticsearch (default: No); answering No starts the `otel-collector` without any Elasticsearch dependency
