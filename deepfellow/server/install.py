@@ -9,6 +9,7 @@
 
 """Install server typer command."""
 
+import json
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
@@ -50,6 +51,23 @@ from deepfellow.server.utils.configure import configure_infra, configure_mongo, 
 from deepfellow.server.utils.options import directory_option, set_default_server_directory
 
 app = typer.Typer()
+
+LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
+
+def _is_json_object(value: str) -> bool:
+    """Check whether a string parses as a JSON object.
+
+    Args:
+        value: The string to parse.
+
+    Returns:
+        True if the value is valid JSON with an object at the top level.
+    """
+    try:
+        return isinstance(json.loads(value), dict)
+    except json.JSONDecodeError:
+        return False
 
 
 def expose_ports_to_host(services: dict[str, Any]) -> None:
@@ -126,6 +144,16 @@ def install(  # noqa: C901
 
     original_env_content = read_env_file_to_dict(env_file)
 
+    log_level = str(original_env_content.get("df_log_level", "INFO")).upper()
+    if log_level not in LOG_LEVELS:
+        echo.error(f"Invalid DF_LOG_LEVEL in {env_file.as_posix()}: expected one of {', '.join(LOG_LEVELS)}.")
+        raise typer.Exit(1)
+
+    plugins_setup = original_env_content.get("df_plugins_setup", "{}")
+    if not isinstance(plugins_setup, str) or not _is_json_object(plugins_setup):
+        echo.error(f"Invalid DF_PLUGINS_SETUP in {env_file.as_posix()}: expected a single-line JSON object.")
+        raise typer.Exit(1)
+
     echo.info("DeepFellow Server requires a MongoDB to be installed.")
     if mongodb_url != DF_MONGO_URL or mongodb_database_name != DF_MONGO_DB:
         custom_mongo_db_server = True
@@ -200,6 +228,8 @@ def install(  # noqa: C901
             "DF_INFRA_DOCKER_SUBNET": docker_network,
             "DF_METRICS_USERNAME": metrics_username,
             "DF_METRICS_PASSWORD": metrics_password,
+            "DF_LOG_LEVEL": log_level,
+            "DF_PLUGINS_SETUP": plugins_setup,
             **mongo_env,
             **infra_env,
             **vectordb_envs,

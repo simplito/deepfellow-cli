@@ -38,6 +38,10 @@ ENV_METADATA: dict[str, EnvMetadata] = {
     "DF_MONGO_USER": EnvMetadata(description="MongoDB username."),
     "DF_MONGO_PASSWORD": EnvMetadata(description="MongoDB password.", sensitive=True),
     "DF_MONGO_DB": EnvMetadata(description="MongoDB database name used by the server."),
+    "DF_LOG_LEVEL": EnvMetadata(description="Log level of the DeepFellow Server (e.g. INFO, DEBUG)."),
+    "DF_PLUGINS_SETUP": EnvMetadata(
+        description="JSON object with plugin configuration (e.g. df_anonymize_models, df_abuse_model).",
+    ),
     "DF_INFRA__URL": EnvMetadata(
         description="HTTP URL of the connected DeepFellow Infra instance.",
     ),

@@ -130,6 +130,8 @@ DOCKER_COMPOSE_SERVER = {
             "DF_MONGO_USER=${DF_MONGO_USER}",
             "DF_MONGO_PASSWORD=${DF_MONGO_PASSWORD}",
             "DF_MONGO_DB=${DF_MONGO_DB}",
+            "DF_LOG_LEVEL=${DF_LOG_LEVEL}",
+            "DF_PLUGINS_SETUP=${DF_PLUGINS_SETUP}",
             "DF_VECTOR_DATABASE__PROVIDER__ACTIVE=${DF_VECTOR_DATABASE__PROVIDER__ACTIVE}",
         ],
         "restart": "unless-stopped",
