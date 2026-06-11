@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - `deepfellow infra service list` command — calls `GET /admin/services` and displays the installed service backends
+
+### Fixed
+- Server `compose.yaml` now forwards `DF_PLUGINS_SETUP` and `DF_LOG_LEVEL` to the server container, so `server env set PLUGINS_SETUP ...` actually reaches the server (previously plugins like `DFAnonymizePlugin` never saw their configuration); `server install` writes defaults (`{}` / `INFO`), preserves existing values on reinstall and validates both before writing
 - `server install --otel-local` installs a local debug-only OpenTelemetry collector non-interactively (mutually exclusive with `--otel-url`); previously the local collector could only be enabled through interactive prompts
 
 ## [0.6.0] - 2026-06-10
