@@ -343,13 +343,32 @@ class OtelConfig:
     docker_compose: dict[str, Any]
 
 
-def configure_otel(directory: Path, otel_url: str | None, original_env: dict[str, Any] | None) -> OtelConfig:
-    """Configure Open Telemetry."""
+def configure_otel(
+    directory: Path, otel_url: str | None, original_env: dict[str, Any] | None, otel_local: bool = False
+) -> OtelConfig:
+    """Configure Open Telemetry.
+
+    When ``otel_local`` is set, configure a local debug-only collector without any prompts:
+    add the otel-collector service to compose and write the debug-only collector config. The
+    written config matches the interactive "run locally" + "no Elasticsearch" path, but the
+    prompts and the post-write review warning are skipped. Mutual exclusion with ``otel_url``
+    is enforced by the caller (``install()``); when ``otel_local`` is set, ``otel_url`` is ignored.
+    """
     original_env = original_env or {}
     docker_compose = {}
     envs = {}
 
     config_file: Path = directory / "otel-collector-config.yaml"
+
+    if otel_local:
+        debug_config = deepcopy(OTEL_COLLECTOR_CONFIG_DEBUG_ONLY)
+        save_compose_file(debug_config, config_file, quiet=True, file_info="Open Telemetry collector configuration")
+
+        return OtelConfig(
+            envs={"DF_OTEL_EXPORTER_OTLP_ENDPOINT": DEFAULT_OTEL_URL, "DF_OTEL_TRACING_ENABLED": "true"},
+            docker_compose=DOCKER_COMPOSE_OTEL_COLLECTOR,
+        )
+
     existing_otel_config: dict[str, Any] = load_compose_file(config_file)
     prev_endpoint: str = existing_otel_config.get("exporters", {}).get("elasticsearch", {}).get("endpoint")
     prev_traces_index: str = existing_otel_config.get("exporters", {}).get("elasticsearch", {}).get("traces_index")

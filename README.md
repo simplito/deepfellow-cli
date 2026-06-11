@@ -89,10 +89,11 @@ Majority of commands run interactively by default. For scripting and automation,
 export DF_INFRA_API_KEY=dfapi-u4hdn4u-amdu4hs-cbgurg-223hdgr
 deepfellow --non-interactive infra install
 deepfellow --non-interactive server install \
-  --infra-url https://infra.local:8086
+  --infra-url https://infra.local:8086 \
+  --otel-local   # install a local debug-only OpenTelemetry collector
 ```
 
-Every interactive prompt has a corresponding `--flag`. Run any command with `--help` to see all available options.
+Most interactive prompts have a corresponding `--flag`. Run any command with `--help` to see all available options.
 
 ### Infra
 

@@ -127,3 +127,42 @@ def test_configure_otel_local_run_debug_only_non_interactive_defaults(mock_echo,
     saved_config = mock_save.call_args[0][0]
     for pipeline in saved_config["service"]["pipelines"].values():
         assert pipeline["exporters"] == ["debug"]
+
+
+@mock.patch("deepfellow.server.utils.configure.save_compose_file")
+@mock.patch("deepfellow.server.utils.configure.load_compose_file", return_value={})
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_otel_local_flag_skips_prompts_debug_only(mock_echo, mock_load, mock_save, tmp_directory):
+    result = configure_otel(tmp_directory, None, None, otel_local=True)
+
+    assert result.docker_compose == DOCKER_COMPOSE_OTEL_COLLECTOR
+    assert result.envs["DF_OTEL_EXPORTER_OTLP_ENDPOINT"] == DEFAULT_OTEL_URL
+    assert result.envs["DF_OTEL_TRACING_ENABLED"] == "true"
+    assert mock_echo.confirm.call_count == 0
+    assert mock_echo.prompt_until_valid.call_count == 0
+    assert mock_load.call_count == 0
+    assert mock_save.call_count == 1
+    saved_config = mock_save.call_args[0][0]
+    assert mock_save.call_args == mock.call(
+        saved_config,
+        tmp_directory / "otel-collector-config.yaml",
+        quiet=True,
+        file_info="Open Telemetry collector configuration",
+    )
+    assert "elasticsearch" not in saved_config.get("exporters", {})
+    assert "basicauth" not in saved_config.get("extensions", {})
+    for pipeline in saved_config["service"]["pipelines"].values():
+        assert pipeline["exporters"] == ["debug"]
+
+
+@mock.patch("deepfellow.server.utils.configure.save_compose_file")
+@mock.patch("deepfellow.server.utils.configure.load_compose_file", return_value={})
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_otel_flag_off_still_uses_prompt_flow(mock_echo, mock_load, mock_save, tmp_directory):
+    mock_echo.confirm.side_effect = [False, False]
+
+    result = configure_otel(tmp_directory, None, None)
+
+    assert mock_echo.confirm.call_count == 2
+    assert result.docker_compose == {}
+    assert mock_save.call_count == 0

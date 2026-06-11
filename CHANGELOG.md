@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - `deepfellow infra service list` command — calls `GET /admin/services` and displays the installed service backends
+- `server install --otel-local` installs a local debug-only OpenTelemetry collector non-interactively (mutually exclusive with `--otel-url`); previously the local collector could only be enabled through interactive prompts
 
 ## [0.6.0] - 2026-06-10
 
@@ -31,7 +32,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - `deepfellow cli update` command — upgrades the CLI using the detected package manager (`uv tool`, `pipx`, or `pip`)
 - `df infra connect` now verifies the WebSocket mesh connection is live before reporting success, with multi-stage polling of `/admin/mesh/topology`, detection of outdated images (HTML response) and legacy parent API (Docker log fallback), and a warning when a localhost URL is used
->>>>>>> CHANGELOG.md
 - Increased maximum password length from 19 to 128 characters
 
 ## [0.4.0] - 2026-05-28
