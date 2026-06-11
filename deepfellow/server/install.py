@@ -73,6 +73,11 @@ def install(  # noqa: C901
         help="Open Telemetry url (DF_OTEL_EXPORTER_OTLP_ENDPOINT).",
         callback=validate_url,
     ),
+    otel_local: bool = typer.Option(
+        False,
+        "--otel-local",
+        help="Install a local debug-only OpenTelemetry collector (mutually exclusive with --otel-url).",
+    ),
     infra_url: str = typer.Option(
         DF_INFRA_URL, help="Deepfellow Infra url. Can be docker service url inside network or outside."
     ),
@@ -106,6 +111,10 @@ def install(  # noqa: C901
     dev: bool = typer.Option(False, "--dev", help="Expose internal service ports to host for development."),
 ) -> None:
     """Install DeepFellow Server with docker."""
+    if otel_local and otel_url:
+        echo.error("--otel-local and --otel-url are mutually exclusive; pass only one.")
+        raise typer.Exit(1)
+
     echo.info("Installing DeepFellow Server.")
     assert_docker()
 
@@ -180,7 +189,7 @@ def install(  # noqa: C901
     is_vectordb_active = vectordb_envs.get("DF_VECTOR_DATABASE__PROVIDER__ACTIVE") == "1"
     vectordb_type_str = vectordb_envs.get("DF_VECTOR_DATABASE__PROVIDER__TYPE", "")
 
-    otel = configure_otel(directory, otel_url, original_env_content)
+    otel = configure_otel(directory, otel_url, original_env_content, otel_local)
 
     save_env_file(
         env_file,
