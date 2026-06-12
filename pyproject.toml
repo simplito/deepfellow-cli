@@ -12,6 +12,7 @@ dependencies = [
     "types-pyyaml>=6.0.12.20250915",
     "tzlocal>=5.3.1",
     "questionary>=2.0.0",
+    "rich>=13.0.0",
 ]
 
 [project.scripts]
@@ -19,6 +20,7 @@ deepfellow = "deepfellow.main:app"
 
 [dependency-groups]
 dev = [
+    "deptry>=0.25.1",
     "mypy>=1.17.1",
     "pyright>=1.1.407",
     "pytest>=8.4.1",
@@ -128,3 +130,6 @@ python_version = "3.10"
 [[tool.mypy.overrides]]
 module = "tests.*"
 disable_error_code = ["var-annotated"]
+
+[tool.deptry]
+per_rule_ignores = {"DEP002" = ["types-pyyaml"]}

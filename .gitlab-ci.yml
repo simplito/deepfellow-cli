@@ -2,6 +2,7 @@ image: python:3.10
 
 stages:
   - license-check
+  - hidden-imports-check
   - analysis
   - test
   - post-merge
@@ -35,6 +36,12 @@ license-check:
   stage: license-check
   script:
     - uv run python scripts/check_license_header.py
+
+deptry:
+  <<: *uv
+  stage: hidden-imports-check
+  script:
+    - uv run deptry .
 
 ruff:
   <<: *uv
