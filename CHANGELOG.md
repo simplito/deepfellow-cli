@@ -7,8 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- Unit test coverage for infra install raised to 100%
 - Unit test coverage for infra start raised to 100%
-
 
 ## [0.7.0] - 2026-06-11
 
