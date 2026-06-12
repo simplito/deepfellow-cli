@@ -62,15 +62,6 @@ def is_docker_group_available() -> bool:
     return any(line.startswith("docker:") for line in group_file.read_text().splitlines())
 
 
-def merge_services(*service_dicts: dict[str, Any]) -> dict[str, Any]:
-    """Combines multiple service dictionaries into one."""
-    merged: dict[str, Any] = {"services": {}}
-    for service_dict in service_dicts:
-        merged["services"].update(service_dict)
-
-    return merged
-
-
 def represent_none(self: yaml.representer.BaseRepresenter, _: None) -> yaml.ScalarNode:
     """Custom representer for None values.
 

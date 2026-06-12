@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `deepfellow infra service list` command — calls `GET /admin/services` and displays the installed service backends
 - `just deptry` command — runs [`deptry`](https://deptry.com) to detect imports used in source but not declared as explicit dependencies in `pyproject.toml`; integrated into `just check` and the CI/CD pipeline
 
+### Changed
+- Removed unused symbols from common modules: `merge_services()`, `ConfigValidationError`, `check_directory_exist()`, `validate_config()`, `Infras` dataclass, and legacy constants `DF_INFRA_REPO`, `DF_SERVER_REPO`, `API_ENDPOINTS`; corresponding tests deleted
+- `server install` and `server opentelemetry` now use `DF_OTEL_EXPORTER_OTLP_ENDPOINT` as the default OTel URL instead of `None`
+
 ### Fixed
 - Server `compose.yaml` now forwards `DF_PLUGINS_SETUP` and `DF_LOG_LEVEL` to the server container, so `server env set PLUGINS_SETUP ...` actually reaches the server (previously plugins like `DFAnonymizePlugin` never saw their configuration); `server install` writes defaults (`{}` / `INFO`), preserves existing values on reinstall and validates both before writing
 - `server install --otel-local` installs a local debug-only OpenTelemetry collector non-interactively (mutually exclusive with `--otel-url`); previously the local collector could only be enabled through interactive prompts

@@ -10,7 +10,6 @@
 """REST utils."""
 
 from json import JSONDecodeError
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -212,10 +211,3 @@ def check_health(url: str) -> None:
     except Exception as exc:
         echo.error(f"Unknown error when requesting {url}/health")
         raise typer.Exit(1) from exc
-
-
-def check_directory_exist(directory: Path) -> None:
-    """Check is directory exist."""
-    if not directory.exists() or not directory.is_dir():
-        echo.error("Create Deepfellow Server first.")
-        raise typer.Exit(1)

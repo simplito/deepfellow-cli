@@ -19,7 +19,6 @@ from deepfellow.common.docker import (
     DockerError,
     is_docker_installed,
     load_compose_file,
-    merge_services,
     parse_docker_compose_ps,
     parse_docker_compose_usage,
     save_compose_file,
@@ -59,40 +58,6 @@ def test_is_docker_installed_error(mock_run: Mock, error: Exception) -> None:
     mock_run.side_effect = error
 
     assert not is_docker_installed()  # Should also be False, not True
-
-
-def test_merge_services_combines_multiple_services() -> None:
-    service1 = {"web": {"image": "nginx"}}
-    service2 = {"db": {"image": "postgres"}}
-    service3 = {"cache": {"image": "redis"}}
-
-    result = merge_services(service1, service2, service3)
-
-    expected = {
-        "services": {
-            "web": {"image": "nginx"},
-            "db": {"image": "postgres"},
-            "cache": {"image": "redis"},
-        }
-    }
-    assert result == expected
-
-
-def test_merge_services_handles_empty_input() -> None:
-    result = merge_services()
-
-    expected = {"services": {}}
-    assert result == expected
-
-
-def test_merge_services_handles_overlapping_services() -> None:
-    service1 = {"web": {"image": "nginx:1.0"}}
-    service2 = {"web": {"image": "nginx:2.0"}}
-
-    result = merge_services(service1, service2)
-
-    expected = {"services": {"web": {"image": "nginx:2.0"}}}
-    assert result == expected
 
 
 @mock.patch("deepfellow.common.docker.echo")
