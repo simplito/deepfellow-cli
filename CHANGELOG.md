@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - `deepfellow infra service list` command — calls `GET /admin/services` and displays the installed service backends
+- `just deptry` command — runs [`deptry`](https://deptry.com) to detect imports used in source but not declared as explicit dependencies in `pyproject.toml`; integrated into `just check` and the CI/CD pipeline
 
 ### Fixed
 - Server `compose.yaml` now forwards `DF_PLUGINS_SETUP` and `DF_LOG_LEVEL` to the server container, so `server env set PLUGINS_SETUP ...` actually reaches the server (previously plugins like `DFAnonymizePlugin` never saw their configuration); `server install` writes defaults (`{}` / `INFO`), preserves existing values on reinstall and validates both before writing

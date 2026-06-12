@@ -147,6 +147,16 @@ All state lives in `~/.deepfellow/` — env files, Docker Compose configs, secre
 
 See [RELEASE.md](RELEASE.md) for the release process.
 
+### Local checks
+
+```bash
+just check   # ruff lint + format, mypy, license headers, deptry import audit
+just deptry  # import audit only
+just test    # pytest with coverage
+```
+
+`just deptry` runs [`deptry`](https://deptry.com) to detect transitive dependencies used directly, undeclared imports, and unused declared dependencies.  Transitive dependencies are not guaranteed to be available when installing via `uv tool install`, so every runtime import must be declared explicitly in `[project.dependencies]`.  The same check runs in CI on every MR.
+
 ## License
 
 [DeepFellow Free License](https://deepfellow.ai/deepfellow-free-license) — free for personal use and organizational R&D. Commercial use requires a [commercial license](https://deepfellow.ai).

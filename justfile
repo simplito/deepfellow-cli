@@ -17,4 +17,7 @@ mypy *FLAGS:
 license-check *FLAGS:
     uv run scripts/check_license_header.py {{FLAGS}}
 
-check: ruff ruff-format mypy license-check
+deptry *FLAGS:
+    uv run deptry . {{FLAGS}}
+
+check: ruff ruff-format mypy license-check deptry
