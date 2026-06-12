@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- Unit tests for `infra disconnect` covering directory checks, service-running guard, confirmation flow, env variable handling, and disconnect execution paths
 - Unit test coverage for infra install raised to 100%
 - Unit test coverage for infra start raised to 100%
 
