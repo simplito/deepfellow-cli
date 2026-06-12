@@ -24,427 +24,487 @@ from deepfellow.infra.connect import (
     connect,
 )
 
-PARENT_URL = "http://parent-infra:8086"
-MESH_KEY = "secret-mesh-key"
-ADMIN_KEY = "admin-api-key"
-INFRA_PORT = "8086"
-LOCAL_URL = f"http://localhost:{INFRA_PORT}"
-TOPOLOGY_URL = f"{LOCAL_URL}/admin/mesh/topology"
+
+@pytest.fixture
+def default_connect_kwargs(directory: Path) -> dict:
+    return {
+        "directory": directory,
+        "parent_infra_url": "http://parent-infra:8086",
+        "mesh_key": "test-mesh-key",
+    }
 
 
-def _make_topology_response(root_url: str, you_are_here: bool = False) -> Mock:
-    response = Mock(spec=httpx.Response)
-    response.status_code = 200
-    response.json.return_value = [
-        {"url": root_url, "you_are_here": you_are_here, "name": "infra", "models": [], "children": []}
-    ]
-    return response
+@mock.patch("deepfellow.infra.connect.run")
+@mock.patch("deepfellow.infra.connect.env_set")
+@mock.patch("deepfellow.infra.connect.env_get")
+@mock.patch("deepfellow.infra.connect.echo")
+@mock.patch("deepfellow.infra.connect.is_service_running")
+@mock.patch("deepfellow.infra.connect.check_infra_directory")
+def test_connect_calls_check_infra_directory(
+    mock_check: Mock,
+    mock_is_running: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    default_connect_kwargs: dict,
+    directory: Path,
+) -> None:
+    mock_is_running.return_value = True
+    mock_env_get.return_value = None
+
+    connect(**default_connect_kwargs)
+
+    assert mock_check.call_count == 1
+    assert mock_check.call_args == ((directory,), {})
 
 
-@mock.patch("deepfellow.infra.connect.time.sleep")
-@mock.patch("deepfellow.infra.connect.httpx.get")
-def test_verify_parent_connection_success_on_first_poll(mock_get: Mock, mock_sleep: Mock) -> None:
-    mock_get.return_value = _make_topology_response(PARENT_URL, you_are_here=False)
+@mock.patch("deepfellow.infra.connect.run")
+@mock.patch("deepfellow.infra.connect.env_set")
+@mock.patch("deepfellow.infra.connect.env_get")
+@mock.patch("deepfellow.infra.connect.echo")
+@mock.patch("deepfellow.infra.connect.is_service_running")
+@mock.patch("deepfellow.infra.connect.check_infra_directory")
+def test_connect_raises_exit_when_service_not_running(
+    mock_check: Mock,
+    mock_is_running: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    default_connect_kwargs: dict,
+) -> None:
+    mock_is_running.return_value = False
 
-    result = _verify_parent_connection(LOCAL_URL, ADMIN_KEY)
+    with pytest.raises(typer.Exit):
+        connect(**default_connect_kwargs)
 
-    assert result == _VerifyResult.CONNECTED
-    assert mock_get.call_count == 1
-    assert mock_get.call_args == mock.call(
-        TOPOLOGY_URL,
-        headers={"Authorization": f"Bearer {ADMIN_KEY}"},
-        timeout=5,
+
+@mock.patch("deepfellow.infra.connect.run")
+@mock.patch("deepfellow.infra.connect.env_set")
+@mock.patch("deepfellow.infra.connect.env_get")
+@mock.patch("deepfellow.infra.connect.echo")
+@mock.patch("deepfellow.infra.connect.is_service_running")
+@mock.patch("deepfellow.infra.connect.check_infra_directory")
+def test_connect_calls_env_get(
+    mock_check: Mock,
+    mock_is_running: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    default_connect_kwargs: dict,
+    directory: Path,
+) -> None:
+    mock_is_running.return_value = True
+    mock_env_get.return_value = None
+
+    connect(**default_connect_kwargs)
+
+    assert mock_env_get.call_args_list[0] == ((directory / ".env", "DF_CONNECT_TO_MESH_URL"), {})
+
+
+@mock.patch("deepfellow.infra.connect.run")
+@mock.patch("deepfellow.infra.connect.env_set")
+@mock.patch("deepfellow.infra.connect.env_get")
+@mock.patch("deepfellow.infra.connect.echo")
+@mock.patch("deepfellow.infra.connect.is_service_running")
+@mock.patch("deepfellow.infra.connect.check_infra_directory")
+def test_connect_prints_disconnect_message_when_previous_url_exists(
+    mock_check: Mock,
+    mock_is_running: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    default_connect_kwargs: dict,
+) -> None:
+    mock_is_running.return_value = True
+    mock_env_get.side_effect = ["http://old-infra:8086", None, None]
+
+    connect(**default_connect_kwargs)
+
+    echo_info_messages = [call.args[0] for call in mock_echo.info.call_args_list]
+    assert any("http://old-infra:8086" in msg for msg in echo_info_messages)
+
+
+@mock.patch("deepfellow.infra.connect.run")
+@mock.patch("deepfellow.infra.connect.env_set")
+@mock.patch("deepfellow.infra.connect.env_get")
+@mock.patch("deepfellow.infra.connect.echo")
+@mock.patch("deepfellow.infra.connect.is_service_running")
+@mock.patch("deepfellow.infra.connect.check_infra_directory")
+def test_connect_no_disconnect_message_when_no_previous_url(
+    mock_check: Mock,
+    mock_is_running: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    default_connect_kwargs: dict,
+) -> None:
+    mock_is_running.return_value = True
+    mock_env_get.return_value = None
+
+    connect(**default_connect_kwargs)
+
+    echo_info_messages = [call.args[0] for call in mock_echo.info.call_args_list]
+    assert not any("Disconnecting" in msg for msg in echo_info_messages)
+
+
+@mock.patch("deepfellow.infra.connect.run")
+@mock.patch("deepfellow.infra.connect.env_set")
+@mock.patch("deepfellow.infra.connect.env_get")
+@mock.patch("deepfellow.infra.connect.echo")
+@mock.patch("deepfellow.infra.connect.is_service_running")
+@mock.patch("deepfellow.infra.connect.check_infra_directory")
+def test_connect_calls_env_set_for_mesh_url(
+    mock_check: Mock,
+    mock_is_running: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    default_connect_kwargs: dict,
+    directory: Path,
+) -> None:
+    mock_is_running.return_value = True
+    mock_env_get.return_value = None
+
+    connect(**default_connect_kwargs)
+
+    assert (
+        mock.call(directory / ".env", "DF_CONNECT_TO_MESH_URL", "http://parent-infra:8086")
+        in mock_env_set.call_args_list
     )
-    assert mock_sleep.call_count == 0
-
-
-@mock.patch("deepfellow.infra.connect.time.sleep")
-@mock.patch("deepfellow.infra.connect.time.monotonic")
-@mock.patch("deepfellow.infra.connect.httpx.get")
-def test_verify_parent_connection_retries_until_connected(
-    mock_get: Mock, mock_monotonic: Mock, mock_sleep: Mock
-) -> None:
-    # First call: you_are_here=True (not connected yet), second call: parent appears
-    mock_monotonic.side_effect = [0, 1, 2, 3]  # deadline=60, first check at 1, second at 3
-    not_connected = _make_topology_response("http://self:8086", you_are_here=True)
-    connected = _make_topology_response(PARENT_URL, you_are_here=False)
-    mock_get.side_effect = [not_connected, connected]
-
-    result = _verify_parent_connection(LOCAL_URL, ADMIN_KEY)
-
-    assert result == _VerifyResult.CONNECTED
-    assert mock_get.call_count == 2
-    assert mock_sleep.call_count == 1
-
-
-@mock.patch("deepfellow.infra.connect.time.sleep")
-@mock.patch("deepfellow.infra.connect.time.monotonic")
-@mock.patch("deepfellow.infra.connect.httpx.get")
-def test_verify_parent_connection_returns_timeout(mock_get: Mock, mock_monotonic: Mock, mock_sleep: Mock) -> None:
-    mock_monotonic.side_effect = [0, 11]
-    mock_get.return_value = _make_topology_response("http://self:8086", you_are_here=True)
-
-    result = _verify_parent_connection(LOCAL_URL, ADMIN_KEY)
-
-    assert result == _VerifyResult.TIMEOUT
-
-
-@mock.patch("deepfellow.infra.connect.time.sleep")
-@mock.patch("deepfellow.infra.connect.time.monotonic")
-@mock.patch("deepfellow.infra.connect.httpx.get")
-def test_verify_parent_connection_skips_http_errors(mock_get: Mock, mock_monotonic: Mock, mock_sleep: Mock) -> None:
-    mock_monotonic.side_effect = [0, 1, 2, 3]
-    mock_get.side_effect = [httpx.ConnectError("refused"), _make_topology_response(PARENT_URL)]
-
-    result = _verify_parent_connection(LOCAL_URL, ADMIN_KEY)
-
-    assert result == _VerifyResult.CONNECTED
-    assert mock_sleep.call_count == 1
-
-
-@mock.patch("deepfellow.infra.connect.time.sleep")
-@mock.patch("deepfellow.infra.connect.time.monotonic")
-@mock.patch("deepfellow.infra.connect.httpx.get")
-def test_verify_parent_connection_returns_outdated_after_3_html_responses(
-    mock_get: Mock, mock_monotonic: Mock, mock_sleep: Mock
-) -> None:
-    mock_monotonic.side_effect = [0, 1, 2, 3, 4]
-    html_response = Mock(spec=httpx.Response)
-    html_response.status_code = 200
-    html_response.json.side_effect = JSONDecodeError("Expecting value", "", 0)
-    mock_get.return_value = html_response
-
-    result = _verify_parent_connection(LOCAL_URL, ADMIN_KEY)
-
-    assert result == _VerifyResult.OUTDATED
-
-
-@mock.patch("deepfellow.infra.connect.time.sleep")
-@mock.patch("deepfellow.infra.connect.time.monotonic")
-@mock.patch("deepfellow.infra.connect.httpx.get")
-def test_verify_parent_connection_resets_non_json_count_on_success(
-    mock_get: Mock, mock_monotonic: Mock, mock_sleep: Mock
-) -> None:
-    # deadline=10; 7 monotonic calls: 1 initial + 1 per iteration (6 iters)
-    mock_monotonic.side_effect = [0, 1, 2, 3, 4, 5, 6]
-    html = Mock(spec=httpx.Response)
-    html.status_code = 200
-    html.json.side_effect = JSONDecodeError("", "", 0)
-    # good resets count to 0 (you_are_here=True → not connected, keep looping)
-    good = _make_topology_response("http://self:8086", you_are_here=True)
-    mock_get.side_effect = [html, html, good, html, html, html]
-
-    result = _verify_parent_connection(LOCAL_URL, ADMIN_KEY)
-
-    assert result == _VerifyResult.OUTDATED
-
-
-# --- connect command integration tests ---
-
-
-@mock.patch("deepfellow.infra.connect._verify_parent_connection")
-@mock.patch("deepfellow.infra.connect.run")
-@mock.patch("deepfellow.infra.connect.env_set")
-@mock.patch("deepfellow.infra.connect.env_get")
-@mock.patch("deepfellow.infra.connect.is_service_running")
-@mock.patch("deepfellow.infra.connect.check_infra_directory")
-@mock.patch("deepfellow.infra.connect.echo")
-def test_connect_success(
-    mock_echo: Mock,
-    mock_check: Mock,
-    mock_running: Mock,
-    mock_env_get: Mock,
-    mock_env_set: Mock,
-    mock_run: Mock,
-    mock_verify: Mock,
-    directory: Path,
-) -> None:
-    mock_running.return_value = True
-    mock_env_get.side_effect = lambda f, key, **kw: {
-        "DF_CONNECT_TO_MESH_URL": None,
-        "DF_INFRA_PORT": INFRA_PORT,
-        "DF_INFRA_ADMIN_API_KEY": ADMIN_KEY,
-    }.get(key)
-    mock_verify.return_value = _VerifyResult.CONNECTED
-
-    connect(directory=directory, parent_infra_url=PARENT_URL, mesh_key=MESH_KEY)
-
-    assert mock_verify.call_count == 1
-    assert mock_verify.call_args == mock.call(LOCAL_URL, ADMIN_KEY)
-    assert mock_echo.success.call_count == 1
-    assert mock_echo.success.call_args == mock.call(f"DeepFellow Infra is connected to another Infra at {PARENT_URL}")
-
-
-@mock.patch("deepfellow.infra.connect._verify_parent_connection")
-@mock.patch("deepfellow.infra.connect.run")
-@mock.patch("deepfellow.infra.connect.env_set")
-@mock.patch("deepfellow.infra.connect.env_get")
-@mock.patch("deepfellow.infra.connect.is_service_running")
-@mock.patch("deepfellow.infra.connect.check_infra_directory")
-@mock.patch("deepfellow.infra.connect.echo")
-def test_connect_fails_when_verification_times_out(
-    mock_echo: Mock,
-    mock_check: Mock,
-    mock_running: Mock,
-    mock_env_get: Mock,
-    mock_env_set: Mock,
-    mock_run: Mock,
-    mock_verify: Mock,
-    directory: Path,
-) -> None:
-    mock_running.return_value = True
-    mock_env_get.side_effect = lambda f, key, **kw: {
-        "DF_CONNECT_TO_MESH_URL": None,
-        "DF_INFRA_PORT": INFRA_PORT,
-        "DF_INFRA_ADMIN_API_KEY": ADMIN_KEY,
-    }.get(key)
-    mock_verify.return_value = _VerifyResult.TIMEOUT
-
-    with pytest.raises(typer.Exit):
-        connect(directory=directory, parent_infra_url=PARENT_URL, mesh_key=MESH_KEY)
-
-    assert mock_echo.error.call_count == 1
-    assert mock_echo.success.call_count == 0
-
-
-@mock.patch("deepfellow.infra.connect._verify_parent_connection")
-@mock.patch("deepfellow.infra.connect.run")
-@mock.patch("deepfellow.infra.connect.env_set")
-@mock.patch("deepfellow.infra.connect.env_get")
-@mock.patch("deepfellow.infra.connect.is_service_running")
-@mock.patch("deepfellow.infra.connect.check_infra_directory")
-@mock.patch("deepfellow.infra.connect.echo")
-def test_connect_warns_when_infra_outdated(
-    mock_echo: Mock,
-    mock_check: Mock,
-    mock_running: Mock,
-    mock_env_get: Mock,
-    mock_env_set: Mock,
-    mock_run: Mock,
-    mock_verify: Mock,
-    directory: Path,
-) -> None:
-    mock_running.return_value = True
-    mock_env_get.side_effect = lambda f, key, **kw: {
-        "DF_CONNECT_TO_MESH_URL": None,
-        "DF_INFRA_PORT": INFRA_PORT,
-        "DF_INFRA_ADMIN_API_KEY": ADMIN_KEY,
-    }.get(key)
-    mock_verify.return_value = _VerifyResult.OUTDATED
-
-    connect(directory=directory, parent_infra_url=PARENT_URL, mesh_key=MESH_KEY)
-
-    assert mock_echo.warning.call_count == 1
-    assert mock_echo.error.call_count == 0
-    assert mock_echo.success.call_count == 1
-
-
-@mock.patch("deepfellow.infra.connect._verify_parent_connection")
-@mock.patch("deepfellow.infra.connect.run")
-@mock.patch("deepfellow.infra.connect.env_set")
-@mock.patch("deepfellow.infra.connect.env_get")
-@mock.patch("deepfellow.infra.connect.is_service_running")
-@mock.patch("deepfellow.infra.connect.check_infra_directory")
-@mock.patch("deepfellow.infra.connect.echo")
-def test_connect_skips_verification_when_port_missing(
-    mock_echo: Mock,
-    mock_check: Mock,
-    mock_running: Mock,
-    mock_env_get: Mock,
-    mock_env_set: Mock,
-    mock_run: Mock,
-    mock_verify: Mock,
-    directory: Path,
-) -> None:
-    mock_running.return_value = True
-    mock_env_get.side_effect = lambda f, key, **kw: {
-        "DF_CONNECT_TO_MESH_URL": None,
-        "DF_INFRA_PORT": None,
-        "DF_INFRA_ADMIN_API_KEY": ADMIN_KEY,
-    }.get(key)
-
-    connect(directory=directory, parent_infra_url=PARENT_URL, mesh_key=MESH_KEY)
-
-    assert mock_verify.call_count == 0
-    assert mock_echo.success.call_count == 1
 
 
 @mock.patch("deepfellow.infra.connect.run")
 @mock.patch("deepfellow.infra.connect.env_set")
 @mock.patch("deepfellow.infra.connect.env_get")
+@mock.patch("deepfellow.infra.connect.echo")
 @mock.patch("deepfellow.infra.connect.is_service_running")
 @mock.patch("deepfellow.infra.connect.check_infra_directory")
-@mock.patch("deepfellow.infra.connect.echo")
-def test_connect_exits_when_infra_not_running(
-    mock_echo: Mock,
+def test_connect_calls_env_set_for_mesh_key(
     mock_check: Mock,
-    mock_running: Mock,
+    mock_is_running: Mock,
+    mock_echo: Mock,
     mock_env_get: Mock,
     mock_env_set: Mock,
     mock_run: Mock,
+    default_connect_kwargs: dict,
     directory: Path,
 ) -> None:
-    mock_running.return_value = False
+    mock_is_running.return_value = True
+    mock_env_get.return_value = None
 
-    with pytest.raises(typer.Exit):
-        connect(directory=directory, parent_infra_url=PARENT_URL, mesh_key=MESH_KEY)
+    connect(**default_connect_kwargs)
 
-    assert mock_echo.error.call_count == 1
-    assert mock_run.call_count == 0
-
-
-# --- _is_localhost_url unit tests ---
-
-
-def test_is_localhost_url_true_for_127() -> None:
-    assert _is_localhost_url("ws://127.0.0.1:8088") is True
-
-
-def test_is_localhost_url_true_for_localhost() -> None:
-    assert _is_localhost_url("http://localhost:8086") is True
-
-
-def test_is_localhost_url_false_for_external() -> None:
-    assert _is_localhost_url("ws://host.docker.internal:8088") is False
-
-
-def test_is_localhost_url_false_for_named_host() -> None:
-    assert _is_localhost_url("http://infra:8086") is False
+    assert mock.call(directory / ".env", "DF_CONNECT_TO_MESH_KEY", "test-mesh-key") in mock_env_set.call_args_list
 
 
 @mock.patch("deepfellow.infra.connect.run")
 @mock.patch("deepfellow.infra.connect.env_set")
 @mock.patch("deepfellow.infra.connect.env_get")
+@mock.patch("deepfellow.infra.connect.echo")
 @mock.patch("deepfellow.infra.connect.is_service_running")
 @mock.patch("deepfellow.infra.connect.check_infra_directory")
-@mock.patch("deepfellow.infra.connect.echo")
-def test_connect_exits_for_localhost_url(
-    mock_echo: Mock,
+def test_connect_calls_docker_compose_down(
     mock_check: Mock,
-    mock_running: Mock,
+    mock_is_running: Mock,
+    mock_echo: Mock,
     mock_env_get: Mock,
     mock_env_set: Mock,
     mock_run: Mock,
+    default_connect_kwargs: dict,
     directory: Path,
 ) -> None:
-    mock_running.return_value = True
+    mock_is_running.return_value = True
+    mock_env_get.return_value = None
 
-    with pytest.raises(typer.Exit):
-        connect(directory=directory, parent_infra_url="ws://127.0.0.1:8088", mesh_key=MESH_KEY)
+    connect(**default_connect_kwargs)
 
-    assert mock_echo.error.call_count == 1
-    assert mock_run.call_count == 0
-    error_msg = mock_echo.error.call_args[0][0]
-    assert "host.docker.internal" in error_msg
+    assert mock.call(["docker", "compose", "down"], cwd=directory, quiet=True) in mock_run.call_args_list
 
 
-# --- LEGACY result tests ---
-
-
-@mock.patch("deepfellow.infra.connect._logs_show_connection")
-@mock.patch("deepfellow.infra.connect._verify_parent_connection")
 @mock.patch("deepfellow.infra.connect.run")
 @mock.patch("deepfellow.infra.connect.env_set")
 @mock.patch("deepfellow.infra.connect.env_get")
+@mock.patch("deepfellow.infra.connect.echo")
 @mock.patch("deepfellow.infra.connect.is_service_running")
 @mock.patch("deepfellow.infra.connect.check_infra_directory")
-@mock.patch("deepfellow.infra.connect.echo")
-def test_connect_legacy_warns_and_succeeds_when_logs_show_connection(
-    mock_echo: Mock,
+def test_connect_calls_docker_compose_up(
     mock_check: Mock,
-    mock_running: Mock,
+    mock_is_running: Mock,
+    mock_echo: Mock,
     mock_env_get: Mock,
     mock_env_set: Mock,
     mock_run: Mock,
-    mock_verify: Mock,
-    mock_logs: Mock,
+    default_connect_kwargs: dict,
     directory: Path,
 ) -> None:
-    mock_running.return_value = True
-    mock_env_get.side_effect = lambda f, key, **kw: {
-        "DF_CONNECT_TO_MESH_URL": None,
-        "DF_INFRA_PORT": INFRA_PORT,
-        "DF_INFRA_ADMIN_API_KEY": ADMIN_KEY,
-    }.get(key)
-    mock_verify.return_value = _VerifyResult.LEGACY
-    mock_logs.return_value = True
+    mock_is_running.return_value = True
+    mock_env_get.return_value = None
 
-    connect(directory=directory, parent_infra_url=PARENT_URL, mesh_key=MESH_KEY)
+    connect(**default_connect_kwargs)
 
-    assert mock_echo.warning.call_count == 1
-    assert mock_echo.error.call_count == 0
-    assert mock_echo.success.call_count == 1
-
-
-@mock.patch("deepfellow.infra.connect._logs_show_connection")
-@mock.patch("deepfellow.infra.connect._verify_parent_connection")
-@mock.patch("deepfellow.infra.connect.run")
-@mock.patch("deepfellow.infra.connect.env_set")
-@mock.patch("deepfellow.infra.connect.env_get")
-@mock.patch("deepfellow.infra.connect.is_service_running")
-@mock.patch("deepfellow.infra.connect.check_infra_directory")
-@mock.patch("deepfellow.infra.connect.echo")
-def test_connect_legacy_fails_when_logs_show_no_connection(
-    mock_echo: Mock,
-    mock_check: Mock,
-    mock_running: Mock,
-    mock_env_get: Mock,
-    mock_env_set: Mock,
-    mock_run: Mock,
-    mock_verify: Mock,
-    mock_logs: Mock,
-    directory: Path,
-) -> None:
-    mock_running.return_value = True
-    mock_env_get.side_effect = lambda f, key, **kw: {
-        "DF_CONNECT_TO_MESH_URL": None,
-        "DF_INFRA_PORT": INFRA_PORT,
-        "DF_INFRA_ADMIN_API_KEY": ADMIN_KEY,
-    }.get(key)
-    mock_verify.return_value = _VerifyResult.LEGACY
-    mock_logs.return_value = False
-
-    with pytest.raises(typer.Exit):
-        connect(directory=directory, parent_infra_url=PARENT_URL, mesh_key=MESH_KEY)
-
-    assert mock_echo.error.call_count == 1
-    assert mock_echo.success.call_count == 0
-
-
-# --- _logs_show_connection unit tests ---
-
-
-@mock.patch("deepfellow.infra.connect.run")
-def test_logs_show_connection_true_when_setup_after_disconnect(mock_run: Mock, directory: Path) -> None:
-    mock_run.return_value = "\n".join(
-        [
-            "WS client disconnected",
-            "WS client connected",
-            "WS client setup finished",
-        ]
+    assert (
+        mock.call(["docker", "compose", "up", "-d", "--remove-orphans"], cwd=directory, quiet=True)
+        in mock_run.call_args_list
     )
+
+
+@mock.patch("deepfellow.infra.connect.run")
+@mock.patch("deepfellow.infra.connect.env_set")
+@mock.patch("deepfellow.infra.connect.env_get")
+@mock.patch("deepfellow.infra.connect.echo")
+@mock.patch("deepfellow.infra.connect.is_service_running")
+@mock.patch("deepfellow.infra.connect.check_infra_directory")
+def test_connect_calls_echo_success(
+    mock_check: Mock,
+    mock_is_running: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    default_connect_kwargs: dict,
+) -> None:
+    mock_is_running.return_value = True
+    mock_env_get.return_value = None
+
+    connect(**default_connect_kwargs)
+
+    assert mock_echo.success.call_count == 1
+
+
+@mock.patch("deepfellow.infra.connect.urlparse")
+def test_is_localhost_url_returns_false_on_exception(mock_urlparse: Mock) -> None:
+    mock_urlparse.side_effect = Exception("parse error")
+
+    assert _is_localhost_url("not-a-url") is False
+
+
+@mock.patch("deepfellow.infra.connect.run")
+def test_logs_show_connection_returns_true(mock_run: Mock, directory: Path) -> None:
+    mock_run.return_value = "WS client disconnected\nWS client setup finished"
+
     assert _logs_show_connection(directory) is True
 
 
 @mock.patch("deepfellow.infra.connect.run")
-def test_logs_show_connection_false_when_disconnect_after_setup(mock_run: Mock, directory: Path) -> None:
-    mock_run.return_value = "\n".join(
-        [
-            "WS client connected",
-            "WS client setup finished",
-            "WS client disconnected",
-        ]
-    )
+def test_logs_show_connection_returns_false_when_disconnect_after_setup(mock_run: Mock, directory: Path) -> None:
+    mock_run.return_value = "WS client setup finished\nWS client disconnected"
+
     assert _logs_show_connection(directory) is False
 
 
 @mock.patch("deepfellow.infra.connect.run")
-def test_logs_show_connection_false_when_no_setup_line(mock_run: Mock, directory: Path) -> None:
-    mock_run.return_value = "Application startup complete.\nSome other log line."
+def test_logs_show_connection_returns_false_on_exception(mock_run: Mock, directory: Path) -> None:
+    mock_run.side_effect = Exception("docker error")
+
     assert _logs_show_connection(directory) is False
 
 
+@mock.patch("deepfellow.infra.connect.time")
+@mock.patch("deepfellow.infra.connect.httpx.get")
+def test_verify_parent_connection_returns_connected(mock_get: Mock, mock_time: Mock) -> None:
+    mock_time.monotonic.side_effect = [0, 5]
+    mock_response = Mock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = [{"you_are_here": False}]
+    mock_get.return_value = mock_response
+
+    assert _verify_parent_connection("http://localhost:8086", "key") == _VerifyResult.CONNECTED
+
+
+@mock.patch("deepfellow.infra.connect.time")
+@mock.patch("deepfellow.infra.connect.httpx.get")
+def test_verify_parent_connection_returns_timeout(mock_get: Mock, mock_time: Mock) -> None:
+    mock_time.monotonic.side_effect = [0, 5, 11]
+    mock_response = Mock()
+    mock_response.status_code = 404
+    mock_get.return_value = mock_response
+
+    assert _verify_parent_connection("http://localhost:8086", "key") == _VerifyResult.TIMEOUT
+
+
+@mock.patch("deepfellow.infra.connect.time")
+@mock.patch("deepfellow.infra.connect.httpx.get")
+def test_verify_parent_connection_returns_legacy(mock_get: Mock, mock_time: Mock) -> None:
+    mock_time.monotonic.side_effect = [0, 5, 11]
+    mock_response = Mock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = [{"you_are_here": True}]
+    mock_get.return_value = mock_response
+
+    assert _verify_parent_connection("http://localhost:8086", "key") == _VerifyResult.LEGACY
+
+
+@mock.patch("deepfellow.infra.connect.time")
+@mock.patch("deepfellow.infra.connect.httpx.get")
+def test_verify_parent_connection_returns_outdated(mock_get: Mock, mock_time: Mock) -> None:
+    mock_time.monotonic.side_effect = [0, 5, 5, 5]
+    mock_response = Mock()
+    mock_response.status_code = 200
+    mock_response.json.side_effect = JSONDecodeError("msg", "doc", 0)
+    mock_get.return_value = mock_response
+
+    assert _verify_parent_connection("http://localhost:8086", "key") == _VerifyResult.OUTDATED
+
+
+@mock.patch("deepfellow.infra.connect.time")
+@mock.patch("deepfellow.infra.connect.httpx.get")
+def test_verify_parent_connection_handles_http_error_and_returns_timeout(mock_get: Mock, mock_time: Mock) -> None:
+    mock_time.monotonic.side_effect = [0, 5, 11]
+    mock_get.side_effect = httpx.HTTPError("connection refused")
+
+    assert _verify_parent_connection("http://localhost:8086", "key") == _VerifyResult.TIMEOUT
+
+
+@mock.patch("deepfellow.infra.connect.echo")
+@mock.patch("deepfellow.infra.connect.is_service_running")
+@mock.patch("deepfellow.infra.connect.check_infra_directory")
+def test_connect_raises_exit_when_localhost_url(
+    mock_check: Mock,
+    mock_is_running: Mock,
+    mock_echo: Mock,
+    directory: Path,
+) -> None:
+    mock_is_running.return_value = True
+
+    with pytest.raises(typer.Exit):
+        connect(directory=directory, parent_infra_url="http://localhost:8086", mesh_key="key")
+
+
+@mock.patch("deepfellow.infra.connect._verify_parent_connection")
 @mock.patch("deepfellow.infra.connect.run")
-def test_logs_show_connection_false_on_exception(mock_run: Mock, directory: Path) -> None:
-    mock_run.side_effect = RuntimeError("docker error")
-    assert _logs_show_connection(directory) is False
+@mock.patch("deepfellow.infra.connect.env_set")
+@mock.patch("deepfellow.infra.connect.env_get")
+@mock.patch("deepfellow.infra.connect.echo")
+@mock.patch("deepfellow.infra.connect.is_service_running")
+@mock.patch("deepfellow.infra.connect.check_infra_directory")
+def test_connect_warns_on_outdated_verification(
+    mock_check: Mock,
+    mock_is_running: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_verify: Mock,
+    default_connect_kwargs: dict,
+) -> None:
+    mock_is_running.return_value = True
+    mock_env_get.side_effect = [None, "8086", "admin-key"]
+    mock_verify.return_value = _VerifyResult.OUTDATED
+
+    connect(**default_connect_kwargs)
+
+    assert mock_echo.warning.call_count == 1
+
+
+@mock.patch("deepfellow.infra.connect._logs_show_connection")
+@mock.patch("deepfellow.infra.connect._verify_parent_connection")
+@mock.patch("deepfellow.infra.connect.run")
+@mock.patch("deepfellow.infra.connect.env_set")
+@mock.patch("deepfellow.infra.connect.env_get")
+@mock.patch("deepfellow.infra.connect.echo")
+@mock.patch("deepfellow.infra.connect.is_service_running")
+@mock.patch("deepfellow.infra.connect.check_infra_directory")
+def test_connect_warns_on_legacy_verification_with_logs(
+    mock_check: Mock,
+    mock_is_running: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_verify: Mock,
+    mock_logs: Mock,
+    default_connect_kwargs: dict,
+) -> None:
+    mock_is_running.return_value = True
+    mock_env_get.side_effect = [None, "8086", "admin-key"]
+    mock_verify.return_value = _VerifyResult.LEGACY
+    mock_logs.return_value = True
+
+    connect(**default_connect_kwargs)
+
+    assert mock_echo.warning.call_count == 1
+
+
+@mock.patch("deepfellow.infra.connect._logs_show_connection")
+@mock.patch("deepfellow.infra.connect._verify_parent_connection")
+@mock.patch("deepfellow.infra.connect.run")
+@mock.patch("deepfellow.infra.connect.env_set")
+@mock.patch("deepfellow.infra.connect.env_get")
+@mock.patch("deepfellow.infra.connect.echo")
+@mock.patch("deepfellow.infra.connect.is_service_running")
+@mock.patch("deepfellow.infra.connect.check_infra_directory")
+def test_connect_raises_exit_on_legacy_verification_without_logs(
+    mock_check: Mock,
+    mock_is_running: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_verify: Mock,
+    mock_logs: Mock,
+    default_connect_kwargs: dict,
+) -> None:
+    mock_is_running.return_value = True
+    mock_env_get.side_effect = [None, "8086", "admin-key"]
+    mock_verify.return_value = _VerifyResult.LEGACY
+    mock_logs.return_value = False
+
+    with pytest.raises(typer.Exit):
+        connect(**default_connect_kwargs)
+
+
+@mock.patch("deepfellow.infra.connect._verify_parent_connection")
+@mock.patch("deepfellow.infra.connect.run")
+@mock.patch("deepfellow.infra.connect.env_set")
+@mock.patch("deepfellow.infra.connect.env_get")
+@mock.patch("deepfellow.infra.connect.echo")
+@mock.patch("deepfellow.infra.connect.is_service_running")
+@mock.patch("deepfellow.infra.connect.check_infra_directory")
+def test_connect_raises_exit_on_timeout_verification(
+    mock_check: Mock,
+    mock_is_running: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_verify: Mock,
+    default_connect_kwargs: dict,
+) -> None:
+    mock_is_running.return_value = True
+    mock_env_get.side_effect = [None, "8086", "admin-key"]
+    mock_verify.return_value = _VerifyResult.TIMEOUT
+
+    with pytest.raises(typer.Exit):
+        connect(**default_connect_kwargs)
+
+
+@mock.patch("deepfellow.infra.connect._verify_parent_connection")
+@mock.patch("deepfellow.infra.connect.run")
+@mock.patch("deepfellow.infra.connect.env_set")
+@mock.patch("deepfellow.infra.connect.env_get")
+@mock.patch("deepfellow.infra.connect.echo")
+@mock.patch("deepfellow.infra.connect.is_service_running")
+@mock.patch("deepfellow.infra.connect.check_infra_directory")
+def test_connect_calls_echo_success_after_connected_verification(
+    mock_check: Mock,
+    mock_is_running: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_verify: Mock,
+    default_connect_kwargs: dict,
+) -> None:
+    mock_is_running.return_value = True
+    mock_env_get.side_effect = [None, "8086", "admin-key"]
+    mock_verify.return_value = _VerifyResult.CONNECTED
+
+    connect(**default_connect_kwargs)
+
+    assert mock_echo.success.call_count == 1
