@@ -14,10 +14,6 @@ import typer
 from deepfellow.common.state import state
 
 
-class ConfigValidationError(Exception):
-    """Raised when config validation is failing."""
-
-
 class DockerSocketNotFoundError(Exception):
     """Raised if docker.sock file not found."""
 

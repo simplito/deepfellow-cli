@@ -260,12 +260,6 @@ def configure_infra(infra_api_key: str, infra_url: str, original_env: dict[str, 
     return infra
 
 
-@dataclass
-class Infras:
-    envs: dict[str, str]
-    names: list[str]
-
-
 def configure_mongo(
     directory: Path,
     custom: bool,
