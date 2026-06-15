@@ -25,6 +25,7 @@ from deepfellow.common.defaults import (
     DF_MONGO_DB,
     DF_MONGO_URL,
     DF_SERVER_IMAGE,
+    DF_SERVER_IMAGE_HUB,
     DF_SERVER_PORT,
     DF_SERVER_STORAGE_DIRECTORY,
     DOCKER_COMPOSE_CONFIG_FILENAME,
@@ -45,6 +46,7 @@ from deepfellow.common.docker import (
 from deepfellow.common.echo import echo
 from deepfellow.common.generate import generate_password
 from deepfellow.common.install import assert_docker, ensure_directory
+from deepfellow.common.registry import get_newest_image_tag
 from deepfellow.common.system import run
 from deepfellow.common.validation import validate_url
 from deepfellow.server.utils.configure import configure_infra, configure_mongo, configure_otel, configure_vector_db
@@ -135,6 +137,9 @@ def install(  # noqa: C901
 
     echo.info("Installing DeepFellow Server.")
     assert_docker()
+
+    if not local_image and image == DF_SERVER_IMAGE:
+        image = get_newest_image_tag(DF_SERVER_IMAGE_HUB)
 
     ensure_directory(
         directory, error_message="Unable to create DeepFellow Server directory.", force_install=force_install

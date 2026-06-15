@@ -20,10 +20,10 @@ from deepfellow.common.defaults import DF_INFRA_IMAGE, DF_INFRA_IMAGE_HUB, DOCKE
 from deepfellow.common.docker import load_compose_file, save_compose_file
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
+from deepfellow.common.registry import get_newest_image_tag
 from deepfellow.common.system import run
 from deepfellow.infra.utils.docker import start_infra, stop_infra
 from deepfellow.infra.utils.options import directory_option
-from deepfellow.infra.utils.registry import get_newest_image_tag
 from deepfellow.infra.utils.validation import check_infra_directory
 
 app = typer.Typer()
@@ -34,7 +34,7 @@ def _resolve_image(image: str, tag: str | None) -> str:
     if tag:
         return f"{DF_INFRA_IMAGE_HUB}:{tag}"
     if image == DF_INFRA_IMAGE:
-        newest = get_newest_image_tag()
+        newest = get_newest_image_tag(DF_INFRA_IMAGE_HUB)
         if newest != image:
             echo.info(f"Newest image: {newest}")
         return newest
