@@ -19,6 +19,7 @@ import typer
 
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
+from deepfellow.common.state import state
 
 
 def run(
@@ -105,6 +106,29 @@ def run(
         return process.stdout
 
     return None
+
+
+def rmtree(path: Path) -> None:
+    """Remove a directory tree, falling back to ``sudo rm -rf`` on PermissionError.
+
+    Docker containers create root-owned files the CLI user cannot remove.
+    On failure, prompts the user to retry with sudo (auto-confirmed with --yes).
+    """
+    try:
+        shutil.rmtree(path)
+    except PermissionError:
+        pass
+    else:
+        return
+
+    echo.warning(f"Cannot remove {path.as_posix()}: permission denied (Docker-owned files).")
+    if state.yes or echo.confirm("Retry with sudo?", default=True):
+        if run(["sudo", "-n", "rm", "-rf", path.as_posix()]) is None:
+            echo.error(f"sudo rm -rf failed. Remove manually: sudo rm -rf {path.as_posix()}")
+            raise typer.Exit(1)
+    else:
+        echo.error(f"Remove manually: sudo rm -rf {path.as_posix()}")
+        raise typer.Exit(1)
 
 
 def is_command_available(command: str) -> bool:

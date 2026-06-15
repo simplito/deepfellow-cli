@@ -9,14 +9,13 @@
 
 """Prune server command."""
 
-import shutil
 from pathlib import Path
 
 import typer
 
 from deepfellow.common.echo import echo
 from deepfellow.common.install import assert_docker
-from deepfellow.common.system import run
+from deepfellow.common.system import rmtree, run
 from deepfellow.server.utils.options import directory_option, get_default_server_directory, set_default_server_directory
 from deepfellow.server.utils.validation import check_server_directory
 
@@ -36,7 +35,7 @@ def prune(
     run(["docker", "compose", "down", "-v"], directory, quiet=True)
 
     echo.info("Removing DeepFellow Server files.")
-    shutil.rmtree(directory)
+    rmtree(directory)
 
     old_default_server_dir = get_default_server_directory()
 

@@ -9,14 +9,13 @@
 
 """Uninstall infra typer command."""
 
-import shutil
 from pathlib import Path
 
 import typer
 
 from deepfellow.common.echo import echo
 from deepfellow.common.install import assert_docker
-from deepfellow.common.system import run
+from deepfellow.common.system import rmtree, run
 from deepfellow.infra.utils.options import directory_option
 from deepfellow.infra.utils.validation import check_infra_directory
 
@@ -36,6 +35,6 @@ def uninstall(
     run(["docker", "compose", "rm", "-s", "-f"], directory, quiet=True)
 
     echo.info("Removing DeepFellow Infra files.")
-    shutil.rmtree(directory)
+    rmtree(directory)
 
     echo.success("DeepFellow Infra uninstalled.")
