@@ -25,6 +25,7 @@ from deepfellow.common.config import (
 from deepfellow.common.defaults import (
     DF_INFRA_DOCKER_NETWORK,
     DF_INFRA_IMAGE,
+    DF_INFRA_IMAGE_HUB,
     DF_INFRA_NAME,
     DF_INFRA_PORT,
     DF_INFRA_STORAGE_DIR,
@@ -42,11 +43,11 @@ from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
 from deepfellow.common.generate import generate_password
 from deepfellow.common.install import assert_docker, ensure_directory
+from deepfellow.common.registry import get_newest_image_tag
 from deepfellow.common.state import state
 from deepfellow.common.system import run
 from deepfellow.common.validation import validate_df_name, validate_url
 from deepfellow.infra.utils.options import directory_option
-from deepfellow.infra.utils.registry import get_newest_image_tag
 
 app = typer.Typer()
 
@@ -85,7 +86,7 @@ def install(  # noqa: C901
     secrets_file = state.cli_secrets_file
 
     if not local_image and image == DF_INFRA_IMAGE:
-        image = get_newest_image_tag()
+        image = get_newest_image_tag(DF_INFRA_IMAGE_HUB)
 
     # Check if overriding existing installation
     ensure_directory(

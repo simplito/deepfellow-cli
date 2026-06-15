@@ -7,13 +7,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Infra image registry utilities."""
+"""Shared Docker image registry utilities."""
 
 import re
 
 import httpx
 
-from deepfellow.common.defaults import DF_INFRA_IMAGE_HUB
+from deepfellow.common.echo import echo
 
 
 def _parse_tag(tag: str) -> tuple[int, ...] | None:
@@ -31,6 +31,7 @@ def _get_registry_token(registry: str, image_path: str) -> str | None:
         realm_match = re.search(r'realm="([^"]+)"', www_auth)
         service_match = re.search(r'service="([^"]+)"', www_auth)
         if not realm_match:
+            echo.debug(f"registry auth: no WWW-Authenticate realm from {registry}")
             return None
         realm = realm_match.group(1)
         service = service_match.group(1) if service_match else ""
@@ -41,16 +42,19 @@ def _get_registry_token(registry: str, image_path: str) -> str | None:
         token_resp.raise_for_status()
         data = token_resp.json()
         return data.get("token") or data.get("access_token")
-    except Exception:
+    except Exception as exc:
+        echo.debug(f"registry auth failed for {registry}: {exc}")
         return None
 
 
-def get_newest_image_tag() -> str:
+def get_newest_image_tag(hub: str) -> str:
     """Return the full image reference with the newest semver tag from the registry.
 
-    Falls back to :latest if the registry is unreachable.
+    Args:
+        hub: Image hub without tag, e.g. ``registry.example.com/org/image``.
+
+    Falls back to :latest if the registry is unreachable or has no semver tags.
     """
-    hub = DF_INFRA_IMAGE_HUB
     registry, image_path = hub.split("/", 1)
 
     token = _get_registry_token(registry, image_path)

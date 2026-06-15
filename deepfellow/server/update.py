@@ -18,6 +18,7 @@ from deepfellow.common.defaults import DF_SERVER_IMAGE, DF_SERVER_IMAGE_HUB, DOC
 from deepfellow.common.docker import load_compose_file, save_compose_file
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
+from deepfellow.common.registry import get_newest_image_tag
 from deepfellow.common.system import run
 from deepfellow.server.utils.docker import start_server, stop_server
 from deepfellow.server.utils.options import directory_option
@@ -26,10 +27,22 @@ from deepfellow.server.utils.validation import check_server_directory
 app = typer.Typer()
 
 
+def _resolve_image(image: str, tag: str | None) -> str:
+    """Return the final image reference to use for update."""
+    if tag:
+        return f"{DF_SERVER_IMAGE_HUB}:{tag}"
+    if image == DF_SERVER_IMAGE:
+        newest = get_newest_image_tag(DF_SERVER_IMAGE_HUB)
+        if newest != image:
+            echo.info(f"Newest image: {newest}")
+        return newest
+    return image
+
+
 @app.command()
 def update(
     directory: Path = directory_option(exists=True),
-    image: str = typer.Option(DF_SERVER_IMAGE, envvar="DF_INFRA_IMAGE", help="DeepFellow Server docker image."),
+    image: str = typer.Option(DF_SERVER_IMAGE, envvar="DF_SERVER_IMAGE", help="DeepFellow Server docker image."),
     local_image: bool = typer.Option(False, help="Use locally build DeepFellow Server docker image."),
     tag: str | None = typer.Option(None, help="Deepfellow Server docker image tag (e.g. 0.15.0)"),
 ) -> None:
@@ -64,8 +77,7 @@ def update(
             directory / DOCKER_COMPOSE_CONFIG_FILENAME,
         )
 
-    if tag:
-        image = f"{DF_SERVER_IMAGE_HUB}:{tag}"
+    image = _resolve_image(image, tag)
 
     if values["df_server_image"] != image:
         env_set(env_file, "SERVER_IMAGE", image, quiet=False, docker_note=False)
