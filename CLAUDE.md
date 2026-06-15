@@ -14,6 +14,7 @@ All commands use `just` (task runner):
 - `just ruff-format` — format
 - `just mypy` — type check
 - `just license-check` — verify license headers
+- `just df <args>` — run the CLI locally (e.g. `just df infra --help`)
 
 ## Code Style
 
@@ -92,6 +93,57 @@ rest.make_request(method, url, token, data={...})
 ```
 
 Server commands get a valid bearer token via `get_token(state.cli_secrets_file, server)` from `deepfellow/server/utils/login.py` — handles access token validation and refresh automatically.
+
+### Shell commands (`deepfellow/common/system.py`)
+
+Use `run()` for all subprocess calls — it strips `VIRTUAL_ENV`, handles debug reraise, and returns stdout or `None` on failure:
+
+```python
+from deepfellow.common.system import run
+
+result = run(["docker", "ps"], capture_output=True)        # returns stdout or None
+run(["docker", "compose", "up", "-d"], cwd=directory)     # raises on failure in debug mode
+run(["cmd"], raises=MyError)                               # raises MyError on failure
+```
+
+### Docker Compose helpers (`deepfellow/common/docker.py`)
+
+Infra and server commands build Docker Compose configs programmatically then persist them:
+
+```python
+from deepfellow.common.docker import load_compose_file, merge_services, save_compose_file
+
+compose = load_compose_file(directory / "compose.yaml")           # dict or {"services": {}}
+merged = merge_services(DOCKER_COMPOSE_SERVER, DOCKER_COMPOSE_QDRANT)  # combine service dicts
+save_compose_file(merged, directory / "compose.yaml")             # writes YAML
+```
+
+All default Docker Compose service templates and constants (ports, images, env vars) live in `deepfellow/common/defaults.py`.
+
+### Env subcommand helpers (`deepfellow/common/env.py`)
+
+The `infra env` and `server env` command groups use shared utilities:
+
+```python
+from deepfellow.common.env import env_get, env_set, print_env_info, EnvMetadata
+
+env_set(env_file, "DF_SOME_KEY", value)            # writes to .env file; adds DF_ prefix if missing
+value = env_get(env_file, "DF_SOME_KEY")           # reads from .env file
+```
+
+`print_env_info(header, env_metadata, env_values)` renders a formatted info/doc view. `EnvMetadata(description, sensitive)` marks fields for display — sensitive values show as `*****` unless `show_secret=True`.
+
+### Infra directory option (`deepfellow/infra/utils/options.py`)
+
+All infra commands that operate on a local install share a standard `--directory` option:
+
+```python
+from deepfellow.infra.utils.options import directory_option
+
+def my_command(directory: Path = directory_option(exists=True)) -> None: ...
+```
+
+`exists=True` enables Typer path validation (readable, writable, must exist). Default is `~/.deepfellow/infra`.
 
 ### Error handling pattern
 
