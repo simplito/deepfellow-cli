@@ -16,7 +16,7 @@ import typer
 
 from deepfellow.common.echo import echo
 from deepfellow.common.system import run
-from deepfellow.common.validation import validate_email, validate_password, validate_truthy
+from deepfellow.common.validation import PASSWORD_REQUIREMENTS, validate_email, validate_password, validate_truthy
 
 
 class UserActionError(Exception):
@@ -27,7 +27,9 @@ def create_admin(directory: Path, name: str | None, email: str | None, password:
     """Create admin."""
     name = name or echo.prompt_until_valid("Provide admin name", validate_truthy)
     email = email or echo.prompt_until_valid("Provide admin email", validate_email)
-    password = password or echo.prompt("Provide admin password", validate_password, password=True)
+    if not password:
+        echo.info(PASSWORD_REQUIREMENTS)
+    password = password or echo.prompt_until_valid("Provide admin password", validate_password, password=True)
 
     response: str | None = None
     try:
