@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- `deepfellow otel logs` command — tails the local OpenTelemetry collector (installed via `server install --otel-local`) with `-f`/`--follow` and `-n`/`--tail`, consistent with `server logs`; reports clear errors when the collector is not installed or not running
 - `infra env set` and `server env set` now prompt to restart the stack after updating the `.env` file, so the new value takes effect immediately without a manual restart
 - `server install` and `server update` now automatically select the newest semver-tagged image from the registry (e.g. `v1.2.3`) instead of `:latest`, matching the existing behaviour of `infra install` and `infra update`; falls back to `:latest` if the registry is unreachable
 - Unit tests for `infra disconnect` covering directory checks, service-running guard, confirmation flow, env variable handling, and disconnect execution paths
