@@ -13,7 +13,9 @@ from pathlib import Path
 
 import typer
 
+from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
+from deepfellow.infra.utils.docker import start_infra, stop_infra
 from deepfellow.infra.utils.options import directory_option
 from deepfellow.infra.utils.validation import check_infra_directory
 
@@ -30,3 +32,6 @@ def set(
     """Set environment configuration."""
     check_infra_directory(directory)
     env_set(directory / ".env", env_name, env_value, df_prefix)
+    if echo.confirm("Restart the infra now to apply the change?", default=True):
+        stop_infra(directory)
+        start_infra(directory)

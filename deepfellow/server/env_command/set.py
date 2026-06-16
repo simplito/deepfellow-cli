@@ -13,7 +13,9 @@ from pathlib import Path
 
 import typer
 
+from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
+from deepfellow.server.utils.docker import start_server, stop_server
 from deepfellow.server.utils.options import directory_option
 from deepfellow.server.utils.validation import check_server_directory
 
@@ -30,3 +32,6 @@ def set(
     """Set environment configuration."""
     check_server_directory(directory)
     env_set(directory / ".env", env_name, env_value, df_prefix)
+    if echo.confirm("Restart the server now to apply the change?", default=True):
+        stop_server(directory)
+        start_server(directory)
