@@ -193,3 +193,4 @@ openspec/changes
 .claude/skills/fill-mr
 .claude/skills/review-and-fix
 .claude/skills/write-docs
+.claude/skills/write-python-tests
