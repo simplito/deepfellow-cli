@@ -7,19 +7,118 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for configure_otel."""
+"""Tests for configure_otel and configure_embedding."""
 
 from unittest import mock
 
 import pytest
 
-from deepfellow.common.defaults import DEFAULT_OTEL_URL, DOCKER_COMPOSE_OTEL_COLLECTOR
-from deepfellow.server.utils.configure import configure_otel
+from deepfellow.common.defaults import (
+    DEFAULT_OTEL_URL,
+    DEFAULT_VECTOR_DATABASE,
+    DOCKER_COMPOSE_OTEL_COLLECTOR,
+    SPARSE_EMBEDDING_MODEL,
+    SPARSE_EMBEDDING_SIZE,
+)
+from deepfellow.server.utils.configure import configure_embedding, configure_otel
 
 
 @pytest.fixture
 def tmp_directory(tmp_path):
     return tmp_path
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_embedding_sparse_flag_skips_choice_and_prompts(mock_echo):
+    result = configure_embedding("http://infra:8086", {}, "", "", embedding_sparse=True)
+
+    assert result["model"] == SPARSE_EMBEDDING_MODEL
+    assert result["size"] == SPARSE_EMBEDDING_SIZE
+    assert result["active"] == 1
+    assert result["endpoint"] == "http://infra:8086"
+    assert mock_echo.choice.call_count == 0
+    assert mock_echo.prompt.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_embedding_sparse_returns_fixed_model_and_size(mock_echo):
+    mock_echo.choice.return_value = "sparse"
+
+    result = configure_embedding("http://infra:8086", {}, "", "")
+
+    assert result["model"] == SPARSE_EMBEDDING_MODEL
+    assert result["size"] == SPARSE_EMBEDDING_SIZE
+    assert result["active"] == 1
+    assert result["endpoint"] == "http://infra:8086"
+    assert mock_echo.prompt.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_embedding_dense_prompts_for_model_and_size(mock_echo):
+    mock_echo.choice.return_value = "dense"
+    mock_echo.prompt.side_effect = ["my-model", "512"]
+
+    result = configure_embedding("http://infra:8086", {}, "", "")
+
+    assert result["model"] == "my-model"
+    assert result["size"] == "512"
+    assert result["active"] == 1
+    assert result["endpoint"] == "http://infra:8086"
+    assert mock_echo.prompt.call_count == 2
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_embedding_reconfigure_sparse_defaults_to_sparse_type(mock_echo):
+    mock_echo.choice.return_value = "sparse"
+    original_env = {"df_vector_database": {"embedding": {"model": SPARSE_EMBEDDING_MODEL}}}
+
+    configure_embedding("http://infra:8086", original_env, "", "")
+
+    assert mock_echo.choice.call_count == 1
+    assert mock_echo.choice.call_args == mock.call(
+        "Choose embedding type",
+        choices=["dense", "sparse"],
+        default="sparse",
+    )
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_embedding_reconfigure_dense_defaults_to_dense_type(mock_echo):
+    mock_echo.choice.return_value = "dense"
+    mock_echo.prompt.side_effect = ["mxbai-embed-large", "1024"]
+    original_env = {"df_vector_database": {"embedding": {"model": "mxbai-embed-large"}}}
+
+    configure_embedding("http://infra:8086", original_env, "", "")
+
+    assert mock_echo.choice.call_count == 1
+    assert mock_echo.choice.call_args == mock.call(
+        "Choose embedding type",
+        choices=["dense", "sparse"],
+        default="dense",
+    )
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_embedding_reconfigure_dense_prompts_default_from_existing_env(mock_echo):
+    mock_echo.choice.return_value = "dense"
+    mock_echo.prompt.side_effect = ["custom-model", "768"]
+    original_env = {"df_vector_database": {"embedding": {"model": "custom-model", "size": "768"}}}
+
+    configure_embedding("http://infra:8086", original_env, "", "")
+
+    model_call, size_call = mock_echo.prompt.call_args_list
+    assert model_call == mock.call(
+        "Provide the model for embedding",
+        from_args="",
+        original_default=DEFAULT_VECTOR_DATABASE["embedding"]["model"],
+        default="custom-model",
+    )
+    assert size_call == mock.call(
+        "Provide the embedding size",
+        from_args="",
+        original_default=DEFAULT_VECTOR_DATABASE["embedding"]["size"],
+        default="768",
+    )
 
 
 @mock.patch("deepfellow.server.utils.configure.save_compose_file")

@@ -31,6 +31,8 @@ from deepfellow.common.defaults import (
     OTEL_COLLECTOR_CONFIG,
     OTEL_COLLECTOR_CONFIG_DEBUG_ONLY,
     QDRANT_DATABASE,
+    SPARSE_EMBEDDING_MODEL,
+    SPARSE_EMBEDDING_SIZE,
     VECTOR_DATABASES,
 )
 from deepfellow.common.docker import load_compose_file, save_compose_file
@@ -111,24 +113,46 @@ def configure_milvus_specific_fields(
     }
 
 
-def configure_embedding(
+def _choose_embedding_type(
+    original_env: dict[str, Any],
+    embedding_model: str,
+    embedding_sparse: bool,
+) -> str:
+    """Ask user to choose embedding type, or return 'sparse' when flag is set."""
+    if embedding_sparse:
+        return "sparse"
+    original_embedding = original_env.get("df_vector_database", {}).get("embedding", {})
+    existing_model = original_embedding.get("model", embedding_model)
+    default_type = "sparse" if existing_model == SPARSE_EMBEDDING_MODEL else "dense"
+    return echo.choice("Choose embedding type", choices=["dense", "sparse"], default=default_type)
+
+
+def _build_embedding_config(
+    embedding_type: str,
     infra_url: str,
     original_env: dict[str, Any],
     embedding_model: str,
     embedding_size: str,
 ) -> dict[str, str | int]:
-    """Configure embedding fields."""
+    """Build embedding config dict, prompting for model/size when dense."""
+    if embedding_type == "sparse":
+        echo.info(f"Using {SPARSE_EMBEDDING_MODEL} for sparse embeddings")
+        return {
+            "active": 1,
+            "endpoint": infra_url,
+            "model": SPARSE_EMBEDDING_MODEL,
+            "size": SPARSE_EMBEDDING_SIZE,
+        }
     original_embedding = original_env.get("df_vector_database", {}).get("embedding", {})
-
+    existing_model = original_embedding.get("model", embedding_model)
     return {
-        # Embedding is always active if vector db is active
         "active": 1,
         "endpoint": infra_url,
         "model": echo.prompt(
             "Provide the model for embedding",
             from_args=embedding_model,
             original_default=DEFAULT_VECTOR_DATABASE["embedding"]["model"],
-            default=original_embedding.get("model", embedding_model),
+            default=existing_model,
         ),
         "size": echo.prompt(
             "Provide the embedding size",
@@ -137,6 +161,18 @@ def configure_embedding(
             default=original_embedding.get("size", embedding_size),
         ),
     }
+
+
+def configure_embedding(
+    infra_url: str,
+    original_env: dict[str, Any],
+    embedding_model: str,
+    embedding_size: str,
+    embedding_sparse: bool = False,
+) -> dict[str, str | int]:
+    """Configure embedding fields."""
+    embedding_type = _choose_embedding_type(original_env, embedding_model, embedding_sparse)
+    return _build_embedding_config(embedding_type, infra_url, original_env, embedding_model, embedding_size)
 
 
 def configure_vector_db(
@@ -150,6 +186,7 @@ def configure_vector_db(
     vectordb_password: str,
     embedding_model: str,
     embedding_size: str,
+    embedding_sparse: bool,
     default_vectordb_type: str,
 ) -> tuple[bool, dict[str, str]]:
     """Collect info about vector db."""
@@ -157,6 +194,11 @@ def configure_vector_db(
         return False, dict_to_env(
             {"provider": {"active": 0}, "embedding": {"active": 0}}, parent_key="DF_VECTOR_DATABASE"
         )
+
+    original_env = original_env_content or {}
+
+    # Ask embedding type before VDB type selection; model/size asked later (after VDB URL/credentials)
+    embedding_type = _choose_embedding_type(original_env, embedding_model, embedding_sparse)
 
     # vectordb_type might be provided by the user or be default (VECTOR_DATABASE["provider"]["type"])
     # Ask user to choose type only if default value is provided.
@@ -172,18 +214,17 @@ def configure_vector_db(
     if vectordb_type != DEFAULT_VECTOR_DATABASE_TYPE and vectordb_url == DEFAULT_VECTOR_DATABASE["provider"]["url"]:
         vectordb_url = VECTOR_DATABASES[vectordb_type]["provider"]["url"]
 
-    original_env = original_env_content or {}
-
     # We do not ask detailed questions if we need to serve our version of vector DB
     if not is_custom_vectordb(
         vectordb_type,
         vectordb_url,
         vectordb_database_name,
     ):
-        # update embedding fields
+        echo.info(f"DeepFellow will manage a {vectordb_type.capitalize()} instance.")
         vector_database = deepcopy(VECTOR_DATABASES[vectordb_type])
-        vector_database["embedding"]["model"] = embedding_model
-        vector_database["embedding"]["size"] = embedding_size
+        vector_database["embedding"] = _build_embedding_config(
+            embedding_type, infra_url, original_env, embedding_model, embedding_size
+        )
         # generate random login and password if not provided
         if not vectordb_username:
             vector_database["provider"]["user"] = vectordb_username = str(
@@ -219,12 +260,8 @@ def configure_vector_db(
             vectordb_password,
         )
 
-    embedding = configure_embedding(
-        infra_url,
-        original_env,
-        embedding_model,
-        embedding_size,
-    )
+    # Ask model/size after URL and credentials
+    embedding = _build_embedding_config(embedding_type, infra_url, original_env, embedding_model, embedding_size)
 
     return True, dict_to_env({"provider": provider, "embedding": embedding}, parent_key="DF_VECTOR_DATABASE")
 
