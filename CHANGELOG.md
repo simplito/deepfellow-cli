@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Unit tests for `infra disconnect` covering directory checks, service-running guard, confirmation flow, env variable handling, and disconnect execution paths
 - Unit test coverage for infra install raised to 100%
 - Unit test coverage for infra start raised to 100%
+- Added http(s) to ws(s) converter which allows connecting Infra even with http(s) URL provided.
 
 ### Changed
 - `server install` now frames the MongoDB and vector database prompts as a local install by default ("Install a local MongoDB for DeepFellow Server?" / "Install a local vector database for DeepFellow Server?", default Yes), so accepting the defaults produces a working local stack; connecting an existing/external instance now requires answering No and providing its connection details

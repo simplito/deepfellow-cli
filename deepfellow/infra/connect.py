@@ -12,7 +12,7 @@
 import time
 from json import JSONDecodeError
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 import typer
@@ -38,6 +38,15 @@ def _is_localhost_url(url: str) -> bool:
         return urlparse(url).hostname in _LOCALHOST_HOSTNAMES
     except Exception:
         return False
+
+
+def http_to_ws_converter(url: str) -> str:
+    """Return http -> ws and https -> wss conversion."""
+    parsed = urlparse(url)
+    if parsed.scheme in ("http", "https"):
+        scheme = "wss" if parsed.scheme == "https" else "ws"
+        url = urlunparse(parsed._replace(scheme=scheme))
+    return url
 
 
 class _VerifyResult:
@@ -113,6 +122,8 @@ def connect(
         echo.error("DeepFellow Infra is not running")
         echo.info("Call `deepfellow infra start`")
         raise typer.Exit(1)
+
+    parent_infra_url = http_to_ws_converter(parent_infra_url)
 
     if _is_localhost_url(parent_infra_url):
         suggested = parent_infra_url.replace("127.0.0.1", "host.docker.internal").replace(
