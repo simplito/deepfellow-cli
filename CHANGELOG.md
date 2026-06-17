@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Unit tests for `infra disconnect` covering directory checks, service-running guard, confirmation flow, env variable handling, and disconnect execution paths
 - Unit test coverage for infra install raised to 100%
 - Unit test coverage for infra start raised to 100%
+- Added http(s) to ws(s) converter which allows connecting Infra even with http(s) URL provided.
 
 ### Changed
 - `server create-admin` now prints the password requirements up front and re-prompts in a loop on an invalid password instead of exiting, matching the existing behaviour of the name and email prompts; `--non-interactive` still exits with code 1 on a missing or invalid password

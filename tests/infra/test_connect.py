@@ -174,8 +174,7 @@ def test_connect_calls_env_set_for_mesh_url(
     connect(**default_connect_kwargs)
 
     assert (
-        mock.call(directory / ".env", "DF_CONNECT_TO_MESH_URL", "http://parent-infra:8086")
-        in mock_env_set.call_args_list
+        mock.call(directory / ".env", "DF_CONNECT_TO_MESH_URL", "ws://parent-infra:8086") in mock_env_set.call_args_list
     )
 
 
