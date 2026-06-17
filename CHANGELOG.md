@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Unit test coverage for infra start raised to 100%
 
 ### Changed
+- `server install` now frames the MongoDB and vector database prompts as a local install by default ("Install a local MongoDB for DeepFellow Server?" / "Install a local vector database for DeepFellow Server?", default Yes), so accepting the defaults produces a working local stack; connecting an existing/external instance now requires answering No and providing its connection details
 - `server create-admin` now prints the password requirements up front and re-prompts in a loop on an invalid password instead of exiting, matching the existing behaviour of the name and email prompts; `--non-interactive` still exits with code 1 on a missing or invalid password
 
 ## [0.7.0] - 2026-06-11
