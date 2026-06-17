@@ -64,7 +64,11 @@ def is_custom_vectordb(
     vectordb_url: str,
     vectordb_database_name: str,
 ) -> bool:
-    """Check if user wants DeepFellow to create its own instance of vector database."""
+    """Check if user wants to connect an existing vector database instead of a local one.
+
+    By default DeepFellow installs a local vector database. The user has to explicitly
+    opt in to connecting an existing/external instance.
+    """
     any_milvus_arg_provided = (
         vectordb_url != MILVUS_DATABASE["provider"]["url"]
         or vectordb_database_name != MILVUS_DATABASE["provider"]["db"]
@@ -75,7 +79,7 @@ def is_custom_vectordb(
     ):
         return True
 
-    return echo.confirm("Do you have a vector DB ready?", default=False)
+    return not echo.confirm("Install a local vector database for DeepFellow Server?", default=True)
 
 
 def configure_milvus_specific_fields(

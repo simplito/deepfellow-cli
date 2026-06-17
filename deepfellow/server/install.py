@@ -163,7 +163,7 @@ def install(  # noqa: C901
     if mongodb_url != DF_MONGO_URL or mongodb_database_name != DF_MONGO_DB:
         custom_mongo_db_server = True
     else:
-        custom_mongo_db_server = echo.confirm("Do you have MongoDB installed for DeepFellow Server?", default=False)
+        custom_mongo_db_server = not echo.confirm("Install a local MongoDB for DeepFellow Server?", default=True)
 
     mongo_env = configure_mongo(
         directory,
