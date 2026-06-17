@@ -127,6 +127,9 @@ def install(  # noqa: C901
     embedding_size: str = typer.Option(
         DEFAULT_VECTOR_DATABASE["embedding"]["size"], help="The dimensionality/size of the embedding vectors"
     ),
+    embedding_sparse: bool = typer.Option(
+        False, "--embedding-sparse", help="Use sparse embeddings (deepfellow-bge-m3, size 1024)."
+    ),
     force_install: bool = typer.Option(False, help="Force install"),
     dev: bool = typer.Option(False, "--dev", help="Expose internal service ports to host for development."),
 ) -> None:
@@ -217,6 +220,7 @@ def install(  # noqa: C901
         vectordb_password,
         embedding_model,
         embedding_size,
+        embedding_sparse,
         str(original_env_content.get("df_vector_database__provider__type", vectordb_type.value)),
     )
     is_vectordb_active = vectordb_envs.get("DF_VECTOR_DATABASE__PROVIDER__ACTIVE") == "1"
