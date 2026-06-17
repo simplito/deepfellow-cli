@@ -81,6 +81,37 @@ pytest:
         coverage_format: cobertura
         path: coverage_cli.xml
 
+# Run the real install.sh against the current checkout under each supported
+# package manager, then start the CLI — catches packaging / entry-point /
+# startup crashes and install.sh dispatch regressions before release.
+# DF_INSTALL_TARGET points install.sh at the local source instead of a remote
+# git URL; each image exposes only one manager so install.sh selects that branch.
+.smoke-test: &smoke-test
+  stage: test
+  variables:
+    DF_INSTALL_TARGET: "."
+    UV_TOOL_BIN_DIR: /usr/local/bin
+    PIPX_BIN_DIR: /usr/local/bin
+  script:
+    - bash install.sh
+    - export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"
+    - deepfellow version
+    - deepfellow --help
+
+smoke-test-uv:
+  <<: *smoke-test
+  image: ghcr.io/astral-sh/uv:$UV_VERSION-python$PYTHON_VERSION-$BASE_LAYER
+
+smoke-test-pipx:
+  <<: *smoke-test
+  image: python:$PYTHON_VERSION
+  before_script:
+    - pip install --quiet pipx
+
+smoke-test-pip:
+  <<: *smoke-test
+  image: python:$PYTHON_VERSION
+
 push_to_github:
   stage: release
   image:
