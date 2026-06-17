@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- `install.sh --dev` flag — installs from `main` on GitLab instead of the latest GitHub release, enabling a pre-release smoke test of the official install path
+- CI smoke-test jobs — run the real `install.sh` against the current checkout under each supported package manager (uv, pipx, pip) and then start the CLI (`deepfellow version` / `deepfellow --help`); gate the release stage so a broken install, dispatch regression, or startup crash blocks the GitHub push
 - `infra restart` and `server restart` commands — restart the whole Docker Compose stack for their scope in one step (stop then start), instead of running `stop` and `start` manually
 - `deepfellow otel logs` command — tails the local OpenTelemetry collector (installed via `server install --otel-local`) with `-f`/`--follow` and `-n`/`--tail`, consistent with `server logs`; reports clear errors when the collector is not installed or not running
 - `infra env set` and `server env set` now prompt to restart the stack after updating the `.env` file, so the new value takes effect immediately without a manual restart
