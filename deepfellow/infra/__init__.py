@@ -19,6 +19,7 @@ from .install import app as install_app
 from .logs import app as logs_app
 from .model import app as model_app
 from .prune import app as prune_app
+from .restart import app as restart_app
 from .service import app as service_app
 from .ssl_on import app as ssl_on_app
 from .start import app as start_app
@@ -36,6 +37,7 @@ app.add_typer(uninstall_app)
 app.add_typer(start_app)
 app.add_typer(status_app)
 app.add_typer(stop_app)
+app.add_typer(restart_app)
 app.add_typer(update_app)
 app.add_typer(ssl_on_app)
 app.add_typer(connect_app)

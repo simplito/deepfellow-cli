@@ -21,6 +21,7 @@ from .organization import app as organization_app
 from .password_reset import app as reset_password_app
 from .project import app as project_app
 from .prune import app as prune_app
+from .restart import app as restart_app
 from .ssl_on import app as ssl_on_app
 from .start import app as start_app
 from .status import app as status_app
@@ -39,6 +40,7 @@ app.add_typer(reset_password_app)
 app.add_typer(start_app)
 app.add_typer(status_app)
 app.add_typer(stop_app)
+app.add_typer(restart_app)
 app.add_typer(update_app)
 app.add_typer(ssl_on_app)
 app.add_typer(logs_app)
