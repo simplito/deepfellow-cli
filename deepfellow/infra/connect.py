@@ -27,7 +27,8 @@ from deepfellow.infra.utils.validation import check_infra_directory
 
 app = typer.Typer()
 
-_VERIFY_TIMEOUT = 10
+_VERIFY_TIMEOUT = 60
+_VERIFY_SLOW_THRESHOLD = 10
 _VERIFY_INTERVAL = 1
 _LOCALHOST_HOSTNAMES = {"localhost", "127.0.0.1", "::1"}
 
@@ -64,8 +65,10 @@ def _verify_parent_connection(local_infra_url: str, admin_api_key: str) -> str:
     topology_url = f"{local_infra_url}/admin/mesh/topology"
     headers = {"Authorization": f"Bearer {admin_api_key}"}
     deadline = time.monotonic() + _VERIFY_TIMEOUT
+    slow_deadline = time.monotonic() + _VERIFY_SLOW_THRESHOLD
     non_json_count = 0
     got_valid_json = False
+    slow_warning_shown = False
 
     while time.monotonic() < deadline:
         try:
@@ -83,6 +86,11 @@ def _verify_parent_connection(local_infra_url: str, admin_api_key: str) -> str:
             non_json_count += 1
             if non_json_count >= 3:
                 return _VerifyResult.OUTDATED
+
+        if not slow_warning_shown and time.monotonic() >= slow_deadline:
+            echo.info("Connection is taking longer than expected, please wait...")
+            slow_warning_shown = True
+
         time.sleep(_VERIFY_INTERVAL)
 
     # Topology returned valid JSON throughout but never showed a parent. This happens
