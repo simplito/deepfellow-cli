@@ -24,6 +24,7 @@ from deepfellow.common.defaults import (
     DEFAULT_VECTOR_DATABASE_TYPE,
     DF_INFRA_URL,
     DF_MONGO_DB,
+    DF_MONGO_PORT,
     DF_MONGO_URL,
     DOCKER_COMPOSE_OTEL_COLLECTOR,
     MILVUS_DATABASE,
@@ -309,6 +310,7 @@ def configure_mongo(
     mongo_url: str = DF_MONGO_URL,
     mongo_db: str = DF_MONGO_DB,
     original_env: dict[str, Any] | None = None,
+    mongo_port: int = DF_MONGO_PORT,
 ) -> dict[str, str]:
     """Collect info about MongoDB."""
     original_env = original_env or {}
@@ -361,6 +363,8 @@ def configure_mongo(
             mongo_config["DF_MONGO_USER"] = original_env.get("df_mongo_user") or generate_password(8)
         if not mongo_password:
             mongo_config["DF_MONGO_PASSWORD"] = original_env.get("df_mongo_password") or generate_password(12)
+
+        mongo_config["DF_MONGO_PORT"] = str(mongo_port)
 
         # Store the create user script
         init_mongo_path = directory / "init-mongo.sh"

@@ -47,6 +47,7 @@ def install_kwargs(directory: Path) -> dict[str, Any]:
         "infra_api_key": "api-key",
         "docker_network": "deepfellow-network",
         "mongodb_url": "custom-mongo:27017",
+        "mongodb_port": 27017,
         "mongodb_database_name": "deepfellow",
         "mongodb_username": "",
         "mongodb_password": "",

@@ -23,6 +23,7 @@ from deepfellow.common.defaults import (
     DF_INFRA_DOCKER_NETWORK,
     DF_INFRA_URL,
     DF_MONGO_DB,
+    DF_MONGO_PORT,
     DF_MONGO_URL,
     DF_SERVER_IMAGE,
     DF_SERVER_IMAGE_HUB,
@@ -106,6 +107,7 @@ def install(  # noqa: C901
         DF_INFRA_DOCKER_NETWORK, help="The Docker network name for container communication"
     ),
     mongodb_url: str = typer.Option(DF_MONGO_URL, help="The connection URL for the MongoDB instance"),
+    mongodb_port: int = typer.Option(DF_MONGO_PORT, help="Host port to publish the local MongoDB on."),
     mongodb_database_name: str = typer.Option(DF_MONGO_DB, help="The name of the MongoDB database to use"),
     mongodb_username: str = typer.Option("", help="Username for MongoDB authentication"),
     mongodb_password: str = typer.Option("", help="Password for MongoDB authentication"),
@@ -176,6 +178,7 @@ def install(  # noqa: C901
         mongodb_url,
         mongodb_database_name,
         original_env_content,
+        mongodb_port,
     )
 
     echo.info("DeepFellow Server is communicating with DeepFellow Infra.")
