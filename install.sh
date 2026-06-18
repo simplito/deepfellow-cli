@@ -61,13 +61,17 @@ if [ -z "$PYTHON_VERSION" ]; then
     exit 1
 fi
 
+UNINSTALL_CMD=""
+
 if command -v uv &> /dev/null; then
     echo "Using uv tool install..."
     uv tool install "$INSTALL_TARGET"
+    UNINSTALL_CMD="uv tool uninstall deepfellow-cli"
 
 elif command -v pipx &> /dev/null; then
     echo "Using pipx..."
     pipx install "$INSTALL_TARGET"
+    UNINSTALL_CMD="pipx uninstall deepfellow-cli"
 
 elif command -v pip3 &> /dev/null; then
     echo "Using pip3..."
@@ -84,6 +88,7 @@ elif command -v pip3 &> /dev/null; then
             exit 1
         fi
     fi
+    UNINSTALL_CMD="pip3 uninstall deepfellow-cli -y"
 
 elif command -v pip &> /dev/null; then
     echo "Using pip..."
@@ -100,10 +105,20 @@ elif command -v pip &> /dev/null; then
             exit 1
         fi
     fi
+    UNINSTALL_CMD="pip uninstall deepfellow-cli -y"
 
 else
     echo "Error: No package manager found. Please install Python package manager first (uv / pipx / pip3 / pip)."
     exit 1
 fi
+
+# Save the uninstall command so `deepfellow cli uninstall` can use it later.
+DEEPFELLOW_DIR="$HOME/.deepfellow"
+mkdir -p "$DEEPFELLOW_DIR"
+CONFIG_FILE="$DEEPFELLOW_DIR/config"
+if [ -f "$CONFIG_FILE" ]; then
+    grep -v "^DF_UNINSTALL_COMMAND=" "$CONFIG_FILE" > "$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+fi
+printf "DF_UNINSTALL_COMMAND=%s\n" "$UNINSTALL_CMD" >> "$CONFIG_FILE"
 
 echo "✅ Installed successfully!"
