@@ -307,7 +307,7 @@ def test_logs_show_connection_returns_false_on_exception(mock_run: Mock, directo
 @mock.patch("deepfellow.infra.connect.time")
 @mock.patch("deepfellow.infra.connect.httpx.get")
 def test_verify_parent_connection_returns_connected(mock_get: Mock, mock_time: Mock) -> None:
-    mock_time.monotonic.side_effect = [0, 5]
+    mock_time.monotonic.side_effect = [0, 0, 5]
     mock_response = Mock()
     mock_response.status_code = 200
     mock_response.json.return_value = [{"you_are_here": False}]
@@ -319,7 +319,7 @@ def test_verify_parent_connection_returns_connected(mock_get: Mock, mock_time: M
 @mock.patch("deepfellow.infra.connect.time")
 @mock.patch("deepfellow.infra.connect.httpx.get")
 def test_verify_parent_connection_returns_timeout(mock_get: Mock, mock_time: Mock) -> None:
-    mock_time.monotonic.side_effect = [0, 5, 11]
+    mock_time.monotonic.side_effect = [0, 0, 5, 5, 61]
     mock_response = Mock()
     mock_response.status_code = 404
     mock_get.return_value = mock_response
@@ -330,7 +330,7 @@ def test_verify_parent_connection_returns_timeout(mock_get: Mock, mock_time: Moc
 @mock.patch("deepfellow.infra.connect.time")
 @mock.patch("deepfellow.infra.connect.httpx.get")
 def test_verify_parent_connection_returns_legacy(mock_get: Mock, mock_time: Mock) -> None:
-    mock_time.monotonic.side_effect = [0, 5, 11]
+    mock_time.monotonic.side_effect = [0, 0, 5, 5, 61]
     mock_response = Mock()
     mock_response.status_code = 200
     mock_response.json.return_value = [{"you_are_here": True}]
@@ -342,7 +342,7 @@ def test_verify_parent_connection_returns_legacy(mock_get: Mock, mock_time: Mock
 @mock.patch("deepfellow.infra.connect.time")
 @mock.patch("deepfellow.infra.connect.httpx.get")
 def test_verify_parent_connection_returns_outdated(mock_get: Mock, mock_time: Mock) -> None:
-    mock_time.monotonic.side_effect = [0, 5, 5, 5]
+    mock_time.monotonic.side_effect = [0, 0, 5, 5, 5, 5, 5]
     mock_response = Mock()
     mock_response.status_code = 200
     mock_response.json.side_effect = JSONDecodeError("msg", "doc", 0)
@@ -354,10 +354,24 @@ def test_verify_parent_connection_returns_outdated(mock_get: Mock, mock_time: Mo
 @mock.patch("deepfellow.infra.connect.time")
 @mock.patch("deepfellow.infra.connect.httpx.get")
 def test_verify_parent_connection_handles_http_error_and_returns_timeout(mock_get: Mock, mock_time: Mock) -> None:
-    mock_time.monotonic.side_effect = [0, 5, 11]
+    mock_time.monotonic.side_effect = [0, 0, 5, 5, 61]
     mock_get.side_effect = httpx.HTTPError("connection refused")
 
     assert _verify_parent_connection("http://localhost:8086", "key") == _VerifyResult.TIMEOUT
+
+
+@mock.patch("deepfellow.infra.connect.echo")
+@mock.patch("deepfellow.infra.connect.time")
+@mock.patch("deepfellow.infra.connect.httpx.get")
+def test_verify_parent_connection_prints_slow_warning_once(mock_get: Mock, mock_time: Mock, mock_echo: Mock) -> None:
+    mock_time.monotonic.side_effect = [0, 0, 5, 5, 11, 11, 15, 61]
+    mock_response = Mock()
+    mock_response.status_code = 404
+    mock_get.return_value = mock_response
+
+    _verify_parent_connection("http://localhost:8086", "key")
+
+    assert mock_echo.info.call_count == 1
 
 
 @mock.patch("deepfellow.infra.connect.echo")
