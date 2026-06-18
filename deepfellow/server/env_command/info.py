@@ -35,6 +35,7 @@ ENV_METADATA: dict[str, EnvMetadata] = {
         sensitive=True,
     ),
     "DF_MONGO_URL": EnvMetadata(description="MongoDB connection host and port."),
+    "DF_MONGO_PORT": EnvMetadata(description="Host port the local MongoDB instance is published on."),
     "DF_MONGO_USER": EnvMetadata(description="MongoDB username."),
     "DF_MONGO_PASSWORD": EnvMetadata(description="MongoDB password.", sensitive=True),
     "DF_MONGO_DB": EnvMetadata(description="MongoDB database name used by the server."),

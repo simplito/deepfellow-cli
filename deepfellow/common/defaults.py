@@ -35,6 +35,7 @@ DF_SERVER_PORT = 8000
 DF_SERVER_STORAGE_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / DF_SERVER_DIRECTORY / "storage"
 
 DF_MONGO_URL = "mongo:27017"
+DF_MONGO_PORT = 27017
 DF_MONGO_DB = "deepfellow"
 
 DOCKER_COMPOSE_CONFIG_FILENAME = "compose.yaml"
@@ -264,7 +265,7 @@ DOCKER_COMPOSE_MONGO_DB = {
         "container_name": "mongo",
         "image": "mongo:8.2.7@sha256:7abfba0d07c9330373f8173981ea4d09cd8a82cdf0e86ccaf7008848d1d24f62",
         "restart": "always",
-        "expose": ["27017"],
+        "ports": ["${DF_MONGO_PORT}:27017"],
         "volumes": [
             "mongo:/data/db",
             "./init-mongo.sh:/docker-entrypoint-initdb.d/init-mongo.sh:ro",
