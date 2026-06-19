@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased]
+## [0.8.0] - 2026-06-19
 
 ### Added
 - `install.sh --dev` flag — installs from `main` on GitLab instead of the latest GitHub release, enabling a pre-release smoke test of the official install path
@@ -16,7 +16,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Unit tests for `infra disconnect` covering directory checks, service-running guard, confirmation flow, env variable handling, and disconnect execution paths
 - Unit test coverage for infra install raised to 100%
 - Unit test coverage for infra start raised to 100%
+- Unit tests for `server create-admin` command
 - Added http(s) to ws(s) converter which allows connecting Infra even with http(s) URL provided.
+- `deepfellow uninstall` command — uninstalls the CLI using the detected package manager (`uv tool`, `pipx`, or `pip`); falls back to the `DF_UNINSTALL_COMMAND` value stored in config for custom setups
+- `server install` and `server reconfigure` now prompt to choose between dense and sparse embedding type; selecting sparse automatically uses the BGE-M3 model
+- `DF_MONGO_PORT` — configurable host port for the local MongoDB instance (default `27017`); `server install` now publishes MongoDB on the specified port instead of only exposing it within the Docker network
 
 
 ### Changed

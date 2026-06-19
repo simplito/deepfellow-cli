@@ -9,27 +9,27 @@ Releases go through a Merge Request to `main`. The tag is pushed **after** the M
 1. Create a release branch from `main`:
    ```bash
    git checkout main && git pull
-   git checkout -b release/0.3.0
+   git checkout -b release/0.9.0
    ```
-2. Update `[Unreleased]` section in `CHANGELOG.md` — rename it to the new version with today's date, e.g. `## [0.3.0] - 2026-05-19`.
+2. Update `[Unreleased]` section in `CHANGELOG.md` — rename it to the new version with today's date, e.g. `## [0.9.0] - 2026-05-19`.
 3. Update `version` in `pyproject.toml`.
 4. Commit:
    ```bash
-   git commit -am "Release 0.3.0"
-   git push origin release/0.3.0
+   git commit -am "Release 0.9.0"
+   git push origin release/0.9.0
    ```
 5. Open an MR targeting `main` and get it reviewed and merged via the GitLab UI.
 6. After the MR is merged, tag the merge commit on `main`:
    ```bash
-   git tag v0.3.0
-   git push origin v0.3.0
+   git tag v0.9.0
+   git push origin v0.9.0
    ```
 
 CI picks up the tag and automatically pushes to [github.com/simplito/deepfellow-cli](https://github.com/simplito/deepfellow-cli).
 
 ## Tag format
 
-Tags must match `v<major>.<minor>.<patch>` (e.g. `v0.3.0`). Only these trigger the GitHub push.
+Tags must match `v<major>.<minor>.<patch>` (e.g. `v0.9.0`). Only these trigger the GitHub push.
 
 ## Prerequisites (one-time setup)
 
