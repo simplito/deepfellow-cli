@@ -31,7 +31,7 @@ def uninstall(
     check_server_directory(directory)
     assert_docker()
 
-    echo.info("Turn off DeepFellow Server.")
+    echo.info("Turning off DeepFellow Server.")
     run(["docker", "compose", "rm", "-s", "-f"], directory, quiet=True)
 
     echo.info("Removing DeepFellow Server files.")
