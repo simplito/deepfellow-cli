@@ -31,7 +31,7 @@ def uninstall(
     check_infra_directory(directory)
     assert_docker()
 
-    echo.info("Turn off DeepFellow Infra.")
+    echo.info("Turning off DeepFellow Infra.")
     run(["docker", "compose", "rm", "-s", "-f"], directory, quiet=True)
 
     echo.info("Removing DeepFellow Infra files.")
