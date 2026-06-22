@@ -77,16 +77,15 @@ def test_prompt_non_interactive_no_value_no_default_exits(mock_interactive, prom
 
 
 @patch(_IS_INTERACTIVE, return_value=False)
-def test_prompt_non_interactive_from_args_equals_original_no_default_exits(mock_interactive, prompter):
-    """When from_args equals original_default and no default, raise Exit."""
-    with pytest.raises(typer.Exit) as exc_info:
-        prompter.prompt(
-            message="Enter value",
-            from_args="same",
-            original_default="same",
-            default=None,
-        )
-    assert exc_info.value.exit_code == 1
+def test_prompt_non_interactive_from_args_equals_original_no_default_uses_from_args(mock_interactive, prompter):
+    """When from_args equals original_default and no config default, use from_args (CLI default is valid)."""
+    result = prompter.prompt(
+        message="Enter value",
+        from_args="same",
+        original_default="same",
+        default=None,
+    )
+    assert result == "same"
 
 
 @patch(_IS_INTERACTIVE, return_value=False)
@@ -282,6 +281,19 @@ def test_prompt_from_args_empty_string_equals_original_uses_default(mock_interac
 
 
 @patch(_IS_INTERACTIVE, return_value=False)
+def test_prompt_non_interactive_from_args_empty_string_equals_original_no_default_exits(mock_interactive, prompter):
+    """Empty string from_args equals original_default with no config default still exits, empty is not a valid value."""
+    with pytest.raises(typer.Exit) as exc_info:
+        prompter.prompt(
+            message="Enter value",
+            from_args="",
+            original_default="",
+            default=None,
+        )
+    assert exc_info.value.exit_code == 1
+
+
+@patch(_IS_INTERACTIVE, return_value=False)
 def test_prompt_both_from_args_and_original_default_none(mock_interactive, prompter):
     """When both are None, from_args is not considered user-provided."""
     result = prompter.prompt(
@@ -405,11 +417,18 @@ def test_get_return_value_non_interactive_from_args_equals_original_default_uses
 
 
 @patch(_IS_INTERACTIVE, return_value=False)
-def test_get_return_value_non_interactive_from_args_equals_original_default_no_default_exits(
+def test_get_return_value_non_interactive_from_args_equals_original_default_no_default_uses_from_args(
+    mock_is_interactive: mock.Mock,
+):
+    assert get_return_value("Enter value", from_args="orig", original_default="orig") == "orig"
+
+
+@patch(_IS_INTERACTIVE, return_value=False)
+def test_get_return_value_non_interactive_from_args_empty_string_equals_original_no_default_exits(
     mock_is_interactive: mock.Mock,
 ):
     with pytest.raises(typer.Exit):
-        get_return_value("Enter value", from_args="orig", original_default="orig")
+        get_return_value("Enter value", from_args="", original_default="")
 
 
 @patch(_IS_INTERACTIVE, return_value=True)
