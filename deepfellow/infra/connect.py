@@ -21,7 +21,7 @@ from deepfellow.common.docker import is_service_running
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get, env_set
 from deepfellow.common.system import run
-from deepfellow.common.validation import validate_url
+from deepfellow.common.validation import validate_truthy, validate_url
 from deepfellow.infra.utils.options import directory_option
 from deepfellow.infra.utils.validation import check_infra_directory
 
@@ -121,7 +121,7 @@ def connect(
     parent_infra_url: str = typer.Argument(
         ..., help="Parent DeepFellow Infra address (DF_INFRA_MESH_URL).", callback=validate_url
     ),
-    mesh_key: str = typer.Argument(..., help="DF_MESH_KEY of the Parent DeepFellow Infra."),
+    mesh_key: str | None = typer.Argument(None, help="DF_MESH_KEY of the Parent DeepFellow Infra."),
 ) -> None:
     """Connect two Infras together. This infra is child."""
     check_infra_directory(directory)
@@ -150,8 +150,16 @@ def connect(
     if original_parent_infra_url:
         echo.info(f"Disconnecting from {original_parent_infra_url} ...")
 
+    resolved_mesh_key: str = echo.prompt_until_valid(
+        "Provide the mesh key of the parent Infra",
+        validation=validate_truthy,
+        from_args=mesh_key,
+        original_default=None,
+        password=True,
+    )
+
     env_set(env_file, "DF_CONNECT_TO_MESH_URL", parent_infra_url)
-    env_set(env_file, "DF_CONNECT_TO_MESH_KEY", mesh_key)
+    env_set(env_file, "DF_CONNECT_TO_MESH_KEY", resolved_mesh_key)
 
     echo.info("Restarting this instance DeepFellow Infra ...")
     run(["docker", "compose", "down"], cwd=directory, quiet=True)

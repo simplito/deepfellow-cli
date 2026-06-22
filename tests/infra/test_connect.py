@@ -196,10 +196,63 @@ def test_connect_calls_env_set_for_mesh_key(
 ) -> None:
     mock_is_running.return_value = True
     mock_env_get.return_value = None
+    mock_echo.prompt_until_valid.return_value = "test-mesh-key"
 
     connect(**default_connect_kwargs)
 
     assert mock.call(directory / ".env", "DF_CONNECT_TO_MESH_KEY", "test-mesh-key") in mock_env_set.call_args_list
+
+
+@mock.patch("deepfellow.infra.connect.run")
+@mock.patch("deepfellow.infra.connect.env_set")
+@mock.patch("deepfellow.infra.connect.env_get")
+@mock.patch("deepfellow.infra.connect.echo")
+@mock.patch("deepfellow.infra.connect.is_service_running")
+@mock.patch("deepfellow.infra.connect.check_infra_directory")
+def test_connect_prompts_for_mesh_key_with_masked_input_when_omitted(
+    mock_check: Mock,
+    mock_is_running: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    default_connect_kwargs: dict,
+    directory: Path,
+) -> None:
+    mock_is_running.return_value = True
+    mock_env_get.return_value = None
+    mock_echo.prompt_until_valid.return_value = "prompted-mesh-key"
+    default_connect_kwargs["mesh_key"] = None
+
+    connect(**default_connect_kwargs)
+
+    assert mock_echo.prompt_until_valid.call_count == 1
+    assert mock_echo.prompt_until_valid.call_args.kwargs["password"] is True
+    assert mock_echo.prompt_until_valid.call_args.kwargs["from_args"] is None
+    assert mock.call(directory / ".env", "DF_CONNECT_TO_MESH_KEY", "prompted-mesh-key") in mock_env_set.call_args_list
+
+
+@mock.patch("deepfellow.infra.connect.run")
+@mock.patch("deepfellow.infra.connect.env_set")
+@mock.patch("deepfellow.infra.connect.env_get")
+@mock.patch("deepfellow.infra.connect.echo")
+@mock.patch("deepfellow.infra.connect.is_service_running")
+@mock.patch("deepfellow.infra.connect.check_infra_directory")
+def test_connect_passes_mesh_key_arg_to_prompt_as_from_args(
+    mock_check: Mock,
+    mock_is_running: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    default_connect_kwargs: dict,
+) -> None:
+    mock_is_running.return_value = True
+    mock_env_get.return_value = None
+
+    connect(**default_connect_kwargs)
+
+    assert mock_echo.prompt_until_valid.call_args.kwargs["from_args"] == "test-mesh-key"
 
 
 @mock.patch("deepfellow.infra.connect.run")
