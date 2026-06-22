@@ -28,10 +28,13 @@ def set(
     env_name: str = typer.Argument(..., help="Name of the environment variable", callback=lambda x: x.upper()),
     env_value: str = typer.Argument("", help="Value of the environment variable"),
     df_prefix: bool = typer.Option(True, help="Add DF_ prefix if not provided?"),
+    no_restart: bool = typer.Option(False, "--no-restart", help="Skip restarting the infra stack after the change."),
 ) -> None:
     """Set environment configuration."""
     check_infra_directory(directory)
     env_set(directory / ".env", env_name, env_value, df_prefix)
-    if echo.confirm("Restart the infra now to apply the change?", default=True):
+    if not no_restart and echo.confirm("Restart the infra now to apply the change?", default=True):
+        echo.info("Restarting the infra...")
         stop_infra(directory)
         start_infra(directory)
+        echo.success("Infra restarted successfully.")
