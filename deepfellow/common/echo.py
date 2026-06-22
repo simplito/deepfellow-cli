@@ -65,6 +65,10 @@ def get_return_value(
             return_value = from_args
         elif default is not None:
             return_value = default
+        elif from_args is not None and from_args != "":
+            # from_args equals original_default with no config default to fall back to —
+            # the CLI default is still a valid value, so use it rather than erroring
+            return_value = from_args
         else:
             echo.error(f"Non interactive mode is ON.\nPlease provide the value in args.\nMSG: {message}")
             raise typer.Exit(1)
