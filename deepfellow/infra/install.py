@@ -119,6 +119,17 @@ def install(  # noqa: C901
         default=original_env_content.get("df_infra_url", infra_url),
     )
 
+    # Find out which docker network to use
+    docker_network = echo.prompt(
+        "Provide a docker network name",
+        from_args=docker_network,
+        original_default=DF_INFRA_DOCKER_NETWORK,
+        default=original_env_content.get("df_infra_docker_subnet", docker_network),
+    )
+
+    # Create the network if needed
+    ensure_network(docker_network)
+
     flag_print_keys = echo.confirm("Is it safe to print API keys here?")
 
     # Collect DF_INFRA_ADMIN_API_KEY
@@ -145,17 +156,6 @@ def install(  # noqa: C901
     df_mesh_key = configure_uuid_key("DF_MESH_KEY", original_env_content.get("df_mesh_key"))
     if flag_print_keys:
         echo.info(f"DF_MESH_KEY: {df_mesh_key}")
-
-    # Find out which docker network to use
-    docker_network = echo.prompt(
-        "Provide a docker network name",
-        from_args=docker_network,
-        original_default=DF_INFRA_DOCKER_NETWORK,
-        default=original_env_content.get("df_infra_docker_subnet", docker_network),
-    )
-
-    # Create the network if needed
-    ensure_network(docker_network)
 
     # Find out the compose prefix
     original_compose_prefix = original_env_content.get("df_infra_compose_prefix")

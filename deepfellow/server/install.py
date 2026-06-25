@@ -164,6 +164,17 @@ def install(  # noqa: C901
         echo.error(f"Invalid DF_PLUGINS_SETUP in {env_file.as_posix()}: expected a single-line JSON object.")
         raise typer.Exit(1)
 
+    # Find out which docker network to use
+    docker_network = echo.prompt(
+        "Provide a docker network name",
+        from_args=docker_network,
+        original_default=DF_INFRA_DOCKER_NETWORK,
+        default=original_env_content.get("df_infra_docker_subnet", docker_network),
+    )
+
+    # Create the network if needed
+    ensure_network(docker_network)
+
     echo.info("DeepFellow Server requires a MongoDB to be installed.")
     if mongodb_url != DF_MONGO_URL or mongodb_database_name != DF_MONGO_DB:
         custom_mongo_db_server = True
@@ -183,17 +194,6 @@ def install(  # noqa: C901
 
     echo.info("DeepFellow Server is communicating with DeepFellow Infra.")
     infra_env = configure_infra(infra_api_key, infra_url, original_env_content)
-
-    # Find out which docker network to use
-    docker_network = echo.prompt(
-        "Provide a docker network name",
-        from_args=docker_network,
-        original_default=DF_INFRA_DOCKER_NETWORK,
-        default=original_env_content.get("df_infra_docker_subnet", docker_network),
-    )
-
-    # Create the network if needed
-    ensure_network(docker_network)
 
     original_metrics_username = original_env_content.get("df_metrics_username")
     original_metrics_password = original_env_content.get("df_metrics_password")
