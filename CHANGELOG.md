@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 - `infra connect` no longer takes the mesh key as a required command-line argument; in interactive mode it prompts for the key with masked (password-style) input, so the secret no longer leaks into the screen, shell history, or process list. The key can still be passed as an argument for scripting and `--non-interactive` runs.
+- `df infra/server install` both have switched order of questions. Docker Network prompt appears sooner.
 
 ## [0.8.0] - 2026-06-19
 
