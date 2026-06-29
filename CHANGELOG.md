@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- `deepfellow --version` flag — prints the CLI version, plus the installed Infra and Server versions (each extra line shown only when that component is installed)
+- Running `deepfellow` with no command now shows the DeepFellow banner with the current CLI version
+
 ### Fixed
 - Fixed `--non-interactive` failing with "Please provide the value in args" when a CLI argument value equals the Typer default (e.g. `--mongodb-database-name deepfellow` during `server install`).
 
