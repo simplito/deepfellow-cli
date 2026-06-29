@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- `deepfellow prune` command — full teardown in one step: prunes the DeepFellow Server and Infra stacks (`docker compose down -v` + removes their directories), wipes any remaining `~/.deepfellow/` files, and uninstalls the CLI package last. Each step tolerates a missing installation, and the destructive action is gated by a confirmation prompt respecting `--yes`/`--non-interactive`.
 - `deepfellow --version` flag — prints the CLI version, plus the installed Infra and Server versions (each extra line shown only when that component is installed)
 - Running `deepfellow` with no command now shows the DeepFellow banner with the current CLI version
 
