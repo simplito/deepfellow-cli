@@ -19,6 +19,8 @@ from deepfellow.common.config import EnvDict, env_to_dict, read_env_file, save_e
 from deepfellow.common.defaults import DF_CLI_CONFIG_PATH, DF_CLI_SECRETS_PATH
 from deepfellow.common.state import state
 from deepfellow.common.validation import validate_system
+from deepfellow.common.version import cli_version
+from deepfellow.common.version import version as print_version
 
 from .cli import app as cli_app
 from .common.colors import COLORS, RESET
@@ -48,6 +50,7 @@ def print_name() -> None:
 │   {COLORS.very_dark_blue}▓▓     ▓▓▓▓▓  ▓▓▓▓▓  ▓▓▓▓▓  ▓▓▓▓▓▓  ▓▓ ▓ ▓▓{RESET}   │
 │                                                 │
 └─────────────────────────────────────────────────┘
+VERSION: {cli_version()}
 `deepfellow --help` for help with commands.
 """)  # noqa: T201
 
@@ -64,8 +67,12 @@ def main(
     debug: bool = typer.Option(False, "-v", "-vv", "--verbose", "--debug", help="Display debug information"),
     yes: bool = typer.Option(False, "-y", "--yes", help="Automatically answer to all questions"),
     non_interactive: bool = typer.Option(False, help="Run in non-interactive mode"),
+    _version: bool = typer.Option(False, "--version", help="Show version info."),
 ) -> None:
     """DeepFellow Command Line Interface."""
+    if _version:
+        print_version()
+        raise typer.Exit()
     if ctx.invoked_subcommand is None:
         print_name()
         raise typer.Exit(0)
