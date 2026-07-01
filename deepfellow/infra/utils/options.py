@@ -103,4 +103,10 @@ CLOUD_SERVICE_SPECS: dict[str, list[ServiceFieldDef]] = {
         ),
         ServiceFieldDef(name="api_key", type="password", required=True, description="API Key"),
     ],
+    "ollama-cloud": [
+        ServiceFieldDef(
+            name="api_url", type="text", required=False, description="API URL", default="https://ollama.com"
+        ),
+        ServiceFieldDef(name="api_key", type="password", required=False, description="API Key", default=""),
+    ],
 }
