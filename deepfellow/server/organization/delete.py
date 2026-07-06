@@ -27,15 +27,18 @@ def delete(
     organization_id: str = typer.Argument(...),
 ) -> None:
     """Delete organization after confirmation."""
+    yes = state.yes
+    if yes:
+        echo.debug("Automatically confirming the deletion.")
     # Get token for the server
     secrets_file = state.cli_secrets_file
     server_url = get_server_url(server)
     token = get_token(secrets_file, server_url)
 
     organization = get_organization(server_url, organization_id, token)
-    if not echo.confirm(f"Are you sure you want to delete the {organization.name}?", default=False):
+    if not yes and not echo.confirm(f"Are you sure you want to delete the {organization.name}?", default=False):
         raise typer.Exit(1)
 
     delete_organization(server_url, organization_id, token)
 
-    echo.info("Deleted {data['name']}")
+    echo.info(f"Deleted {organization.name}")

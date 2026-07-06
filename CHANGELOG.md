@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 - Fixed `--non-interactive` failing with "Please provide the value in args" when a CLI argument value equals the Typer default (e.g. `--mongodb-database-name deepfellow` during `server install`).
+- Fixed server organization delete: wrong success message and added --yes parity.
 
 ### Changed
 - `infra connect` no longer takes the mesh key as a required command-line argument; in interactive mode it prompts for the key with masked (password-style) input, so the secret no longer leaks into the screen, shell history, or process list. The key can still be passed as an argument for scripting and `--non-interactive` runs.
