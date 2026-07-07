@@ -25,19 +25,18 @@ def name_fixture() -> str:
     return "name"
 
 
-@mock.patch("deepfellow.infra.service.install.echo")
+@mock.patch("deepfellow.infra.utils.connection.echo")
 @mock.patch("deepfellow.infra.service.install.post")
-@mock.patch("deepfellow.infra.service.install.cast")
-@mock.patch("deepfellow.infra.service.install.read_env_file")
-@mock.patch("deepfellow.infra.service.install.env_set")
+@mock.patch("deepfellow.infra.service.install.get")
+@mock.patch("deepfellow.infra.service.install.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_install_connection_error(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
+    mock_resolve: Mock,
+    mock_get: Mock,
     mock_post: Mock,
     mock_echo: Mock,
     name: str,
 ) -> None:
+    mock_get.return_value = {"spec": {"fields": []}}
     mock_post.side_effect = httpx.ConnectError("TEST")
 
     with pytest.raises(typer.Exit):
@@ -51,17 +50,16 @@ def test_install_connection_error(
 
 @mock.patch("deepfellow.infra.service.install.echo")
 @mock.patch("deepfellow.infra.service.install.post")
-@mock.patch("deepfellow.infra.service.install.cast")
-@mock.patch("deepfellow.infra.service.install.read_env_file")
-@mock.patch("deepfellow.infra.service.install.env_set")
+@mock.patch("deepfellow.infra.service.install.get")
+@mock.patch("deepfellow.infra.service.install.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_install_success_without_api_key(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
+    mock_resolve: Mock,
+    mock_get: Mock,
     mock_post: Mock,
     mock_echo: Mock,
     name: str,
 ) -> None:
+    mock_get.return_value = {"spec": {"fields": []}}
     mock_post.return_value = {"status": "OK"}
 
     install(name=name, service_api_key=None, spec=None)
@@ -74,17 +72,16 @@ def test_install_success_without_api_key(
 
 @mock.patch("deepfellow.infra.service.install.echo")
 @mock.patch("deepfellow.infra.service.install.post")
-@mock.patch("deepfellow.infra.service.install.cast")
-@mock.patch("deepfellow.infra.service.install.read_env_file")
-@mock.patch("deepfellow.infra.service.install.env_set")
+@mock.patch("deepfellow.infra.service.install.get")
+@mock.patch("deepfellow.infra.service.install.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_install_success_with_api_key(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
+    mock_resolve: Mock,
+    mock_get: Mock,
     mock_post: Mock,
     mock_echo: Mock,
     name: str,
 ) -> None:
+    mock_get.return_value = {"spec": {"fields": []}}
     mock_post.return_value = {"status": "OK"}
 
     install(name=name, service_api_key="sk-test-123", spec=None)
@@ -97,13 +94,11 @@ def test_install_success_with_api_key(
 
 @mock.patch("deepfellow.infra.service.install.echo")
 @mock.patch("deepfellow.infra.service.install.post")
-@mock.patch("deepfellow.infra.service.install.cast")
-@mock.patch("deepfellow.infra.service.install.read_env_file")
-@mock.patch("deepfellow.infra.service.install.env_set")
+@mock.patch("deepfellow.infra.service.install.get")
+@mock.patch("deepfellow.infra.service.install.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_install_with_valid_spec(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
+    mock_resolve: Mock,
+    mock_get: Mock,
     mock_post: Mock,
     mock_echo: Mock,
     name: str,
@@ -112,6 +107,7 @@ def test_install_with_valid_spec(
 
     install(name=name, spec='{"url": "http://host:11434"}')
 
+    assert mock_get.call_count == 0
     assert mock_post.call_count == 1
     assert mock_post.call_args == mock.call(
         mock.ANY, mock.ANY, item_name="Service", data={"spec": {"url": "http://host:11434"}}, reraise=True
@@ -134,16 +130,46 @@ def test_install_with_non_object_json_spec(mock_echo: Mock, name: str) -> None:
 
 @mock.patch("deepfellow.infra.service.install.echo")
 @mock.patch("deepfellow.infra.service.install.post")
-@mock.patch("deepfellow.infra.service.install.cast")
-@mock.patch("deepfellow.infra.service.install.read_env_file")
-@mock.patch("deepfellow.infra.service.install.env_set")
+@mock.patch("deepfellow.infra.service.install.get")
+@mock.patch("deepfellow.infra.service.install.is_interactive", return_value=False)
+@mock.patch("deepfellow.infra.service.install.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_install_claude_with_api_key(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
+    mock_resolve: Mock,
+    mock_is_interactive: Mock,
+    mock_get: Mock,
     mock_post: Mock,
     mock_echo: Mock,
 ) -> None:
+    mock_get.return_value = {
+        "spec": {
+            "fields": [
+                {
+                    "name": "api_key",
+                    "type": "password",
+                    "required": True,
+                    "description": "API Key",
+                    "default": None,
+                    "values": None,
+                },
+                {
+                    "name": "api_url",
+                    "type": "text",
+                    "required": False,
+                    "description": "API URL",
+                    "default": "https://api.anthropic.com",
+                    "values": None,
+                },
+                {
+                    "name": "anthropic_version",
+                    "type": "text",
+                    "required": True,
+                    "description": "Anthropic API Version",
+                    "default": "2023-06-01",
+                    "values": None,
+                },
+            ]
+        }
+    }
     mock_post.return_value = {"status": "OK"}
 
     install(name="claude", service_api_key="sk-test-123", spec=None)
@@ -156,16 +182,38 @@ def test_install_claude_with_api_key(
 
 @mock.patch("deepfellow.infra.service.install.echo")
 @mock.patch("deepfellow.infra.service.install.post")
-@mock.patch("deepfellow.infra.service.install.cast")
-@mock.patch("deepfellow.infra.service.install.read_env_file")
-@mock.patch("deepfellow.infra.service.install.env_set")
+@mock.patch("deepfellow.infra.service.install.get")
+@mock.patch("deepfellow.infra.service.install.is_interactive", return_value=False)
+@mock.patch("deepfellow.infra.service.install.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_install_google_with_api_key(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
+    mock_resolve: Mock,
+    mock_is_interactive: Mock,
+    mock_get: Mock,
     mock_post: Mock,
     mock_echo: Mock,
 ) -> None:
+    mock_get.return_value = {
+        "spec": {
+            "fields": [
+                {
+                    "name": "api_url",
+                    "type": "text",
+                    "required": False,
+                    "description": "API URL",
+                    "default": "https://generativelanguage.googleapis.com",
+                    "values": None,
+                },
+                {
+                    "name": "api_key",
+                    "type": "password",
+                    "required": False,
+                    "description": "API Key",
+                    "default": "",
+                    "values": None,
+                },
+            ]
+        }
+    }
     mock_post.return_value = {"status": "OK"}
 
     install(name="google", service_api_key="google-key-123", spec=None)
@@ -178,16 +226,38 @@ def test_install_google_with_api_key(
 
 @mock.patch("deepfellow.infra.service.install.echo")
 @mock.patch("deepfellow.infra.service.install.post")
-@mock.patch("deepfellow.infra.service.install.cast")
-@mock.patch("deepfellow.infra.service.install.read_env_file")
-@mock.patch("deepfellow.infra.service.install.env_set")
+@mock.patch("deepfellow.infra.service.install.get")
+@mock.patch("deepfellow.infra.service.install.is_interactive", return_value=False)
+@mock.patch("deepfellow.infra.service.install.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_install_openai_with_api_key(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
+    mock_resolve: Mock,
+    mock_is_interactive: Mock,
+    mock_get: Mock,
     mock_post: Mock,
     mock_echo: Mock,
 ) -> None:
+    mock_get.return_value = {
+        "spec": {
+            "fields": [
+                {
+                    "name": "api_url",
+                    "type": "text",
+                    "required": False,
+                    "description": "API URL",
+                    "default": "https://api.openai.com",
+                    "values": None,
+                },
+                {
+                    "name": "api_key",
+                    "type": "password",
+                    "required": False,
+                    "description": "API Key",
+                    "default": "",
+                    "values": None,
+                },
+            ]
+        }
+    }
     mock_post.return_value = {"status": "OK"}
 
     install(name="openai", service_api_key="openai-key-123", spec=None)
@@ -200,16 +270,38 @@ def test_install_openai_with_api_key(
 
 @mock.patch("deepfellow.infra.service.install.echo")
 @mock.patch("deepfellow.infra.service.install.post")
-@mock.patch("deepfellow.infra.service.install.cast")
-@mock.patch("deepfellow.infra.service.install.read_env_file")
-@mock.patch("deepfellow.infra.service.install.env_set")
+@mock.patch("deepfellow.infra.service.install.get")
+@mock.patch("deepfellow.infra.service.install.is_interactive", return_value=False)
+@mock.patch("deepfellow.infra.service.install.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_install_sindri_with_api_key(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
+    mock_resolve: Mock,
+    mock_is_interactive: Mock,
+    mock_get: Mock,
     mock_post: Mock,
     mock_echo: Mock,
 ) -> None:
+    mock_get.return_value = {
+        "spec": {
+            "fields": [
+                {
+                    "name": "api_url",
+                    "type": "text",
+                    "required": False,
+                    "description": "API URL",
+                    "default": "https://sindri.app/api/ai/v1/openai",
+                    "values": None,
+                },
+                {
+                    "name": "api_key",
+                    "type": "password",
+                    "required": True,
+                    "description": "API Key",
+                    "default": None,
+                    "values": None,
+                },
+            ]
+        }
+    }
     mock_post.return_value = {"status": "OK"}
 
     install(name="sindri", service_api_key="sindri-key-123", spec=None)
