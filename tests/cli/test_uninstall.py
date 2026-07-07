@@ -17,7 +17,6 @@ import typer
 from deepfellow.cli.uninstall import (
     _build_uninstall_command,
     _down_docker_compose,
-    _get_uninstall_command,
     _resolve_prune,
     uninstall,
 )
@@ -85,49 +84,26 @@ def test_build_uninstall_command_returns_none_when_no_package_manager(mock_is_av
     assert cmd is None
 
 
-@mock.patch("deepfellow.cli.uninstall._build_uninstall_command")
-def test_get_uninstall_command_reads_from_config_file(mock_build: Mock, tmp_path: Path) -> None:
-    config_file = tmp_path / "config"
-    config_file.write_text("DF_UNINSTALL_COMMAND=uv tool uninstall deepfellow-cli\n")
-    state.cli_config_file = config_file
+@mock.patch("deepfellow.cli.uninstall.echo")
+@mock.patch("deepfellow.cli.uninstall.run", return_value="ok")
+@mock.patch("deepfellow.cli.uninstall.resolve_cli_command")
+def test_uninstall_resolves_command_with_uninstall_config_key(
+    mock_resolve: Mock, mock_run: Mock, mock_echo: Mock
+) -> None:
+    mock_resolve.return_value = _UV_UNINSTALL_CMD
+    state.yes = True
 
-    cmd = _get_uninstall_command()
+    uninstall(prune=False)
 
-    assert cmd == ["uv", "tool", "uninstall", "deepfellow-cli"]
-    assert mock_build.call_count == 0
-
-    state.reset()
-
-
-@mock.patch("deepfellow.cli.uninstall._build_uninstall_command", return_value=["pipx", "uninstall", "deepfellow-cli"])
-def test_get_uninstall_command_falls_back_to_detection_when_config_missing(mock_build: Mock, tmp_path: Path) -> None:
-    state.cli_config_file = tmp_path / "nonexistent_config"
-
-    cmd = _get_uninstall_command()
-
-    assert cmd == ["pipx", "uninstall", "deepfellow-cli"]
-    assert mock_build.call_count == 1
-
-    state.reset()
-
-
-@mock.patch("deepfellow.cli.uninstall._build_uninstall_command", return_value=_UV_UNINSTALL_CMD)
-def test_get_uninstall_command_falls_back_when_config_has_no_uninstall_key(mock_build: Mock, tmp_path: Path) -> None:
-    config_file = tmp_path / "config"
-    config_file.write_text("DF_SERVER_URL=http://localhost:8000\n")
-    state.cli_config_file = config_file
-
-    cmd = _get_uninstall_command()
-
-    assert cmd == ["uv", "tool", "uninstall", "deepfellow-cli"]
-    assert mock_build.call_count == 1
+    assert mock_resolve.call_count == 1
+    assert mock_resolve.call_args == mock.call("DF_UNINSTALL_COMMAND", _build_uninstall_command)
 
     state.reset()
 
 
 @mock.patch("deepfellow.cli.uninstall.echo")
-@mock.patch("deepfellow.cli.uninstall._get_uninstall_command", return_value=None)
-def test_uninstall_exits_with_error_when_no_package_manager(mock_get: Mock, mock_echo: Mock) -> None:
+@mock.patch("deepfellow.cli.uninstall.resolve_cli_command", return_value=None)
+def test_uninstall_exits_with_error_when_no_package_manager(mock_resolve: Mock, mock_echo: Mock) -> None:
     with pytest.raises(typer.Exit) as exc_info:
         uninstall(prune=False)
 
@@ -137,8 +113,8 @@ def test_uninstall_exits_with_error_when_no_package_manager(mock_get: Mock, mock
 
 @mock.patch("deepfellow.cli.uninstall.echo")
 @mock.patch("deepfellow.cli.uninstall.run", return_value="ok")
-@mock.patch("deepfellow.cli.uninstall._get_uninstall_command", return_value=_UV_UNINSTALL_CMD)
-def test_uninstall_runs_detected_command_with_yes_flag(mock_get: Mock, mock_run: Mock, mock_echo: Mock) -> None:
+@mock.patch("deepfellow.cli.uninstall.resolve_cli_command", return_value=_UV_UNINSTALL_CMD)
+def test_uninstall_runs_detected_command_with_yes_flag(mock_resolve: Mock, mock_run: Mock, mock_echo: Mock) -> None:
     state.yes = True
 
     uninstall(prune=False)
@@ -155,8 +131,8 @@ def test_uninstall_runs_detected_command_with_yes_flag(mock_get: Mock, mock_run:
 
 @mock.patch("deepfellow.cli.uninstall.echo")
 @mock.patch("deepfellow.cli.uninstall.run", side_effect=typer.Exit(1))
-@mock.patch("deepfellow.cli.uninstall._get_uninstall_command", return_value=_UV_UNINSTALL_CMD)
-def test_uninstall_exits_when_run_fails(mock_get: Mock, mock_run: Mock, mock_echo: Mock) -> None:
+@mock.patch("deepfellow.cli.uninstall.resolve_cli_command", return_value=_UV_UNINSTALL_CMD)
+def test_uninstall_exits_when_run_fails(mock_resolve: Mock, mock_run: Mock, mock_echo: Mock) -> None:
     state.yes = True
 
     with pytest.raises(typer.Exit) as exc_info:
@@ -175,9 +151,9 @@ def test_uninstall_exits_when_run_fails(mock_get: Mock, mock_run: Mock, mock_ech
 @mock.patch("deepfellow.cli.uninstall._down_docker_compose")
 @mock.patch("deepfellow.cli.uninstall.echo")
 @mock.patch("deepfellow.cli.uninstall.run", return_value="ok")
-@mock.patch("deepfellow.cli.uninstall._get_uninstall_command", return_value=_UV_UNINSTALL_CMD)
+@mock.patch("deepfellow.cli.uninstall.resolve_cli_command", return_value=_UV_UNINSTALL_CMD)
 def test_uninstall_prune_removes_data_when_prune_flag_set(
-    mock_get: Mock,
+    mock_resolve: Mock,
     mock_run: Mock,
     mock_echo: Mock,
     mock_down: Mock,
@@ -207,9 +183,9 @@ def test_uninstall_prune_removes_data_when_prune_flag_set(
 @mock.patch("deepfellow.cli.uninstall._down_docker_compose")
 @mock.patch("deepfellow.cli.uninstall.echo")
 @mock.patch("deepfellow.cli.uninstall.run", return_value="ok")
-@mock.patch("deepfellow.cli.uninstall._get_uninstall_command", return_value=_UV_UNINSTALL_CMD)
+@mock.patch("deepfellow.cli.uninstall.resolve_cli_command", return_value=_UV_UNINSTALL_CMD)
 def test_uninstall_prune_skips_missing_directories(
-    mock_get: Mock,
+    mock_resolve: Mock,
     mock_run: Mock,
     mock_echo: Mock,
     mock_down: Mock,
@@ -232,8 +208,8 @@ def test_uninstall_prune_skips_missing_directories(
 
 
 @mock.patch("deepfellow.cli.uninstall.echo")
-@mock.patch("deepfellow.cli.uninstall._get_uninstall_command", return_value=_UV_UNINSTALL_CMD)
-def test_uninstall_exits_when_user_declines_confirmation(mock_get: Mock, mock_echo: Mock) -> None:
+@mock.patch("deepfellow.cli.uninstall.resolve_cli_command", return_value=_UV_UNINSTALL_CMD)
+def test_uninstall_exits_when_user_declines_confirmation(mock_resolve: Mock, mock_echo: Mock) -> None:
     mock_echo.confirm.return_value = False
     state.yes = False
 
@@ -241,24 +217,6 @@ def test_uninstall_exits_when_user_declines_confirmation(mock_get: Mock, mock_ec
         uninstall(prune=False)
 
     assert exc_info.value.exit_code == 0
-
-    state.reset()
-
-
-@mock.patch("deepfellow.cli.uninstall._build_uninstall_command", return_value=_UV_UNINSTALL_CMD)
-@mock.patch("deepfellow.cli.uninstall.echo")
-def test_get_uninstall_command_falls_back_when_config_has_malformed_command(
-    mock_echo: Mock, mock_build: Mock, tmp_path: Path
-) -> None:
-    config_file = tmp_path / "config"
-    config_file.write_text('DF_UNINSTALL_COMMAND=uv "unmatched\n')
-    state.cli_config_file = config_file
-
-    cmd = _get_uninstall_command()
-
-    assert cmd == _UV_UNINSTALL_CMD
-    assert mock_echo.warning.call_count == 1
-    assert mock_build.call_count == 1
 
     state.reset()
 

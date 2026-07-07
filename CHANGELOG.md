@@ -13,9 +13,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Running `deepfellow` with no command now shows the DeepFellow banner with the current CLI version
 
 ### Fixed
+- `deepfellow cli update` no longer reports failure (exit code 1, no success message) after a successful upgrade; it now exits 0 and prints "updated successfully" when the upgrade completes, and only errors out when the upgrade command actually fails.
 - Fixed `--non-interactive` failing with "Please provide the value in args" when a CLI argument value equals the Typer default (e.g. `--mongodb-database-name deepfellow` during `server install`).
 
 ### Changed
+- `deepfellow cli update` now resolves its upgrade command from the `DF_UPDATE_COMMAND` value stored in config (written by `install.sh` at install time), instead of always probing the package manager; existing installs keep working via detection fallback, and the resolved command is written back to config on first run. `install.sh` now records `DF_UPDATE_COMMAND` alongside `DF_UNINSTALL_COMMAND`, so `cli update` also works for pip/pip3 installs.
 - `infra connect` no longer takes the mesh key as a required command-line argument; in interactive mode it prompts for the key with masked (password-style) input, so the secret no longer leaks into the screen, shell history, or process list. The key can still be passed as an argument for scripting and `--non-interactive` runs.
 - `df infra/server install` both have switched order of questions. Docker Network prompt appears sooner.
 
