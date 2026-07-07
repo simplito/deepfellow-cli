@@ -55,9 +55,9 @@ def test_prune_service_skips_when_directory_missing(mock_echo: Mock, mock_down: 
 @mock.patch("deepfellow.prune._down_docker_compose")
 @mock.patch("deepfellow.prune.echo")
 @mock.patch("deepfellow.prune.run", return_value="ok")
-@mock.patch("deepfellow.prune._get_uninstall_command", return_value=_UV_UNINSTALL_CMD)
+@mock.patch("deepfellow.prune.resolve_cli_command", return_value=_UV_UNINSTALL_CMD)
 def test_prune_tears_down_everything_with_yes_flag(
-    mock_get: Mock,
+    mock_resolve: Mock,
     mock_run: Mock,
     mock_echo: Mock,
     mock_down: Mock,
@@ -84,8 +84,8 @@ def test_prune_tears_down_everything_with_yes_flag(
 
 
 @mock.patch("deepfellow.prune.echo")
-@mock.patch("deepfellow.prune._get_uninstall_command", return_value=_UV_UNINSTALL_CMD)
-def test_prune_exits_when_user_declines_confirmation(mock_get: Mock, mock_echo: Mock) -> None:
+@mock.patch("deepfellow.prune.resolve_cli_command", return_value=_UV_UNINSTALL_CMD)
+def test_prune_exits_when_user_declines_confirmation(mock_resolve: Mock, mock_echo: Mock) -> None:
     mock_echo.confirm.return_value = False
     state.yes = False
 
@@ -104,9 +104,9 @@ def test_prune_exits_when_user_declines_confirmation(mock_get: Mock, mock_echo: 
 @mock.patch("deepfellow.prune._down_docker_compose")
 @mock.patch("deepfellow.prune.echo")
 @mock.patch("deepfellow.prune.run", return_value="ok")
-@mock.patch("deepfellow.prune._get_uninstall_command", return_value=_UV_UNINSTALL_CMD)
+@mock.patch("deepfellow.prune.resolve_cli_command", return_value=_UV_UNINSTALL_CMD)
 def test_prune_skips_missing_installations(
-    mock_get: Mock,
+    mock_resolve: Mock,
     mock_run: Mock,
     mock_echo: Mock,
     mock_down: Mock,
@@ -136,9 +136,9 @@ def test_prune_skips_missing_installations(
 @mock.patch("deepfellow.prune._down_docker_compose")
 @mock.patch("deepfellow.prune.echo")
 @mock.patch("deepfellow.prune.run")
-@mock.patch("deepfellow.prune._get_uninstall_command", return_value=None)
+@mock.patch("deepfellow.prune.resolve_cli_command", return_value=None)
 def test_prune_warns_and_skips_package_removal_when_no_package_manager(
-    mock_get: Mock,
+    mock_resolve: Mock,
     mock_run: Mock,
     mock_echo: Mock,
     mock_down: Mock,

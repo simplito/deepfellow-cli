@@ -11,25 +11,29 @@
 
 import typer
 
+from deepfellow.cli.utils.command_resolver import PACKAGE_NAME, resolve_cli_command
 from deepfellow.common.echo import echo
+from deepfellow.common.exceptions import reraise_if_debug
 from deepfellow.common.system import is_command_available, run
 
 app = typer.Typer()
 
-_PACKAGE_NAME = "deepfellow-cli"
+
+class UpdateError(Exception):
+    """Raised when the CLI update command exits with a non-zero status."""
 
 
 def _build_update_command() -> list[str] | None:
     """Build the update command based on the detected installer."""
     if is_command_available("uv"):
         uv_tools = run(["uv", "tool", "list"], capture_output=True)
-        if uv_tools and _PACKAGE_NAME in uv_tools:
-            return ["uv", "tool", "upgrade", _PACKAGE_NAME]
+        if uv_tools and PACKAGE_NAME in uv_tools:
+            return ["uv", "tool", "upgrade", PACKAGE_NAME]
 
     if is_command_available("pipx"):
         pipx_list = run(["pipx", "list"], capture_output=True)
-        if pipx_list and _PACKAGE_NAME in pipx_list:
-            return ["pipx", "upgrade", _PACKAGE_NAME]
+        if pipx_list and PACKAGE_NAME in pipx_list:
+            return ["pipx", "upgrade", PACKAGE_NAME]
 
     return None
 
@@ -37,13 +41,16 @@ def _build_update_command() -> list[str] | None:
 @app.command()
 def update() -> None:
     """Update DeepFellow CLI."""
-    cmd = _build_update_command()
+    cmd = resolve_cli_command("DF_UPDATE_COMMAND", _build_update_command)
     if cmd is None:
         echo.error("Unable to detect package manager. Update manually: pip install --upgrade deepfellow-cli")
         raise typer.Exit(1)
 
     echo.info("Updating DeepFellow CLI...")
-    if run(cmd) is None:
-        raise typer.Exit(1)
+    try:
+        run(cmd, raises=UpdateError)
+    except UpdateError as exc:
+        echo.error("Failed to update DeepFellow CLI.")
+        reraise_if_debug(exc)
 
     echo.success("DeepFellow CLI updated successfully.")

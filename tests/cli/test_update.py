@@ -13,7 +13,7 @@ from unittest.mock import Mock
 import pytest
 import typer
 
-from deepfellow.cli.update import _build_update_command, update
+from deepfellow.cli.update import UpdateError, _build_update_command, update
 
 
 @mock.patch("deepfellow.cli.update.run", return_value="deepfellow-cli 0.4.0")
@@ -64,24 +64,36 @@ def test_build_update_command_returns_none_when_no_package_manager_detected(
 
 @mock.patch("deepfellow.cli.update.echo")
 @mock.patch("deepfellow.cli.update.run", return_value="ok")
-@mock.patch("deepfellow.cli.update._build_update_command")
-def test_update_runs_detected_command(mock_build: Mock, mock_run: Mock, mock_echo: Mock) -> None:
-    mock_build.return_value = ["uv", "tool", "upgrade", "deepfellow-cli"]
+@mock.patch("deepfellow.cli.update.resolve_cli_command")
+def test_update_runs_resolved_command(mock_resolve: Mock, mock_run: Mock, mock_echo: Mock) -> None:
+    mock_resolve.return_value = ["uv", "tool", "upgrade", "deepfellow-cli"]
 
     update()
 
     assert mock_run.call_count == 1
     assert mock_run.call_args == (
         (["uv", "tool", "upgrade", "deepfellow-cli"],),
-        {},
+        {"raises": UpdateError},
     )
 
 
 @mock.patch("deepfellow.cli.update.echo")
 @mock.patch("deepfellow.cli.update.run", return_value="ok")
-@mock.patch("deepfellow.cli.update._build_update_command")
-def test_update_prints_success(mock_build: Mock, mock_run: Mock, mock_echo: Mock) -> None:
-    mock_build.return_value = ["uv", "tool", "upgrade", "deepfellow-cli"]
+@mock.patch("deepfellow.cli.update.resolve_cli_command")
+def test_update_resolves_command_with_update_config_key(mock_resolve: Mock, mock_run: Mock, mock_echo: Mock) -> None:
+    mock_resolve.return_value = ["uv", "tool", "upgrade", "deepfellow-cli"]
+
+    update()
+
+    assert mock_resolve.call_count == 1
+    assert mock_resolve.call_args == mock.call("DF_UPDATE_COMMAND", _build_update_command)
+
+
+@mock.patch("deepfellow.cli.update.echo")
+@mock.patch("deepfellow.cli.update.run", return_value="ok")
+@mock.patch("deepfellow.cli.update.resolve_cli_command")
+def test_update_prints_success(mock_resolve: Mock, mock_run: Mock, mock_echo: Mock) -> None:
+    mock_resolve.return_value = ["uv", "tool", "upgrade", "deepfellow-cli"]
 
     update()
 
@@ -89,8 +101,8 @@ def test_update_prints_success(mock_build: Mock, mock_run: Mock, mock_echo: Mock
 
 
 @mock.patch("deepfellow.cli.update.echo")
-@mock.patch("deepfellow.cli.update._build_update_command", return_value=None)
-def test_update_exits_with_error_when_no_package_manager_detected(mock_build: Mock, mock_echo: Mock) -> None:
+@mock.patch("deepfellow.cli.update.resolve_cli_command", return_value=None)
+def test_update_exits_with_error_when_no_package_manager_detected(mock_resolve: Mock, mock_echo: Mock) -> None:
     with pytest.raises(typer.Exit) as exc_info:
         update()
 
@@ -99,13 +111,26 @@ def test_update_exits_with_error_when_no_package_manager_detected(mock_build: Mo
 
 
 @mock.patch("deepfellow.cli.update.echo")
-@mock.patch("deepfellow.cli.update.run", return_value=None)
-@mock.patch("deepfellow.cli.update._build_update_command")
-def test_update_exits_when_run_fails(mock_build: Mock, mock_run: Mock, mock_echo: Mock) -> None:
-    mock_build.return_value = ["uv", "tool", "upgrade", "deepfellow-cli"]
+@mock.patch("deepfellow.cli.update.run", side_effect=UpdateError("boom"))
+@mock.patch("deepfellow.cli.update.resolve_cli_command")
+def test_update_exits_when_run_fails(mock_resolve: Mock, mock_run: Mock, mock_echo: Mock) -> None:
+    mock_resolve.return_value = ["uv", "tool", "upgrade", "deepfellow-cli"]
 
     with pytest.raises(typer.Exit) as exc_info:
         update()
 
     assert exc_info.value.exit_code == 1
+    assert mock_echo.error.call_count == 1
     assert mock_echo.success.call_count == 0
+
+
+@mock.patch("deepfellow.cli.update.echo")
+@mock.patch("deepfellow.cli.update.run", return_value=None)
+@mock.patch("deepfellow.cli.update.resolve_cli_command")
+def test_update_succeeds_when_run_returns_none(mock_resolve: Mock, mock_run: Mock, mock_echo: Mock) -> None:
+    # `run` returns None on success when output is not captured; update must treat this as success.
+    mock_resolve.return_value = ["uv", "tool", "upgrade", "deepfellow-cli"]
+
+    update()
+
+    assert mock_echo.success.call_count == 1

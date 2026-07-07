@@ -9,12 +9,11 @@
 
 """Uninstall cli typer command."""
 
-import shlex
 from pathlib import Path
 
 import typer
 
-from deepfellow.common.config import read_env_file
+from deepfellow.cli.utils.command_resolver import PACKAGE_NAME, resolve_cli_command
 from deepfellow.common.defaults import DF_DEEPFELLOW_DIRECTORY, DF_INFRA_DIRECTORY, DF_SERVER_DIRECTORY
 from deepfellow.common.echo import echo
 from deepfellow.common.state import state
@@ -22,44 +21,26 @@ from deepfellow.common.system import is_command_available, rmtree, run
 
 app = typer.Typer()
 
-_PACKAGE_NAME = "deepfellow-cli"
-
 
 def _build_uninstall_command() -> list[str] | None:
     """Build the uninstall command based on the detected installer."""
     if is_command_available("uv"):
         uv_tools = run(["uv", "tool", "list"], capture_output=True)
-        if uv_tools and _PACKAGE_NAME in uv_tools:
-            return ["uv", "tool", "uninstall", _PACKAGE_NAME]
+        if uv_tools and PACKAGE_NAME in uv_tools:
+            return ["uv", "tool", "uninstall", PACKAGE_NAME]
 
     if is_command_available("pipx"):
         pipx_list = run(["pipx", "list"], capture_output=True)
-        if pipx_list and _PACKAGE_NAME in pipx_list:
-            return ["pipx", "uninstall", _PACKAGE_NAME]
+        if pipx_list and PACKAGE_NAME in pipx_list:
+            return ["pipx", "uninstall", PACKAGE_NAME]
 
     if is_command_available("pip3"):
-        return ["pip3", "uninstall", _PACKAGE_NAME, "-y"]
+        return ["pip3", "uninstall", PACKAGE_NAME, "-y"]
 
     if is_command_available("pip"):
-        return ["pip", "uninstall", _PACKAGE_NAME, "-y"]
+        return ["pip", "uninstall", PACKAGE_NAME, "-y"]
 
     return None
-
-
-def _get_uninstall_command() -> list[str] | None:
-    """Get the uninstall command from config or fall back to auto-detection."""
-    if state.cli_config_file.is_file():
-        try:
-            envs = read_env_file(state.cli_config_file)
-            cmd_str = envs.get("DF_UNINSTALL_COMMAND", "").strip()
-            if cmd_str:
-                try:
-                    return shlex.split(cmd_str)
-                except ValueError:
-                    echo.warning("Invalid DF_UNINSTALL_COMMAND in config, falling back to auto-detection.")
-        except FileNotFoundError:
-            pass
-    return _build_uninstall_command()
 
 
 def _down_docker_compose(directory: Path) -> None:
@@ -97,7 +78,7 @@ def uninstall(
     ),
 ) -> None:
     """Uninstall DeepFellow CLI."""
-    cmd = _get_uninstall_command()
+    cmd = resolve_cli_command("DF_UNINSTALL_COMMAND", _build_uninstall_command)
     if not cmd:
         echo.error("Unable to detect package manager. Uninstall manually: pip uninstall deepfellow-cli")
         raise typer.Exit(1)
