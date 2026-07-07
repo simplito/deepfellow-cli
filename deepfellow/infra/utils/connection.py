@@ -1,0 +1,85 @@
+# DeepFellow Software Framework.
+# Copyright © 2026 Simplito sp. z o.o.
+#
+# This file is part of the DeepFellow Software Framework (https://deepfellow.ai).
+# This software is Licensed under the DeepFellow Free License.
+#
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Infra connection resolution utilities."""
+
+from collections.abc import Callable
+from typing import Any, cast
+
+import httpx
+import typer
+
+from deepfellow.common.config import read_env_file
+from deepfellow.common.echo import echo
+from deepfellow.common.env import env_set
+from deepfellow.common.state import state
+from deepfellow.common.validation import validate_url
+
+
+def resolve_infra_connection(server: str | None) -> tuple[str, str]:
+    """Resolve infra server URL and admin API key from config, secrets, or interactive prompts.
+
+    Args:
+        server: Server URL passed via CLI option, or None to fall back to config/prompt.
+
+    Returns:
+        Tuple of (server_url, api_key).
+    """
+    config_file = state.cli_config_file
+    config = state.cli_config
+    config_external_server = config.get("df_infra_external_url")
+    secrets_file = state.cli_secrets_file
+
+    if server is None:
+        if config_external_server is not None:
+            server = config_external_server
+        else:
+            server = echo.prompt_until_valid(
+                "Provide an external URL for this Infra. e.g. http://localhost:8086",
+                validate_url,
+                error_message="Invalid URL. Please try again.",
+            )
+
+    server = cast("str", server)
+    if server != config_external_server:
+        env_set(config_file, "DF_INFRA_EXTERNAL_URL", server, should_raise=False)
+
+    secrets = read_env_file(secrets_file) if secrets_file.is_file() else {}
+    api_key = secrets.get("DF_INFRA_ADMIN_API_KEY")
+    if api_key is None:
+        api_key = echo.prompt("Provide Infra Admin API Key", password=True)
+        env_set(secrets_file, "DF_INFRA_ADMIN_API_KEY", api_key, should_raise=False)
+
+    return server, cast("str", api_key)
+
+
+def call_infra(request: Callable[[], dict[str, Any]], default_error_msg: str) -> dict[str, Any]:
+    """Call the Infra API, translating transport errors into user-facing messages.
+
+    ``request`` must invoke the REST helper with ``reraise=True`` so ``httpx`` errors
+    propagate here instead of being swallowed with a generic message.
+
+    Args:
+        request: Zero-argument callable performing the REST call (e.g. ``lambda: get(...)``).
+        default_error_msg: Message shown when an HTTP error response has no body.
+
+    Returns:
+        The parsed JSON response.
+    """
+    try:
+        return request()
+    except httpx.ConnectError as exc:
+        echo.error("No connection with DeepFellow Infra. Is it up? (deepfellow infra start)")
+        raise typer.Exit(1) from exc
+    except httpx.HTTPStatusError as exc:
+        echo.error(exc.response.text or default_error_msg)
+        raise typer.Exit(1) from exc
+    except httpx.HTTPError as exc:
+        echo.error(default_error_msg)
+        raise typer.Exit(1) from exc

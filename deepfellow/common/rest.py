@@ -45,7 +45,9 @@ def get_server_url(server: str | None) -> str:
     return server
 
 
-def get(url: str, token: str, headers: dict[str, str] | None = None, item_name: str | None = None) -> dict[str, Any]:
+def get(
+    url: str, token: str, headers: dict[str, str] | None = None, item_name: str | None = None, reraise: bool = False
+) -> dict[str, Any]:
     """Perform GET on url."""
     echo.debug(f"GET {url}")
     headers = headers or {}
@@ -68,8 +70,10 @@ def get(url: str, token: str, headers: dict[str, str] | None = None, item_name: 
 
         response.raise_for_status()
     except httpx.HTTPError as exc:
-        echo.error("HTTP Exception")
         echo.debug(exc)
+        if reraise:
+            raise
+        echo.error("HTTP Exception")
         raise typer.Exit(1) from exc
 
     return response.json()
