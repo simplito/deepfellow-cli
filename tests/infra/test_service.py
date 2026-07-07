@@ -14,6 +14,7 @@ import httpx
 import pytest
 import typer
 
+from deepfellow.infra.service.fields import fields
 from deepfellow.infra.service.install import install
 from deepfellow.infra.service.list import list as list_services
 from deepfellow.infra.service.uninstall import uninstall
@@ -326,3 +327,179 @@ def test_list_connection_error(
     assert mock_echo.error.call_args == mock.call(
         "No connection with DeepFellow Infra. Is it up? (deepfellow infra start)"
     )
+
+
+@mock.patch("deepfellow.infra.service.fields.echo")
+@mock.patch("deepfellow.infra.service.fields.make_request")
+@mock.patch("deepfellow.infra.service.fields.cast")
+@mock.patch("deepfellow.infra.service.fields.read_env_file")
+@mock.patch("deepfellow.infra.service.fields.env_set")
+def test_fields_displays_fields(
+    mock_env_set: Mock,
+    mock_read_env_file: Mock,
+    mock_cast: Mock,
+    mock_make_request: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_make_request.return_value = {
+        "spec": {
+            "fields": [
+                {
+                    "name": "url",
+                    "description": "URL to external Ollama instance",
+                    "default": "http://localhost:11434",
+                }
+            ]
+        }
+    }
+
+    fields(name="ollama-external", server="http://infra:8086")
+
+    assert mock_make_request.call_count == 1
+    assert mock_echo.info.call_count == 1
+    assert mock_echo.info.call_args == mock.call(
+        "- url: URL to external Ollama instance (default: http://localhost:11434)"
+    )
+
+
+@mock.patch("deepfellow.infra.service.fields.echo")
+@mock.patch("deepfellow.infra.service.fields.make_request")
+@mock.patch("deepfellow.infra.service.fields.cast")
+@mock.patch("deepfellow.infra.service.fields.read_env_file")
+@mock.patch("deepfellow.infra.service.fields.env_set")
+def test_fields_missing_default_shows_none(
+    mock_env_set: Mock,
+    mock_read_env_file: Mock,
+    mock_cast: Mock,
+    mock_make_request: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_make_request.return_value = {"spec": {"fields": [{"name": "token", "description": "API token"}]}}
+
+    fields(name="some-service", server="http://infra:8086")
+
+    assert mock_echo.info.call_count == 1
+    assert mock_echo.info.call_args == mock.call("- token: API token (default: None)")
+
+
+@mock.patch("deepfellow.infra.service.fields.echo")
+@mock.patch("deepfellow.infra.service.fields.make_request")
+@mock.patch("deepfellow.infra.service.fields.cast")
+@mock.patch("deepfellow.infra.service.fields.read_env_file")
+@mock.patch("deepfellow.infra.service.fields.env_set")
+def test_fields_with_no_fields(
+    mock_env_set: Mock,
+    mock_read_env_file: Mock,
+    mock_cast: Mock,
+    mock_make_request: Mock,
+    mock_echo: Mock,
+    name: str,
+) -> None:
+    mock_make_request.return_value = {"spec": {"fields": []}}
+
+    fields(name=name, server="http://infra:8086")
+
+    assert mock_echo.info.call_count == 1
+    assert mock_echo.info.call_args == mock.call(f"Service '{name}' has no configuration fields.")
+
+
+@mock.patch("deepfellow.infra.service.fields.echo")
+@mock.patch("deepfellow.infra.service.fields.make_request")
+@mock.patch("deepfellow.infra.service.fields.cast")
+@mock.patch("deepfellow.infra.service.fields.read_env_file")
+@mock.patch("deepfellow.infra.service.fields.env_set")
+def test_fields_service_not_found(
+    mock_env_set: Mock,
+    mock_read_env_file: Mock,
+    mock_cast: Mock,
+    mock_make_request: Mock,
+    mock_echo: Mock,
+    name: str,
+) -> None:
+    response = httpx.Response(status_code=404, text="Service not found", request=httpx.Request("GET", "http://x"))
+    mock_make_request.side_effect = httpx.HTTPStatusError("TEST", request=response.request, response=response)
+
+    with pytest.raises(typer.Exit):
+        fields(name=name, server="http://infra:8086")
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call("Service not found")
+
+
+@pytest.mark.parametrize("exception", [httpx.ConnectError("TEST"), httpx.ReadTimeout("TEST")])
+@mock.patch("deepfellow.infra.service.fields.echo")
+@mock.patch("deepfellow.infra.service.fields.make_request")
+@mock.patch("deepfellow.infra.service.fields.cast")
+@mock.patch("deepfellow.infra.service.fields.read_env_file")
+@mock.patch("deepfellow.infra.service.fields.env_set")
+def test_fields_transport_error_shows_connection_error(
+    mock_env_set: Mock,
+    mock_read_env_file: Mock,
+    mock_cast: Mock,
+    mock_make_request: Mock,
+    mock_echo: Mock,
+    exception: httpx.TransportError,
+    name: str,
+) -> None:
+    mock_make_request.side_effect = exception
+
+    with pytest.raises(typer.Exit):
+        fields(name=name, server="http://infra:8086")
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call(
+        "No connection with DeepFellow Infra. Is it up? (deepfellow infra start)"
+    )
+
+
+@mock.patch("deepfellow.infra.service.fields.echo")
+@mock.patch("deepfellow.infra.service.fields.make_request")
+@mock.patch("deepfellow.infra.service.fields.cast")
+@mock.patch("deepfellow.infra.service.fields.read_env_file")
+@mock.patch("deepfellow.infra.service.fields.env_set")
+def test_fields_oneof_lists_available_options(
+    mock_env_set: Mock,
+    mock_read_env_file: Mock,
+    mock_cast: Mock,
+    mock_make_request: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_make_request.return_value = {
+        "spec": {
+            "fields": [
+                {
+                    "name": "hardware",
+                    "description": "Choose hardware:",
+                    "default": "GPU",
+                    "values": [{"value": "GPU", "label": "GPU"}, {"value": "CPU", "label": "CPU"}],
+                }
+            ]
+        }
+    }
+
+    fields(name="ollama", server="http://infra:8086")
+
+    assert mock_echo.info.call_count == 1
+    assert mock_echo.info.call_args == mock.call("- hardware: Choose hardware: (default: GPU, available: GPU, CPU)")
+
+
+@mock.patch("deepfellow.infra.service.fields.echo")
+@mock.patch("deepfellow.infra.service.fields.make_request")
+@mock.patch("deepfellow.infra.service.fields.cast")
+@mock.patch("deepfellow.infra.service.fields.read_env_file")
+@mock.patch("deepfellow.infra.service.fields.env_set")
+def test_fields_generic_http_error_shows_default_message(
+    mock_env_set: Mock,
+    mock_read_env_file: Mock,
+    mock_cast: Mock,
+    mock_make_request: Mock,
+    mock_echo: Mock,
+    name: str,
+) -> None:
+    mock_make_request.side_effect = httpx.TooManyRedirects("TEST")
+
+    with pytest.raises(typer.Exit):
+        fields(name=name, server="http://infra:8086")
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call(f"Unable to get fields for service '{name}'.")

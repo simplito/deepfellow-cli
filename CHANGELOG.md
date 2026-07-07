@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- `deepfellow infra service fields <service-name>` command — calls `GET /admin/services/{service-name}` and lists the configuration fields the service expects, printing each as `- {name}: {description} (default: {default})`; for `oneof` fields it also lists the available options (`available: ...`); exits with a clear error when the service is not found
 - ollama-cloud installation option
 - `deepfellow prune` command — full teardown in one step: prunes the DeepFellow Server and Infra stacks (`docker compose down -v` + removes their directories), wipes any remaining `~/.deepfellow/` files, and uninstalls the CLI package last. Each step tolerates a missing installation, and the destructive action is gated by a confirmation prompt respecting `--yes`/`--non-interactive`.
 - `deepfellow --version` flag — prints the CLI version, plus the installed Infra and Server versions (each extra line shown only when that component is installed)
