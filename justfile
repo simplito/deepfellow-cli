@@ -14,10 +14,13 @@ ruff-format *FLAGS:
 mypy *FLAGS:
     uv run mypy deepfellow/ {{FLAGS}}
 
+pyright:
+    uv run pyright
+
 license-check *FLAGS:
     uv run scripts/check_license_header.py {{FLAGS}}
 
 deptry *FLAGS:
     uv run deptry . {{FLAGS}}
 
-check: ruff ruff-format mypy license-check deptry
+check: ruff ruff-format mypy pyright license-check deptry

@@ -6,13 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 All commands use `just` (task runner):
 
-- `just check` — run all checks (ruff lint, ruff format, mypy, license headers)
+- `just check` — run all checks (ruff lint, ruff format, mypy, pyright, license headers, deptry)
 - `just test` — run all tests with coverage
 - `just test tests/infra/test_service.py` — single test file
 - `just test tests/infra/test_service.py::test_function_name` — single test
 - `just ruff` — lint
 - `just ruff-format` — format
-- `just mypy` — type check
+- `just mypy` — type check (part of `check`)
+- `just pyright` — type check (part of `check`)
 - `just license-check` — verify license headers
 - `just df <args>` — run the CLI locally (e.g. `just df infra --help`)
 
