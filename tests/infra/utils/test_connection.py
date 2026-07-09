@@ -7,6 +7,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from json import JSONDecodeError
 from pathlib import Path
 from unittest import mock
 from unittest.mock import Mock
@@ -208,6 +209,41 @@ def test_call_infra_shows_response_text_on_http_status_error(mock_echo: Mock) ->
 def test_call_infra_shows_default_message_when_response_has_no_body(mock_echo: Mock) -> None:
     response = Mock(text="")
     request = Mock(side_effect=httpx.HTTPStatusError("TEST", request=Mock(), response=response))
+
+    with pytest.raises(typer.Exit):
+        call_infra(request, "Unable to call Infra")
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call("Unable to call Infra")
+
+
+@mock.patch("deepfellow.infra.utils.connection.echo")
+def test_call_infra_prefers_detail_from_json_body_on_http_status_error(mock_echo: Mock) -> None:
+    response = Mock(json=Mock(return_value={"detail": "Service 'foo' already exists"}), text='{"detail": "..."}')
+    request = Mock(side_effect=httpx.HTTPStatusError("TEST", request=Mock(), response=response))
+
+    with pytest.raises(typer.Exit):
+        call_infra(request, "Unable to call Infra")
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call("Service 'foo' already exists")
+
+
+@mock.patch("deepfellow.infra.utils.connection.echo")
+def test_call_infra_falls_back_to_text_when_body_is_not_json(mock_echo: Mock) -> None:
+    response = Mock(json=Mock(side_effect=JSONDecodeError("Expecting value", "", 0)), text="Internal Server Error")
+    request = Mock(side_effect=httpx.HTTPStatusError("TEST", request=Mock(), response=response))
+
+    with pytest.raises(typer.Exit):
+        call_infra(request, "Unable to call Infra")
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call("Internal Server Error")
+
+
+@mock.patch("deepfellow.infra.utils.connection.echo")
+def test_call_infra_shows_default_message_on_generic_http_error(mock_echo: Mock) -> None:
+    request = Mock(side_effect=httpx.ReadTimeout("timed out"))
 
     with pytest.raises(typer.Exit):
         call_infra(request, "Unable to call Infra")

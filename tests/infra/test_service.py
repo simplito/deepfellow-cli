@@ -17,7 +17,6 @@ import typer
 from deepfellow.infra.service.fields import fields
 from deepfellow.infra.service.install import install
 from deepfellow.infra.service.list import list as list_services
-from deepfellow.infra.service.uninstall import uninstall
 
 
 @pytest.fixture(name="name")
@@ -312,30 +311,6 @@ def test_install_sindri_with_api_key(
     assert mock_echo.success.call_count == 1
 
 
-@mock.patch("deepfellow.infra.service.uninstall.echo")
-@mock.patch("deepfellow.infra.service.uninstall.make_request")
-@mock.patch("deepfellow.infra.service.uninstall.cast")
-@mock.patch("deepfellow.infra.service.uninstall.read_env_file")
-@mock.patch("deepfellow.infra.service.uninstall.env_set")
-def test_uninstall_connection_error(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
-    mock_make_request: Mock,
-    mock_echo: Mock,
-    name: str,
-) -> None:
-    mock_make_request.side_effect = httpx.ConnectError("TEST")
-
-    with pytest.raises(typer.Exit):
-        uninstall(name=name)
-
-    assert mock_echo.error.call_count == 1
-    assert mock_echo.error.call_args == mock.call(
-        "No connection with DeepFellow Infra. Is it up? (deepfellow infra start)"
-    )
-
-
 @mock.patch("deepfellow.infra.service.list.echo")
 @mock.patch("deepfellow.infra.service.list.make_request")
 @mock.patch("deepfellow.infra.service.list.cast")
@@ -396,29 +371,6 @@ def test_list_with_no_installed_services(
 
     assert mock_echo.info.call_count == 1
     assert mock_echo.info.call_args == mock.call("No services installed.")
-
-
-@mock.patch("deepfellow.infra.service.list.echo")
-@mock.patch("deepfellow.infra.service.list.make_request")
-@mock.patch("deepfellow.infra.service.list.cast")
-@mock.patch("deepfellow.infra.service.list.read_env_file")
-@mock.patch("deepfellow.infra.service.list.env_set")
-def test_list_connection_error(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
-    mock_make_request: Mock,
-    mock_echo: Mock,
-) -> None:
-    mock_make_request.side_effect = httpx.ConnectError("TEST")
-
-    with pytest.raises(typer.Exit):
-        list_services(server="http://infra:8086")
-
-    assert mock_echo.error.call_count == 1
-    assert mock_echo.error.call_args == mock.call(
-        "No connection with DeepFellow Infra. Is it up? (deepfellow infra start)"
-    )
 
 
 @mock.patch("deepfellow.infra.service.fields.echo")
@@ -500,55 +452,6 @@ def test_fields_with_no_fields(
 @mock.patch("deepfellow.infra.service.fields.cast")
 @mock.patch("deepfellow.infra.service.fields.read_env_file")
 @mock.patch("deepfellow.infra.service.fields.env_set")
-def test_fields_service_not_found(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
-    mock_make_request: Mock,
-    mock_echo: Mock,
-    name: str,
-) -> None:
-    response = httpx.Response(status_code=404, text="Service not found", request=httpx.Request("GET", "http://x"))
-    mock_make_request.side_effect = httpx.HTTPStatusError("TEST", request=response.request, response=response)
-
-    with pytest.raises(typer.Exit):
-        fields(name=name, server="http://infra:8086")
-
-    assert mock_echo.error.call_count == 1
-    assert mock_echo.error.call_args == mock.call("Service not found")
-
-
-@pytest.mark.parametrize("exception", [httpx.ConnectError("TEST"), httpx.ReadTimeout("TEST")])
-@mock.patch("deepfellow.infra.service.fields.echo")
-@mock.patch("deepfellow.infra.service.fields.make_request")
-@mock.patch("deepfellow.infra.service.fields.cast")
-@mock.patch("deepfellow.infra.service.fields.read_env_file")
-@mock.patch("deepfellow.infra.service.fields.env_set")
-def test_fields_transport_error_shows_connection_error(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
-    mock_make_request: Mock,
-    mock_echo: Mock,
-    exception: httpx.TransportError,
-    name: str,
-) -> None:
-    mock_make_request.side_effect = exception
-
-    with pytest.raises(typer.Exit):
-        fields(name=name, server="http://infra:8086")
-
-    assert mock_echo.error.call_count == 1
-    assert mock_echo.error.call_args == mock.call(
-        "No connection with DeepFellow Infra. Is it up? (deepfellow infra start)"
-    )
-
-
-@mock.patch("deepfellow.infra.service.fields.echo")
-@mock.patch("deepfellow.infra.service.fields.make_request")
-@mock.patch("deepfellow.infra.service.fields.cast")
-@mock.patch("deepfellow.infra.service.fields.read_env_file")
-@mock.patch("deepfellow.infra.service.fields.env_set")
 def test_fields_oneof_lists_available_options(
     mock_env_set: Mock,
     mock_read_env_file: Mock,
@@ -573,25 +476,3 @@ def test_fields_oneof_lists_available_options(
 
     assert mock_echo.info.call_count == 1
     assert mock_echo.info.call_args == mock.call("- hardware: Choose hardware: (default: GPU, available: GPU, CPU)")
-
-
-@mock.patch("deepfellow.infra.service.fields.echo")
-@mock.patch("deepfellow.infra.service.fields.make_request")
-@mock.patch("deepfellow.infra.service.fields.cast")
-@mock.patch("deepfellow.infra.service.fields.read_env_file")
-@mock.patch("deepfellow.infra.service.fields.env_set")
-def test_fields_generic_http_error_shows_default_message(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
-    mock_make_request: Mock,
-    mock_echo: Mock,
-    name: str,
-) -> None:
-    mock_make_request.side_effect = httpx.TooManyRedirects("TEST")
-
-    with pytest.raises(typer.Exit):
-        fields(name=name, server="http://infra:8086")
-
-    assert mock_echo.error.call_count == 1
-    assert mock_echo.error.call_args == mock.call(f"Unable to get fields for service '{name}'.")

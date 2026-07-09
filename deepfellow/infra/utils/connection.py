@@ -10,6 +10,7 @@
 """Infra connection resolution utilities."""
 
 from collections.abc import Callable
+from json import JSONDecodeError
 from typing import Any, cast
 
 import httpx
@@ -78,8 +79,32 @@ def call_infra(request: Callable[[], dict[str, Any]], default_error_msg: str) ->
         echo.error("No connection with DeepFellow Infra. Is it up? (deepfellow infra start)")
         raise typer.Exit(1) from exc
     except httpx.HTTPStatusError as exc:
-        echo.error(exc.response.text or default_error_msg)
+        echo.error(_error_message(exc.response, default_error_msg))
         raise typer.Exit(1) from exc
     except httpx.HTTPError as exc:
         echo.error(default_error_msg)
         raise typer.Exit(1) from exc
+
+
+def _error_message(response: httpx.Response, default_error_msg: str) -> str:
+    """Extract a user-facing message from an error response.
+
+    Prefers the FastAPI ``{"detail": ...}`` field, falling back to the raw
+    response body and finally to ``default_error_msg``.
+
+    Args:
+        response: The error response carried by the ``httpx.HTTPStatusError``.
+        default_error_msg: Message used when the body is empty.
+
+    Returns:
+        The message to display to the user.
+    """
+    try:
+        body = response.json()
+    except JSONDecodeError:
+        body = None
+
+    if isinstance(body, dict) and isinstance(body.get("detail"), str):
+        return body["detail"]
+
+    return response.text or default_error_msg

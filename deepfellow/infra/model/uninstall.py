@@ -11,7 +11,6 @@
 
 from typing import cast
 
-import httpx
 import typer
 
 from deepfellow.common.config import read_env_file
@@ -20,6 +19,7 @@ from deepfellow.common.env import env_set
 from deepfellow.common.rest import make_request
 from deepfellow.common.state import state
 from deepfellow.common.validation import validate_server
+from deepfellow.infra.utils.connection import call_infra
 
 app = typer.Typer()
 
@@ -61,22 +61,17 @@ def uninstall(
 
     url = f"{server}/admin/services/{service_name}/models/_?model_id={model_name}"
 
-    try:
-        data = make_request(
+    data = call_infra(
+        lambda: make_request(
             method="DELETE",
             url=url,
             token=api_key,
             data={"purge": purge},
             err_msg="Unable to uninstall Model.",
             reraise=True,
-        )
-    except httpx.HTTPStatusError as exc:
-        msg = "Unable to uninstall model"
-        if exc.response:
-            msg = exc.response.text
-
-        echo.error(msg)
-        raise typer.Exit(1) from exc
+        ),
+        "Unable to uninstall model.",
+    )
 
     if data.get("status") != "OK":
         echo.error("Unable to uninstall model.")
