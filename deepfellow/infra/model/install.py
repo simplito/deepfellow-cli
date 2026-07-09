@@ -11,7 +11,6 @@
 
 from typing import cast
 
-import httpx
 import typer
 
 from deepfellow.common.config import read_env_file
@@ -20,6 +19,7 @@ from deepfellow.common.env import env_set
 from deepfellow.common.rest import post
 from deepfellow.common.state import state
 from deepfellow.common.validation import validate_server
+from deepfellow.infra.utils.connection import call_infra
 
 app = typer.Typer()
 
@@ -60,15 +60,10 @@ def install(
 
     url = f"{server}/admin/services/{service_name}/models/_?model_id={model_name}"
 
-    try:
-        data = post(url, api_key, item_name="Service", data={"spec": {}}, reraise=True)
-    except httpx.HTTPStatusError as exc:
-        msg = "Unable to install service"
-        if exc.response:
-            msg = exc.response.text
-
-        echo.error(msg)
-        raise typer.Exit(1) from exc
+    data = call_infra(
+        lambda: post(url, api_key, item_name="Service", data={"spec": {}}, reraise=True),
+        "Unable to install model.",
+    )
 
     if data.get("status") != "OK":
         echo.error("Unable to install model.")

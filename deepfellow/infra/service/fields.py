@@ -11,7 +11,6 @@
 
 from typing import Any, cast
 
-import httpx
 import typer
 
 from deepfellow.common.config import read_env_file
@@ -20,6 +19,7 @@ from deepfellow.common.env import env_set
 from deepfellow.common.rest import make_request
 from deepfellow.common.state import state
 from deepfellow.common.validation import validate_server
+from deepfellow.infra.utils.connection import call_infra
 
 app = typer.Typer()
 
@@ -76,23 +76,16 @@ def fields(
         env_set(secrets_file, "DF_INFRA_ADMIN_API_KEY", api_key, should_raise=False)
 
     url = f"{server}/admin/services/{name}"
-    try:
-        data = make_request(
+    data = call_infra(
+        lambda: make_request(
             method="GET",
             url=url,
             token=api_key,
             err_msg=f"Unable to get fields for service '{name}'.",
             reraise=True,
-        )
-    except httpx.TransportError as exc:
-        echo.error("No connection with DeepFellow Infra. Is it up? (deepfellow infra start)")
-        raise typer.Exit(1) from exc
-    except httpx.HTTPStatusError as exc:
-        echo.error(exc.response.text or f"Service '{name}' not found.")
-        raise typer.Exit(1) from exc
-    except httpx.HTTPError as exc:
-        echo.error(f"Unable to get fields for service '{name}'.")
-        raise typer.Exit(1) from exc
+        ),
+        f"Unable to get fields for service '{name}'.",
+    )
 
     service_fields = data.get("spec", {}).get("fields", [])
     if not service_fields:
