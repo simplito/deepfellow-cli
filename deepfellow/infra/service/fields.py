@@ -24,6 +24,19 @@ from deepfellow.infra.utils.connection import call_infra
 app = typer.Typer()
 
 
+def _format_field_options(field: dict[str, Any]) -> str:
+    """Format the available options of a ``oneof`` field, e.g. ``available: GPU, CPU``.
+
+    Returns an empty string if the field carries no ``values`` list.
+    """
+    values = field.get("values") or []
+    if not values:
+        return ""
+
+    options = [value.get("value", str(value)) if isinstance(value, dict) else str(value) for value in values]
+    return f"available: {', '.join(options)}"
+
+
 def _format_field(field: dict[str, Any]) -> str:
     """Format a single spec field as ``- {name}: {description} (default: {default})``.
 
@@ -36,17 +49,42 @@ def _format_field(field: dict[str, Any]) -> str:
     default = field.get("default")
     detail = f"default: {default}"
 
-    values = field.get("values") or []
-    if values:
-        options = [value.get("value", str(value)) if isinstance(value, dict) else str(value) for value in values]
-        detail += f", available: {', '.join(options)}"
+    options = _format_field_options(field)
+    if options:
+        detail += f", {options}"
 
     return f"- {name}: {description} ({detail})"
+
+
+def _format_field_set(field: dict[str, Any]) -> str:
+    """Format a single spec field as a ``--set`` usage hint.
+
+    E.g. ``--set hardware=<value>  (optional)  Choose hardware:  (default: GPU, available: GPU, CPU)``.
+    """
+    name = field.get("name")
+    description = field.get("description")
+    required = field.get("required", False)
+    default = field.get("default")
+
+    required_label = "required" if required else "optional"
+    line = f"  --set {name}=<value>  ({required_label})  {description}"
+
+    details = []
+    if default is not None:
+        details.append(f"default: {default}")
+    options = _format_field_options(field)
+    if options:
+        details.append(options)
+    if details:
+        line += f"  ({', '.join(details)})"
+
+    return line
 
 
 @app.command()
 def fields(
     name: str = typer.Argument(..., help="service name (e.g. ollama)"),
+    set_format: bool = typer.Option(False, "--set", help="Display fields as '--set' usage hints"),
     server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Infra address"),
 ) -> None:
     """Display configuration fields a service expects."""
@@ -92,4 +130,5 @@ def fields(
         echo.info(f"Service '{name}' has no configuration fields.")
         return
 
-    echo.info("\n".join(_format_field(field) for field in service_fields))
+    formatter = _format_field_set if set_format else _format_field
+    echo.info("\n".join(formatter(field) for field in service_fields))
