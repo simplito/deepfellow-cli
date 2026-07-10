@@ -397,7 +397,7 @@ def test_fields_displays_fields(
         }
     }
 
-    fields(name="ollama-external", server="http://infra:8086")
+    fields(name="ollama-external", set_format=False, server="http://infra:8086")
 
     assert mock_make_request.call_count == 1
     assert mock_echo.info.call_count == 1
@@ -420,7 +420,7 @@ def test_fields_missing_default_shows_none(
 ) -> None:
     mock_make_request.return_value = {"spec": {"fields": [{"name": "token", "description": "API token"}]}}
 
-    fields(name="some-service", server="http://infra:8086")
+    fields(name="some-service", set_format=False, server="http://infra:8086")
 
     assert mock_echo.info.call_count == 1
     assert mock_echo.info.call_args == mock.call("- token: API token (default: None)")
@@ -441,7 +441,7 @@ def test_fields_with_no_fields(
 ) -> None:
     mock_make_request.return_value = {"spec": {"fields": []}}
 
-    fields(name=name, server="http://infra:8086")
+    fields(name=name, set_format=False, server="http://infra:8086")
 
     assert mock_echo.info.call_count == 1
     assert mock_echo.info.call_args == mock.call(f"Service '{name}' has no configuration fields.")
@@ -472,7 +472,94 @@ def test_fields_oneof_lists_available_options(
         }
     }
 
-    fields(name="ollama", server="http://infra:8086")
+    fields(name="ollama", set_format=False, server="http://infra:8086")
 
     assert mock_echo.info.call_count == 1
     assert mock_echo.info.call_args == mock.call("- hardware: Choose hardware: (default: GPU, available: GPU, CPU)")
+
+
+@mock.patch("deepfellow.infra.service.fields.echo")
+@mock.patch("deepfellow.infra.service.fields.make_request")
+@mock.patch("deepfellow.infra.service.fields.cast")
+@mock.patch("deepfellow.infra.service.fields.read_env_file")
+@mock.patch("deepfellow.infra.service.fields.env_set")
+def test_fields_set_displays_set_usage_hints(
+    mock_env_set: Mock,
+    mock_read_env_file: Mock,
+    mock_cast: Mock,
+    mock_make_request: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_make_request.return_value = {
+        "spec": {
+            "fields": [
+                {
+                    "name": "hardware",
+                    "description": "Choose hardware:",
+                    "default": "GPU",
+                    "required": True,
+                }
+            ]
+        }
+    }
+
+    fields(name="ollama", set_format=True, server="http://infra:8086")
+
+    assert mock_echo.info.call_count == 1
+    assert mock_echo.info.call_args == mock.call(
+        "  --set hardware=<value>  (required)  Choose hardware:  (default: GPU)"
+    )
+
+
+@mock.patch("deepfellow.infra.service.fields.echo")
+@mock.patch("deepfellow.infra.service.fields.make_request")
+@mock.patch("deepfellow.infra.service.fields.cast")
+@mock.patch("deepfellow.infra.service.fields.read_env_file")
+@mock.patch("deepfellow.infra.service.fields.env_set")
+def test_fields_set_missing_default_omits_default(
+    mock_env_set: Mock,
+    mock_read_env_file: Mock,
+    mock_cast: Mock,
+    mock_make_request: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_make_request.return_value = {"spec": {"fields": [{"name": "token", "description": "API token"}]}}
+
+    fields(name="some-service", set_format=True, server="http://infra:8086")
+
+    assert mock_echo.info.call_count == 1
+    assert mock_echo.info.call_args == mock.call("  --set token=<value>  (optional)  API token")
+
+
+@mock.patch("deepfellow.infra.service.fields.echo")
+@mock.patch("deepfellow.infra.service.fields.make_request")
+@mock.patch("deepfellow.infra.service.fields.cast")
+@mock.patch("deepfellow.infra.service.fields.read_env_file")
+@mock.patch("deepfellow.infra.service.fields.env_set")
+def test_fields_set_oneof_lists_available_options(
+    mock_env_set: Mock,
+    mock_read_env_file: Mock,
+    mock_cast: Mock,
+    mock_make_request: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_make_request.return_value = {
+        "spec": {
+            "fields": [
+                {
+                    "name": "hardware",
+                    "description": "Choose hardware:",
+                    "default": "GPU",
+                    "required": True,
+                    "values": [{"value": "GPU", "label": "GPU"}, {"value": "CPU", "label": "CPU"}],
+                }
+            ]
+        }
+    }
+
+    fields(name="ollama", set_format=True, server="http://infra:8086")
+
+    assert mock_echo.info.call_count == 1
+    assert mock_echo.info.call_args == mock.call(
+        "  --set hardware=<value>  (required)  Choose hardware:  (default: GPU, available: GPU, CPU)"
+    )
