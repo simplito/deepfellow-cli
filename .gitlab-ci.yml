@@ -10,9 +10,9 @@ stages:
 
 
 variables:
-  UV_VERSION: "0.9.9"
-  PYTHON_VERSION: "3.10"
-  BASE_LAYER: bookworm-slim
+  UV_VERSION: "0.11"
+  PYTHON_VERSION: "3.13"
+  BASE_LAYER: trixie
   # GitLab CI creates a separate mountpoint for the build directory,
   # so we need to copy instead of using hard links.
   UV_LINK_MODE: copy

@@ -102,6 +102,33 @@ def try_refresh_token(secrets_file: Path, server: str) -> str | None:
     return new_token
 
 
+def register_token(secrets_file: Path, server: str, token: str) -> None:
+    """Validate an already-obtained access token against the server, then store it directly.
+
+    Skips the email/password login round-trip — useful when the token was obtained elsewhere
+    (e.g. a manual `/auth/login` call while testing). The token is checked against `/auth/me`
+    before being persisted, so a bad or expired `--token` fails immediately instead of being
+    silently written to disk. Any previously stored refresh token is dropped, since it may
+    belong to a different identity than the one behind the newly registered token.
+
+    Raises:
+        typer.Exit: If the token is rejected by the server or the server is unreachable.
+    """
+    url = f"{server}/auth/me"
+    echo.debug(f"GET {url}")
+    try:
+        response = httpx.get(url, headers={"Authorization": f"Bearer {token}"})
+        if response.status_code == 401:
+            echo.error("Not authorized. The provided token was rejected by the server.")
+            raise typer.Exit(1)
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        echo.error(f"HTTP request to {url} failed: {exc}")
+        raise typer.Exit(1) from exc
+
+    save_env_file(secrets_file, {"DF_USER_TOKEN": token}, docker_note=False, remove=["DF_USER_REFRESH_TOKEN"])
+
+
 def get_token_from_login(secrets_file: Path, server: str, email: str | None = None, password: str | None = None) -> str:
     """Login User and return the config.
 

@@ -9,11 +9,14 @@
 
 """Config for CLI."""
 
+import json
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+
+import typer
 
 from deepfellow.common.echo import echo
 
@@ -149,9 +152,23 @@ def read_env_file_to_dict(env_file: Path) -> EnvDict:
 
 
 def save_env_file(
-    env_file: Path, values: Mapping[str, str | int], docker_note: bool = True, quiet: bool = False
+    env_file: Path,
+    values: Mapping[str, str | int],
+    docker_note: bool = True,
+    quiet: bool = False,
+    remove: Iterable[str] = (),
 ) -> None:
-    """Creates or updates .env file with provided values."""
+    """Creates or updates .env file with provided values.
+
+    Args:
+        env_file: Path to the .env file.
+        values: Values to add or overwrite.
+        docker_note: Whether to prepend the Docker Compose header comment.
+        quiet: Whether to log the write via echo.debug instead of echo.info.
+        remove: Keys to drop from the file. Applied after merging `values`, so omitting a key
+            from `values` alone does not delete it — the file is re-read and merged with the
+            existing content, which would otherwise restore any key not explicitly removed.
+    """
     # Load existing values if file exists
     existing_vars = {}
     file_existed = env_file.exists()
@@ -162,6 +179,8 @@ def save_env_file(
 
     # Merge existing with new values (new values take precedence)
     final_vars = {**existing_vars, **values}
+    for key in remove:
+        final_vars.pop(key, None)
 
     content = "# Docker Compose Environment Variables\n# Edit these values as needed\n\n" if docker_note else ""
     for key, value in final_vars.items():
@@ -172,6 +191,74 @@ def save_env_file(
     action = "Updated" if file_existed else "Generated"
     msg = echo.debug if quiet else echo.info
     msg(f"{action} {env_file.as_posix()}.")
+
+
+def parse_key_value_updates(pairs: list[str]) -> dict[str, Any]:
+    """Parse ``key=value`` CLI arguments into a typed dict, JSON-decoding each value where possible.
+
+    Args:
+        pairs: List of ``key=value`` strings, e.g. ``["otel_tracing_enabled=true", "name=foo"]``.
+
+    Returns:
+        Dict mapping each key to its JSON-decoded value, or the raw string if it isn't valid JSON.
+
+    Raises:
+        typer.Exit: If any pair is missing the ``=`` separator.
+    """
+    updates: dict[str, Any] = {}
+    for pair in pairs:
+        if "=" not in pair:
+            echo.error(f"Invalid key=value pair: {pair}")
+            raise typer.Exit(1)
+        key, raw_value = pair.split("=", 1)
+        try:
+            value = json.loads(raw_value)
+        except json.JSONDecodeError:
+            value = raw_value
+        updates[key] = value
+    return updates
+
+
+def reveal_secret_entries(config: dict[str, Any], reveal: Callable[[str], str]) -> None:
+    """Replace masked values of secret entries in an Infra-style /admin/config response.
+
+    Args:
+        config: A response shaped like ``{"entries": [{"key": ..., "is_secret": ..., "value": ...}, ...]}``,
+            mutated in place.
+        reveal: Called with an entry's ``key`` for each entry where ``is_secret`` is true; must return
+            the revealed value.
+    """
+    for entry in config.get("entries", []):
+        if entry.get("is_secret"):
+            entry["value"] = reveal(entry["key"])
+
+
+SECRET_MASK = "••••••••"
+
+
+def reveal_masked_paths(config: dict[str, Any], reveal: Callable[[str], str], mask: str = SECRET_MASK) -> None:
+    """Replace masked leaf values in a Server-style /admin/config response with their revealed values.
+
+    Unlike Infra's response (an ``entries`` list with per-field ``is_secret`` metadata), Server's
+    /admin/config masks a fixed set of dotted-path fields in place within an otherwise plain nested
+    dict (e.g. ``{"smtp": {"password": "••••••••"}}``). A masked leaf is detected by value equality
+    with `mask` and revealed by calling `reveal` with its dotted path (e.g. ``"smtp.password"``).
+
+    Args:
+        config: A nested dict response, mutated in place.
+        reveal: Called with a masked leaf's dotted path; must return the revealed value.
+        mask: The sentinel value a masked secret is set to.
+    """
+
+    def _walk(node: dict[str, Any], prefix: tuple[str, ...]) -> None:
+        for key, value in node.items():
+            path = (*prefix, key)
+            if isinstance(value, dict):
+                _walk(value, path)
+            elif value == mask:
+                node[key] = reveal(".".join(path))
+
+    _walk(config, ())
 
 
 def configure_uuid_key(name: str, existing: Any) -> str:

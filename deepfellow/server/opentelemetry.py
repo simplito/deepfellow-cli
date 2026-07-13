@@ -7,61 +7,45 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""infra connect command."""
-
-from pathlib import Path
+"""server opentelemetry command."""
 
 import typer
 
-from deepfellow.common.config import read_env_file_to_dict
 from deepfellow.common.defaults import DEFAULT_OTEL_URL
 from deepfellow.common.echo import echo
-from deepfellow.common.env import env_get, env_set
-from deepfellow.common.system import run
-from deepfellow.common.validation import validate_url
-from deepfellow.server.utils.options import directory_option
-from deepfellow.server.utils.validation import check_server_directory
+from deepfellow.common.rest import get_server_url, make_request
+from deepfellow.common.state import state
+from deepfellow.common.validation import validate_server, validate_url
+from deepfellow.server.utils.login import get_token
 
 app = typer.Typer()
 
 
 @app.command()
 def opentelemetry(
-    directory: Path = directory_option(exists=True),
     otel_url: str | None = typer.Argument(
         None,
         envvar="DF_OTEL_EXPORTER_OTLP_ENDPOINT",
         help="Open Telemetry url (DF_OTEL_EXPORTER_OTLP_ENDPOINT).",
         callback=validate_url,
     ),
+    server: str | None = typer.Option(None, "--server", callback=validate_server, help="DeepFellow Server address"),
 ) -> None:
-    """Connect to Open Telemetry."""
-    check_server_directory(directory)
-    env_file = directory / ".env"
-    original_otel_url = env_get(env_file, "DF_OTEL_EXPORTER_OTLP_ENDPOINT")
-
-    if original_otel_url:
-        echo.info(f"Disconnecting from {original_otel_url} ...")
-
-    # Prepare the starting point for .env
-    env_file = directory / ".env"
-    original_env_content = read_env_file_to_dict(env_file)
+    """Connect the DeepFellow Server to Open Telemetry via PUT /admin/config. Applied without a restart."""
+    secrets_file = state.cli_secrets_file
+    server_url = get_server_url(server)
+    token = get_token(secrets_file, server_url)
 
     if not otel_url:
         otel_url = echo.prompt_until_valid(
             "Provide OTL url",
-            default=original_env_content.get("df_otel_exporter_orlp_endpoint", DEFAULT_OTEL_URL),
+            default=DEFAULT_OTEL_URL,
             validation=validate_url,
         )
 
     if otel_url:
-        env_set(env_file, "DF_OTEL_EXPORTER_OTLP_ENDPOINT", otel_url, quiet=True)
-        env_set(env_file, "DF_OTEL_TRACING_ENABLED", "true")
-
-        echo.info("Restarting this instance DeepFellow Server ...")
-        run(["docker", "compose", "down"], cwd=directory, quiet=True)
-        run(["docker", "compose", "up", "-d", "--remove-orphans"], cwd=directory, quiet=True)
-
+        body = {"otel_exporter_otlp_endpoint": otel_url, "otel_tracing_enabled": True}
+        make_request("PUT", f"{server_url}/admin/config", token, data=body, err_msg="Unable to update server config.")
         echo.success(f"DeepFellow Server is connected to Open Telemetry {otel_url}")
     else:
         echo.info("OpenTelemetry settings in DeepFellow remain the same as before")

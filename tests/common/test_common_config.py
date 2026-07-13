@@ -13,12 +13,16 @@ from typing import Any
 from unittest import mock
 
 import pytest
+import typer
 
 from deepfellow.common.config import (
     configure_uuid_key,
     dict_to_env,
     env_to_dict,
+    parse_key_value_updates,
     read_env_file,
+    reveal_masked_paths,
+    reveal_secret_entries,
     save_env_file,
 )
 
@@ -741,6 +745,18 @@ def test_save_env_file_new_values_take_precedence(mock_read_env_file: mock.Mock,
     assert mock_env_file.write_text.call_args == mock.call(expected_content)
 
 
+def test_save_env_file_remove_deletes_key_present_only_on_disk(tmp_path: Path) -> None:
+    # Uses the real filesystem, not a mocked read_env_file: `remove` must survive the
+    # existing-vars-from-disk merge, not just omission from `values`.
+    env_file = tmp_path / ".env"
+    env_file.write_text("KEEP_ME=kept\nDROP_ME=stale\n")
+
+    save_env_file(env_file, {"KEEP_ME": "kept"}, docker_note=False, remove=["DROP_ME"])
+
+    saved = read_env_file(env_file)
+    assert saved == {"KEEP_ME": "kept"}
+
+
 @mock.patch("deepfellow.common.config.echo")
 @mock.patch("deepfellow.common.config.read_env_file")
 def test_save_env_file_empty_existing_file(mock_read_env_file: mock.Mock, mock_echo: mock.Mock) -> None:
@@ -1000,3 +1016,93 @@ def test_configure_uuid_key_multiple_scenarios_in_sequence(mock_echo: mock.Mock,
     result2 = configure_uuid_key("KEY2", "existing2")
     assert result2 == "sequential-uuid"
     assert mock_echo.info.call_count == 0
+
+
+def test_parse_key_value_updates_decodes_json_types():
+    result = parse_key_value_updates(["otel_tracing_enabled=true", "max_tokens=5", "ratio=1.5"])
+
+    assert result == {"otel_tracing_enabled": True, "max_tokens": 5, "ratio": 1.5}
+
+
+def test_parse_key_value_updates_falls_back_to_raw_string_when_not_json():
+    result = parse_key_value_updates(["name=foo-bar"])
+
+    assert result == {"name": "foo-bar"}
+
+
+def test_parse_key_value_updates_value_may_contain_equals_sign():
+    result = parse_key_value_updates(["connection_string=host=localhost"])
+
+    assert result == {"connection_string": "host=localhost"}
+
+
+@mock.patch("deepfellow.common.config.echo")
+def test_parse_key_value_updates_missing_equals_raises_exit(mock_echo: mock.Mock):
+    with pytest.raises(typer.Exit):
+        parse_key_value_updates(["not-a-pair"])
+
+    assert mock_echo.error.call_count == 1
+
+
+def test_reveal_secret_entries_replaces_only_secret_entries():
+    config = {
+        "entries": [
+            {"key": "DF_MESH_KEY", "value": "••••••••", "is_secret": True},
+            {"key": "DF_NAME", "value": "my-infra", "is_secret": False},
+        ]
+    }
+    reveal = mock.Mock(return_value="the-real-secret")
+
+    reveal_secret_entries(config, reveal)
+
+    assert config["entries"][0]["value"] == "the-real-secret"
+    assert config["entries"][1]["value"] == "my-infra"
+    assert reveal.call_count == 1
+    assert reveal.call_args == mock.call("DF_MESH_KEY")
+
+
+def test_reveal_secret_entries_no_entries_key_is_a_no_op():
+    config = {"otel_tracing_enabled": True}
+    reveal = mock.Mock()
+
+    reveal_secret_entries(config, reveal)
+
+    assert config == {"otel_tracing_enabled": True}
+    assert reveal.call_count == 0
+
+
+def test_reveal_masked_paths_replaces_nested_masked_leaves():
+    config = {
+        "smtp": {"password": "••••••••", "host": "smtp.example.com"},
+        "infra": {"api_key": "••••••••"},
+        "log_level": "INFO",
+    }
+    reveal = mock.Mock(side_effect=["real-smtp-password", "real-api-key"])
+
+    reveal_masked_paths(config, reveal)
+
+    assert config["smtp"]["password"] == "real-smtp-password"
+    assert config["smtp"]["host"] == "smtp.example.com"
+    assert config["infra"]["api_key"] == "real-api-key"
+    assert config["log_level"] == "INFO"
+    assert reveal.call_count == 2
+    assert reveal.call_args_list == [mock.call("smtp.password"), mock.call("infra.api_key")]
+
+
+def test_reveal_masked_paths_leaves_unmasked_values_untouched():
+    config = {"smtp": {"password": ""}}
+    reveal = mock.Mock()
+
+    reveal_masked_paths(config, reveal)
+
+    assert config == {"smtp": {"password": ""}}
+    assert reveal.call_count == 0
+
+
+def test_reveal_masked_paths_uses_custom_mask_sentinel():
+    config = {"smtp": {"password": "MASKED"}}
+    reveal = mock.Mock(return_value="real-password")
+
+    reveal_masked_paths(config, reveal, mask="MASKED")
+
+    assert config["smtp"]["password"] == "real-password"

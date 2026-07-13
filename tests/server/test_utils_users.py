@@ -33,9 +33,6 @@ def test_create_admin_prompt_email_validation_called(
     assert "some@email.com" in mock_run.call_args_list[0][0][0]
 
 
-# ── create_admin password prompting ─────────────────────────────────────────
-
-
 @mock.patch("deepfellow.common.echo.Prompt.ask")
 @mock.patch("deepfellow.server.utils.users.validate_email")
 @mock.patch("deepfellow.server.utils.users.run")
@@ -71,9 +68,6 @@ def test_create_admin_non_interactive_missing_password_exits(mock_run: mock.Mock
         create_admin(Path(), "name", "a@b.com", None)
 
     assert mock_run.call_count == 0
-
-
-# ── create_admin HTTPException handling ─────────────────────────────────────
 
 
 @mock.patch("deepfellow.server.utils.users.echo")

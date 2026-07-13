@@ -7,12 +7,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""infra info command."""
+"""infra env info command."""
 
 from pathlib import Path
 
 import typer
 
+from deepfellow.common.defaults import DF_INFRA_STORAGE_DIR
+from deepfellow.common.echo import echo
 from deepfellow.common.env import EnvMetadata, get_envs_list, print_env_info
 from deepfellow.infra.utils.options import directory_option
 from deepfellow.infra.utils.validation import check_infra_directory
@@ -61,6 +63,16 @@ ENV_METADATA: dict[str, EnvMetadata] = {
 }
 
 
+def _config_json_exists(env_values: dict[str, str]) -> bool:
+    """Best-effort check for whether config.json has already been seeded on this infra install.
+
+    Existence alone doesn't mean any of the values below are stale — only that Infra's runtime
+    config has diverged from `.env` for at least the fields that migrated into config.json.
+    """
+    storage_dir = env_values.get("DF_INFRA_STORAGE_DIR") or str(DF_INFRA_STORAGE_DIR)
+    return (Path(storage_dir) / "config.json").is_file()
+
+
 @app.command()
 def info(
     directory: Path = directory_option(),
@@ -75,16 +87,25 @@ def info(
         help="Display environment variables documentation.",
     ),
 ) -> None:
-    """Display environment configuration."""
+    """Display environment variables from the local .env file."""
     check_infra_directory(directory)
 
     env_file = directory / ".env"
     envs = get_envs_list(env_file)
 
-    env_values: dict[str, str] = {}
-    for k, v in (e.split("=", 1) for e in envs):
-        env_values[k] = v
-        if k == "DF_INFRA_URL":
-            env_values["DF_INFRA_MESH_URL"] = v.replace("http://", "ws://").replace("https://", "wss://")
+    env_values: dict[str, str] = dict(e.split("=", 1) for e in envs)
 
-    print_env_info("Information about DeepFellow Infra:", ENV_METADATA, env_values, show_secret=secret, doc=doc)
+    if "DF_INFRA_URL" in env_values:
+        env_values["DF_INFRA_MESH_URL"] = (
+            env_values["DF_INFRA_URL"].replace("http://", "ws://").replace("https://", "wss://")
+        )
+
+    if _config_json_exists(env_values):
+        echo.warning(
+            "config.json exists on this install — some of these values may be stale if they were migrated to "
+            "dynamic configuration. Run `deepfellow infra info` for Infra's current runtime configuration."
+        )
+
+    print_env_info(
+        "Information about DeepFellow Infra:", ENV_METADATA, env_values, show_secret=secret, doc=doc, show_prefix=True
+    )
