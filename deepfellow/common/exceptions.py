@@ -9,6 +9,8 @@
 
 """Common exceptions."""
 
+from typing import NoReturn
+
 import typer
 
 from deepfellow.common.state import state
@@ -22,7 +24,7 @@ class DockerNetworkError(Exception):
     """Raised if getting a list of networks fails."""
 
 
-def reraise_if_debug(exc_info: Exception) -> None:
+def reraise_if_debug(exc_info: Exception) -> NoReturn:
     """Re-raise the active exception if debug mode is enabled, otherwise exit with code 1.
 
     Must be called from within an ``except`` block: the debug path uses a bare ``raise`` and

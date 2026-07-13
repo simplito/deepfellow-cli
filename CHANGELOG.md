@@ -14,6 +14,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `deepfellow prune` command — full teardown in one step: prunes the DeepFellow Server and Infra stacks (`docker compose down -v` + removes their directories), wipes any remaining `~/.deepfellow/` files, and uninstalls the CLI package last. Each step tolerates a missing installation, and the destructive action is gated by a confirmation prompt respecting `--yes`/`--non-interactive`.
 - `deepfellow --version` flag — prints the CLI version, plus the installed Infra and Server versions (each extra line shown only when that component is installed)
 - Running `deepfellow` with no command now shows the DeepFellow banner with the current CLI version
+- `deepfellow infra config get`/`deepfellow infra config set` — read and update Infra's dynamic configuration via `/admin/config`, applied without a restart
+- `deepfellow server config get`/`deepfellow server config set` — same as above, for the Server
+- `--secret` flag on all four `infra config`/`server config` `get`/`set` commands — reveal secret field values instead of masking them, via `/admin/config/{key}/reveal`
+- `deepfellow server login --token` — register an already-obtained access token directly, skipping the email/password login flow
 
 ### Fixed
 - `deepfellow cli update` no longer reports failure (exit code 1, no success message) after a successful upgrade; it now exits 0 and prints "updated successfully" when the upgrade completes, and only errors out when the upgrade command actually fails.

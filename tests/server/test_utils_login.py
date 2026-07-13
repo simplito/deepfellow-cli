@@ -11,9 +11,12 @@ from pathlib import Path
 from unittest import mock
 
 import httpx
+import pytest
+import typer
 
+from deepfellow.common.config import read_env_file
 from deepfellow.common.state import state
-from deepfellow.server.utils.login import get_token, get_token_from_login, try_refresh_token
+from deepfellow.server.utils.login import get_token, get_token_from_login, register_token, try_refresh_token
 
 SERVER = "http://localhost:8000"
 
@@ -30,8 +33,6 @@ REFRESH_RESPONSE = {
     "access_expires_at": 9999999999,
     "refresh_expires_at": 9999999999,
 }
-
-# ── get_token_from_login ──────────────────────────────────────────────────────
 
 
 @mock.patch("deepfellow.server.utils.login.save_env_file")
@@ -84,9 +85,6 @@ def test_get_token_from_login_no_refresh_token_in_response(
     saved_secrets = mock_save.call_args[0][1]
     assert saved_secrets["DF_USER_TOKEN"] == "dfuser_abc"
     assert "DF_USER_REFRESH_TOKEN" not in saved_secrets
-
-
-# ── try_refresh_token ─────────────────────────────────────────────────────────
 
 
 @mock.patch("deepfellow.server.utils.login.save_env_file")
@@ -168,9 +166,6 @@ def test_try_refresh_token_no_stored_refresh_token_returns_none(
     assert result is None
 
 
-# ── get_token ─────────────────────────────────────────────────────────────────
-
-
 @mock.patch("deepfellow.server.utils.login.read_env_file", return_value={"DF_USER_TOKEN": "dfuser_valid"})
 @mock.patch("deepfellow.server.utils.login.httpx.get")
 def test_get_token_valid_token_returns_without_refresh(
@@ -234,7 +229,80 @@ def test_get_token_401_refresh_401_falls_back_to_login(
     assert mock_login.call_count == 1
 
 
-# ── logout ────────────────────────────────────────────────────────────────────
+@mock.patch("deepfellow.server.utils.login.save_env_file")
+@mock.patch("deepfellow.server.utils.login.httpx.get")
+def test_register_token_valid_token_is_saved(
+    mock_get: mock.Mock,
+    mock_save: mock.Mock,
+    tmp_path: Path,
+):
+    secrets_file = tmp_path / "secrets"
+    secrets_file.touch()
+    mock_response = mock.Mock()
+    mock_response.status_code = 200
+    mock_get.return_value = mock_response
+
+    register_token(secrets_file, SERVER, "dfuser_valid")
+
+    assert mock_save.call_count == 1
+    saved_secrets = mock_save.call_args[0][1]
+    assert saved_secrets["DF_USER_TOKEN"] == "dfuser_valid"
+
+
+@mock.patch("deepfellow.server.utils.login.httpx.get")
+def test_register_token_drops_stale_refresh_token(
+    mock_get: mock.Mock,
+    tmp_path: Path,
+):
+    # Uses the real save_env_file/read_env_file (not mocked) since save_env_file re-reads and
+    # merges the file on disk — a mock would hide a bug where the stale key survives the merge.
+    secrets_file = tmp_path / "secrets"
+    secrets_file.write_text("DF_USER_TOKEN=old_token\nDF_USER_REFRESH_TOKEN=stale-refresh\n")
+    mock_response = mock.Mock()
+    mock_response.status_code = 200
+    mock_get.return_value = mock_response
+
+    register_token(secrets_file, SERVER, "dfuser_valid")
+
+    saved_secrets = read_env_file(secrets_file)
+    assert saved_secrets["DF_USER_TOKEN"] == "dfuser_valid"
+    assert "DF_USER_REFRESH_TOKEN" not in saved_secrets
+
+
+@mock.patch("deepfellow.server.utils.login.save_env_file")
+@mock.patch("deepfellow.server.utils.login.httpx.get")
+def test_register_token_rejected_token_raises_exit_without_saving(
+    mock_get: mock.Mock,
+    mock_save: mock.Mock,
+    tmp_path: Path,
+):
+    secrets_file = tmp_path / "secrets"
+    secrets_file.touch()
+    mock_response = mock.Mock()
+    mock_response.status_code = 401
+    mock_get.return_value = mock_response
+
+    with pytest.raises(typer.Exit):
+        register_token(secrets_file, SERVER, "dfuser_bad")
+
+    assert mock_save.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.login.save_env_file")
+@mock.patch("deepfellow.server.utils.login.httpx.get")
+def test_register_token_connection_error_raises_exit_without_saving(
+    mock_get: mock.Mock,
+    mock_save: mock.Mock,
+    tmp_path: Path,
+):
+    secrets_file = tmp_path / "secrets"
+    secrets_file.touch()
+    mock_get.side_effect = httpx.ConnectError("TEST")
+
+    with pytest.raises(typer.Exit):
+        register_token(secrets_file, SERVER, "dfuser_valid")
+
+    assert mock_save.call_count == 0
 
 
 @mock.patch("deepfellow.server.logout.save_env_file")

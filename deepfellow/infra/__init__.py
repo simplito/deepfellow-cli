@@ -11,10 +11,11 @@
 
 import typer
 
+from .config_command import app as config_app
 from .connect import app as connect_app
 from .disconnect import app as disconnect_app
 from .env_command import app as env_app
-from .env_command.info import app as info_app
+from .info import app as info_app
 from .install import app as install_app
 from .logs import app as logs_app
 from .model import app as model_app
@@ -34,6 +35,7 @@ app = typer.Typer()
 app.add_typer(info_app)
 app.add_typer(install_app)
 app.add_typer(uninstall_app)
+app.add_typer(config_app, name="config", help="Manage DeepFellow Infra dynamic configuration (GET/PUT /admin/config).")
 app.add_typer(start_app)
 app.add_typer(status_app)
 app.add_typer(stop_app)

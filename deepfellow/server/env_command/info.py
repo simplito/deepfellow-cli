@@ -7,12 +7,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""server info command."""
+"""server env info command."""
 
 from pathlib import Path
 
 import typer
 
+from deepfellow.common.defaults import DF_SERVER_STORAGE_DIRECTORY
+from deepfellow.common.echo import echo
 from deepfellow.common.env import EnvMetadata, get_envs_list, print_env_info
 from deepfellow.server.utils.options import directory_option
 from deepfellow.server.utils.validation import check_server_directory
@@ -81,29 +83,15 @@ ENV_METADATA: dict[str, EnvMetadata] = {
 }
 
 
-def show_server_env_info(directory: Path, secret: bool, doc: bool, show_prefix: bool) -> None:
-    """Print server environment configuration.
+def _config_json_exists() -> bool:
+    """Best-effort check for whether config.json has already been seeded on this server install.
 
-    Args:
-        directory: Server installation directory containing the ``.env`` file.
-        secret: Whether to reveal sensitive values.
-        doc: Whether to render environment variables documentation.
-        show_prefix: Whether to keep the ``DF_`` prefix on rendered keys.
+    Existence alone doesn't mean any of the values below are stale — only that the Server's
+    runtime config has diverged from `.env` for at least the fields that migrated into config.json.
+    Unlike infra's storage dir, the server's storage directory isn't configurable per-install, so
+    no `.env` lookup is needed.
     """
-    check_server_directory(directory)
-
-    env_file = directory / ".env"
-    envs = get_envs_list(env_file)
-    env_values = dict(e.split("=", 1) for e in envs)
-
-    print_env_info(
-        "Information about DeepFellow Server:",
-        ENV_METADATA,
-        env_values,
-        show_secret=secret,
-        doc=doc,
-        show_prefix=show_prefix,
-    )
+    return (DF_SERVER_STORAGE_DIRECTORY / "config.json").is_file()
 
 
 @app.command()
@@ -120,5 +108,19 @@ def info(
         help="Display environment variables documentation.",
     ),
 ) -> None:
-    """Display environment variables with their DF_ prefix."""
-    show_server_env_info(directory, secret=secret, doc=doc, show_prefix=True)
+    """Display environment variables from the local .env file."""
+    check_server_directory(directory)
+
+    env_file = directory / ".env"
+    envs = get_envs_list(env_file)
+    env_values = dict(e.split("=", 1) for e in envs)
+
+    if _config_json_exists():
+        echo.warning(
+            "config.json exists on this install — some of these values may be stale if they were migrated to "
+            "dynamic configuration. Run `deepfellow server info` for the Server's current runtime configuration."
+        )
+
+    print_env_info(
+        "Information about DeepFellow Server:", ENV_METADATA, env_values, show_secret=secret, doc=doc, show_prefix=True
+    )

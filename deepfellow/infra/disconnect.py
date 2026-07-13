@@ -15,8 +15,8 @@ import typer
 
 from deepfellow.common.docker import is_service_running
 from deepfellow.common.echo import echo
-from deepfellow.common.env import env_get, env_set
-from deepfellow.common.system import run
+from deepfellow.common.env import env_get
+from deepfellow.infra.utils.admin import infra_admin_request
 from deepfellow.infra.utils.options import directory_option
 from deepfellow.infra.utils.validation import check_infra_directory
 
@@ -36,17 +36,29 @@ def disconnect(
         raise typer.Exit(1)
 
     env_file = directory / ".env"
-    parent_infra_url = env_get(env_file, "DF_CONNECT_TO_MESH_URL")
+    infra_port = env_get(env_file, "DF_INFRA_PORT", should_raise=False)
+    admin_api_key = env_get(env_file, "DF_INFRA_ADMIN_API_KEY", should_raise=False)
+
+    if not infra_port or not admin_api_key:
+        echo.error("Could not resolve DF_INFRA_PORT / DF_INFRA_ADMIN_API_KEY from the instance .env file.")
+        raise typer.Exit(1)
+
+    local_infra_url = f"http://localhost:{infra_port}"
+    config = infra_admin_request("GET", f"{local_infra_url}/admin/config", local_infra_url, admin_api_key)
+    parent_infra_url = next(
+        (entry.get("value") for entry in config.get("entries", []) if entry.get("key") == "connect_to_mesh_url"), None
+    )
 
     if parent_infra_url:
         if echo.confirm(f"Are you sure you want to disconnect from {parent_infra_url}", default=False):
             echo.info(f"Disconnecting from {parent_infra_url} ...")
-            env_set(env_file, "DF_CONNECT_TO_MESH_URL", "")
-            env_set(env_file, "DF_CONNECT_TO_MESH_KEY", "")
-
-            echo.info("Restarting this instance DeepFellow Infra ...")
-            run(["docker", "compose", "down"], cwd=directory, quiet=True)
-            run(["docker", "compose", "up", "-d", "--remove-orphans"], cwd=directory, quiet=True)
+            infra_admin_request(
+                "PUT",
+                f"{local_infra_url}/admin/config",
+                local_infra_url,
+                admin_api_key,
+                json_body={"connect_to_mesh_url": "", "connect_to_mesh_key": ""},
+            )
 
             echo.success(f"DeepFellow Infra is disconnected from another Deepfellow Infra at {parent_infra_url}")
         else:

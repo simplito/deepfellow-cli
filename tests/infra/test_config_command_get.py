@@ -1,0 +1,108 @@
+# DeepFellow Software Framework.
+# Copyright © 2026 Simplito sp. z o.o.
+#
+# This file is part of the DeepFellow Software Framework (https://deepfellow.ai).
+# This software is Licensed under the DeepFellow Free License.
+#
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import json
+from unittest import mock
+from unittest.mock import Mock
+
+from deepfellow.infra.config_command.get import get_
+
+SERVER = "http://localhost:9000"
+
+
+@mock.patch("deepfellow.infra.config_command.get.echo")
+@mock.patch("deepfellow.infra.config_command.get.infra_admin_request")
+@mock.patch("deepfellow.infra.config_command.get.resolve_infra_admin", return_value=(SERVER, "the-key"))
+def test_get_prints_config_from_admin_endpoint(
+    mock_resolve: Mock,
+    mock_request: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_request.return_value = {"otel_tracing_enabled": True}
+
+    get_(server=None, api_key=None)
+
+    assert mock_request.call_count == 1
+    assert mock_request.call_args == mock.call("GET", f"{SERVER}/admin/config", SERVER, "the-key")
+    assert mock_echo.info.call_count == 1
+
+
+@mock.patch("deepfellow.infra.config_command.get.echo")
+@mock.patch("deepfellow.infra.config_command.get.infra_admin_request")
+@mock.patch("deepfellow.infra.config_command.get.resolve_infra_admin", return_value=(SERVER, "explicit-key"))
+def test_get_passes_server_and_api_key_to_resolve(
+    mock_resolve: Mock,
+    mock_request: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_request.return_value = {}
+
+    get_(server=SERVER, api_key="explicit-key")
+
+    assert mock_resolve.call_args == mock.call(SERVER, api_key="explicit-key")
+
+
+@mock.patch("deepfellow.infra.config_command.get.echo")
+@mock.patch("deepfellow.infra.config_command.get.infra_admin_request")
+@mock.patch("deepfellow.infra.config_command.get.resolve_infra_admin", return_value=(SERVER, "the-key"))
+def test_get_without_secret_flag_does_not_reveal(
+    mock_resolve: Mock,
+    mock_request: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_request.return_value = {
+        "entries": [
+            {
+                "key": "DF_MESH_KEY",
+                "value": "••••••••",
+                "is_secret": True,
+                "field_name": "mesh_key",
+                "is_editable": True,
+            }
+        ]
+    }
+
+    get_(server=None, api_key=None, secret=False)
+
+    assert mock_request.call_count == 1
+
+
+@mock.patch("deepfellow.infra.config_command.get.echo")
+@mock.patch("deepfellow.infra.config_command.get.infra_admin_request")
+@mock.patch("deepfellow.infra.config_command.get.resolve_infra_admin", return_value=(SERVER, "the-key"))
+def test_get_with_secret_flag_reveals_secret_entries(
+    mock_resolve: Mock,
+    mock_request: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_request.side_effect = [
+        {
+            "entries": [
+                {
+                    "key": "DF_MESH_KEY",
+                    "value": "••••••••",
+                    "is_secret": True,
+                    "field_name": "mesh_key",
+                    "is_editable": True,
+                },
+                {"key": "DF_NAME", "value": "my-infra", "is_secret": False, "field_name": "name", "is_editable": True},
+            ]
+        },
+        {"key": "DF_MESH_KEY", "value": "the-real-secret"},
+    ]
+
+    get_(server=None, api_key=None, secret=True)
+
+    assert mock_request.call_count == 2
+    assert mock_request.call_args_list[1] == mock.call(
+        "GET", f"{SERVER}/admin/config/DF_MESH_KEY/reveal", SERVER, "the-key", quiet=True
+    )
+    printed = json.loads(mock_echo.info.call_args[0][0])
+    assert printed["entries"][0]["value"] == "the-real-secret"
+    assert printed["entries"][1]["value"] == "my-infra"

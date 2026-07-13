@@ -9,6 +9,7 @@
 
 import typer
 
+from .config_command import app as config_app
 from .create_admin import app as create_admin_app
 from .env_command import app as env_app
 from .info import app as info_app
@@ -34,6 +35,7 @@ app = typer.Typer()
 app.add_typer(info_app)
 app.add_typer(install_app)
 app.add_typer(uninstall_app)
+app.add_typer(config_app, name="config", help="Manage DeepFellow Server dynamic configuration (GET/PUT /admin/config).")
 app.add_typer(create_admin_app)
 app.add_typer(opentelemetry_app)
 app.add_typer(reset_password_app)

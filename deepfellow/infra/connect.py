@@ -19,9 +19,10 @@ import typer
 
 from deepfellow.common.docker import is_service_running
 from deepfellow.common.echo import echo
-from deepfellow.common.env import env_get, env_set
+from deepfellow.common.env import env_get
 from deepfellow.common.system import run
 from deepfellow.common.validation import validate_truthy, validate_url
+from deepfellow.infra.utils.admin import infra_admin_request
 from deepfellow.infra.utils.options import directory_option
 from deepfellow.infra.utils.validation import check_infra_directory
 
@@ -145,10 +146,14 @@ def connect(
         raise typer.Exit(1)
 
     env_file = directory / ".env"
-    original_parent_infra_url = env_get(env_file, "DF_CONNECT_TO_MESH_URL")
+    infra_port = env_get(env_file, "DF_INFRA_PORT", should_raise=False)
+    admin_api_key = env_get(env_file, "DF_INFRA_ADMIN_API_KEY", should_raise=False)
 
-    if original_parent_infra_url:
-        echo.info(f"Disconnecting from {original_parent_infra_url} ...")
+    if not infra_port or not admin_api_key:
+        echo.error("Could not resolve DF_INFRA_PORT / DF_INFRA_ADMIN_API_KEY from the instance .env file.")
+        raise typer.Exit(1)
+
+    local_infra_url = f"http://localhost:{infra_port}"
 
     resolved_mesh_key: str = echo.prompt_until_valid(
         "Provide the mesh key of the parent Infra",
@@ -158,45 +163,42 @@ def connect(
         password=True,
     )
 
-    env_set(env_file, "DF_CONNECT_TO_MESH_URL", parent_infra_url)
-    env_set(env_file, "DF_CONNECT_TO_MESH_KEY", resolved_mesh_key)
+    infra_admin_request(
+        "PUT",
+        f"{local_infra_url}/admin/config",
+        local_infra_url,
+        admin_api_key,
+        json_body={"connect_to_mesh_url": parent_infra_url, "connect_to_mesh_key": resolved_mesh_key},
+    )
 
-    echo.info("Restarting this instance DeepFellow Infra ...")
-    run(["docker", "compose", "down"], cwd=directory, quiet=True)
-    run(["docker", "compose", "up", "-d", "--remove-orphans"], cwd=directory, quiet=True)
-
-    infra_port = env_get(env_file, "DF_INFRA_PORT", should_raise=False)
-    admin_api_key = env_get(env_file, "DF_INFRA_ADMIN_API_KEY", should_raise=False)
-
-    if infra_port and admin_api_key:
-        echo.info("Verifying connection to parent Infra ...")
-        result = _verify_parent_connection(f"http://localhost:{infra_port}", admin_api_key)
-        if result == _VerifyResult.OUTDATED:
+    echo.info("Verifying connection to parent Infra ...")
+    result = _verify_parent_connection(local_infra_url, admin_api_key)
+    if result == _VerifyResult.OUTDATED:
+        echo.warning(
+            "This Infra image is outdated and does not support mesh topology verification. "
+            "Run `deepfellow infra update` to update. "
+            "The connection may still be active — check with `deepfellow infra logs`."
+        )
+    elif result == _VerifyResult.LEGACY:
+        if _logs_show_connection(directory):
             echo.warning(
-                "This Infra image is outdated and does not support mesh topology verification. "
-                "Run `deepfellow infra update` to update. "
-                "The connection may still be active — check with `deepfellow infra logs`."
+                f"The parent Infra at {parent_infra_url} uses a legacy API that does not return "
+                "ancestor information. Topology will not show the parent node. "
+                "Update the parent Infra to get full mesh visibility."
             )
-        elif result == _VerifyResult.LEGACY:
-            if _logs_show_connection(directory):
-                echo.warning(
-                    f"The parent Infra at {parent_infra_url} uses a legacy API that does not return "
-                    "ancestor information. Topology will not show the parent node. "
-                    "Update the parent Infra to get full mesh visibility."
-                )
-            else:
-                echo.error(
-                    f"Could not verify connection to {parent_infra_url}. "
-                    "Check the mesh_key and that both Infras can reach each other over the network. "
-                    "Run `deepfellow infra logs` for details."
-                )
-                raise typer.Exit(1)
-        elif result == _VerifyResult.TIMEOUT:
+        else:
             echo.error(
                 f"Could not verify connection to {parent_infra_url}. "
                 "Check the mesh_key and that both Infras can reach each other over the network. "
                 "Run `deepfellow infra logs` for details."
             )
             raise typer.Exit(1)
+    elif result == _VerifyResult.TIMEOUT:
+        echo.error(
+            f"Could not verify connection to {parent_infra_url}. "
+            "Check the mesh_key and that both Infras can reach each other over the network. "
+            "Run `deepfellow infra logs` for details."
+        )
+        raise typer.Exit(1)
 
     echo.success(f"DeepFellow Infra is connected to another Infra at {parent_infra_url}")
