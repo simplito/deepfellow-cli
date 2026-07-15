@@ -271,7 +271,9 @@ def configure_vector_db(
     return True, dict_to_env({"provider": provider, "embedding": embedding}, parent_key="DF_VECTOR_DATABASE")
 
 
-def configure_infra(infra_api_key: str, infra_url: str, original_env: dict[str, Any] | None = None) -> dict[str, Any]:
+def configure_infra(
+    infra_api_key: str | None, infra_url: str, original_env: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Configure single infra."""
     infra = {}
     original_env = original_env or {}
