@@ -9,6 +9,7 @@
 
 """Tests for the server install command."""
 
+import inspect
 import json
 from pathlib import Path
 from typing import Any
@@ -16,22 +17,35 @@ from unittest import mock
 
 import pytest
 import typer
+from typer.models import OptionInfo
 
 from deepfellow.common.config import read_env_file
-from deepfellow.common.defaults import VectorDBTypeChoice
-from deepfellow.server.install import install
+from deepfellow.common.defaults import (
+    DEFAULT_VECTOR_DATABASE,
+    DEFAULT_VECTOR_DATABASE_TYPE,
+    DF_MONGO_DB,
+    DF_MONGO_PORT,
+    DF_MONGO_URL,
+    DF_SERVER_PORT,
+    VectorDBTypeChoice,
+)
+from deepfellow.server.install import install as install_command
+from deepfellow.server.utils.install import install
 
-MOCK_ECHO = mock.patch("deepfellow.server.install.echo")
-MOCK_ASSERT_DOCKER = mock.patch("deepfellow.server.install.assert_docker")
-MOCK_ENSURE_DIRECTORY = mock.patch("deepfellow.server.install.ensure_directory")
-MOCK_ENSURE_NETWORK = mock.patch("deepfellow.server.install.ensure_network")
-MOCK_CONFIGURE_MONGO = mock.patch("deepfellow.server.install.configure_mongo")
-MOCK_CONFIGURE_INFRA = mock.patch("deepfellow.server.install.configure_infra")
-MOCK_CONFIGURE_VECTOR_DB = mock.patch("deepfellow.server.install.configure_vector_db")
-MOCK_CONFIGURE_OTEL = mock.patch("deepfellow.server.install.configure_otel")
-MOCK_RUN = mock.patch("deepfellow.server.install.run")
-MOCK_SAVE_COMPOSE_FILE = mock.patch("deepfellow.server.install.save_compose_file")
-MOCK_SET_DEFAULT_SERVER_DIRECTORY = mock.patch("deepfellow.server.install.set_default_server_directory")
+MOCK_ECHO = mock.patch("deepfellow.server.utils.install.echo")
+MOCK_ASSERT_DOCKER = mock.patch("deepfellow.server.utils.install.assert_docker")
+MOCK_ENSURE_DIRECTORY = mock.patch("deepfellow.server.utils.install.ensure_directory")
+MOCK_ENSURE_NETWORK = mock.patch("deepfellow.server.utils.install.ensure_network")
+MOCK_CONFIGURE_MONGO = mock.patch("deepfellow.server.utils.install.configure_mongo")
+MOCK_CONFIGURE_INFRA = mock.patch("deepfellow.server.utils.install.configure_infra")
+MOCK_CONFIGURE_VECTOR_DB = mock.patch("deepfellow.server.utils.install.configure_vector_db")
+MOCK_CONFIGURE_OTEL = mock.patch("deepfellow.server.utils.install.configure_otel")
+MOCK_RUN = mock.patch("deepfellow.server.utils.install.run")
+MOCK_SAVE_COMPOSE_FILE = mock.patch("deepfellow.server.utils.install.save_compose_file")
+MOCK_SET_DEFAULT_SERVER_DIRECTORY = mock.patch("deepfellow.server.utils.install.set_default_server_directory")
+MOCK_SAVE_ENV_FILE = mock.patch("deepfellow.server.utils.install.save_env_file")
+MOCK_GET_NEWEST_IMAGE_TAG = mock.patch("deepfellow.server.utils.install.get_newest_image_tag")
+MOCK_DEFAULT_DIRECTORY_CALLBACK = mock.patch("deepfellow.server.utils.install.default_directory_callback")
 
 
 def install_kwargs(directory: Path) -> dict[str, Any]:
@@ -59,6 +73,7 @@ def install_kwargs(directory: Path) -> dict[str, Any]:
         "vectordb_password": "",
         "embedding_model": "",
         "embedding_size": "",
+        "embedding_sparse": False,
         "force_install": True,
         "dev": False,
     }
@@ -268,3 +283,116 @@ def test_install_rejects_invalid_log_level(
     assert exc_info.value.exit_code == 1
     assert mock_echo.error.call_count == 1
     assert mock_save_compose_file.call_count == 0
+
+
+@mock.patch("deepfellow.server.install.install_util")
+def test_install_command_delegates_to_install_util(mock_install_util, tmp_path):
+    kwargs = install_kwargs(tmp_path)
+
+    install_command(**kwargs)
+
+    assert mock_install_util.call_count == 1
+    assert mock_install_util.call_args == mock.call(**kwargs)
+    assert set(mock_install_util.call_args[1]) == set(inspect.signature(install).parameters)
+
+
+def test_install_command_signature_matches_install_util():
+    command_params = list(inspect.signature(install_command).parameters)
+    util_params = list(inspect.signature(install).parameters)
+
+    assert command_params == util_params
+
+
+@MOCK_GET_NEWEST_IMAGE_TAG
+@MOCK_SAVE_ENV_FILE
+@MOCK_SET_DEFAULT_SERVER_DIRECTORY
+@MOCK_SAVE_COMPOSE_FILE
+@MOCK_RUN
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@MOCK_ENSURE_NETWORK
+@MOCK_ENSURE_DIRECTORY
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_install_defaults_resolve_to_real_values_when_arguments_omitted(
+    mock_echo,
+    mock_assert_docker,
+    mock_ensure_directory,
+    mock_ensure_network,
+    mock_configure_mongo,
+    mock_configure_infra,
+    mock_configure_vector_db,
+    mock_configure_otel,
+    mock_run,
+    mock_save_compose_file,
+    mock_set_default_server_directory,
+    mock_save_env_file,
+    mock_get_newest_image_tag,
+    tmp_path,
+):
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+    mock_get_newest_image_tag.return_value = "deepfellow/server:1.2.3"
+
+    install(directory=tmp_path)
+
+    env_values = mock_save_env_file.call_args[0][1]
+    assert env_values["DF_SERVER_PORT"] == DF_SERVER_PORT
+    assert env_values["DF_SERVER_IMAGE"] == "deepfellow/server:1.2.3"
+    assert not any(isinstance(value, OptionInfo) for value in env_values.values())
+    mongo_args = mock_configure_mongo.call_args[0]
+    assert mongo_args[4] == DF_MONGO_URL
+    assert mongo_args[5] == DF_MONGO_DB
+    assert mongo_args[7] == DF_MONGO_PORT
+    assert not any(isinstance(value, OptionInfo) for value in mongo_args)
+    vectordb_args = mock_configure_vector_db.call_args[0]
+    assert vectordb_args[2] == int(bool(DEFAULT_VECTOR_DATABASE["provider"]["active"]))
+    assert vectordb_args[3] == DEFAULT_VECTOR_DATABASE_TYPE
+    assert not any(isinstance(value, OptionInfo) for value in vectordb_args)
+
+
+@MOCK_DEFAULT_DIRECTORY_CALLBACK
+@MOCK_GET_NEWEST_IMAGE_TAG
+@MOCK_SAVE_ENV_FILE
+@MOCK_SET_DEFAULT_SERVER_DIRECTORY
+@MOCK_SAVE_COMPOSE_FILE
+@MOCK_RUN
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@MOCK_ENSURE_NETWORK
+@MOCK_ENSURE_DIRECTORY
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_install_resolves_default_directory_when_omitted(
+    mock_echo,
+    mock_assert_docker,
+    mock_ensure_directory,
+    mock_ensure_network,
+    mock_configure_mongo,
+    mock_configure_infra,
+    mock_configure_vector_db,
+    mock_configure_otel,
+    mock_run,
+    mock_save_compose_file,
+    mock_set_default_server_directory,
+    mock_save_env_file,
+    mock_get_newest_image_tag,
+    mock_default_directory_callback,
+    tmp_path,
+):
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+    mock_get_newest_image_tag.return_value = "deepfellow/server:1.2.3"
+    mock_default_directory_callback.return_value = tmp_path
+
+    install()
+
+    assert mock_default_directory_callback.call_count == 1
+    assert mock_default_directory_callback.call_args == mock.call(None)
+    assert mock_save_env_file.call_args[0][0] == tmp_path / ".env"

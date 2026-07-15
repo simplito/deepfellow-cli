@@ -43,7 +43,7 @@ def set_default_server_directory(directory: str | Path, force: bool = False) -> 
             env_set(config_file, "DF_DEFAULT_SERVER_DIR", str(directory))
 
 
-def default_directory_callback(dir: str | None) -> Path:
+def default_directory_callback(dir: str | Path | None) -> Path:
     """Return default server directory if str is None."""
     out_dir = DF_SERVER_DIRECTORY
     if dir is None:
