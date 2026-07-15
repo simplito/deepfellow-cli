@@ -195,3 +195,7 @@ openspec/changes
 .claude/skills/write-docs
 .claude/skills/write-python-tests
 .claude/skills/daily-report
+.claude/skills/plane-api
+.claude/skills/create-work-item
+.claude/skills/release
+/BASE_WORKFLOW.md

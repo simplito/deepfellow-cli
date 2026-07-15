@@ -175,9 +175,13 @@ state.cli_secrets_file  # Path — path to CLI secrets file
 
 `main()` populates `state` once at startup. Every module — including all final subcommands — reads CLI flags from `state` directly. Subcommands no longer take a `ctx: typer.Context` parameter for this. **Never use `click.get_current_context()`.**
 
-## Git Workflow
+## Development Workflow
 
 - GitLab-hosted; use `glab` CLI for branches and MRs
 - Never merge MRs via CLI — merging is done manually in GitLab UI
-- Never add `Co-Authored-By` lines to commit messages
-- Never include `openspec/` or `.opencode/` files in git commits
+- Plane project key: `DFCLI` (used as `{PROJECT}` in BASE_WORKFLOW.md)
+- No `Co-Authored-By` trailer in commit messages
+
+<!-- BASE_WORKFLOW.md is a gitignored symlink; install from `deepfellow-claude-skills/install-workflow.sh` -->
+
+@./BASE_WORKFLOW.md
