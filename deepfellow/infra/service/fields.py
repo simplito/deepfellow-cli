@@ -85,7 +85,7 @@ def _format_field_set(field: dict[str, Any]) -> str:
 def fields(
     name: str = typer.Argument(..., help="service name (e.g. ollama)"),
     set_format: bool = typer.Option(False, "--set", help="Display fields as '--set' usage hints"),
-    server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Infra address"),
+    server: str | None = typer.Option(None, "--url", callback=validate_server, help="DeepFellow Infra address"),
 ) -> None:
     """Display configuration fields a service expects."""
     config_file = state.cli_config_file

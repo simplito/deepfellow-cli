@@ -11,9 +11,13 @@ import json
 from unittest import mock
 from unittest.mock import Mock
 
-from deepfellow.infra.config_command.set import set_
+from typer.testing import CliRunner
+
+from deepfellow.infra.config_command.set import app, set_
 
 SERVER = "http://localhost:9000"
+
+runner = CliRunner()
 
 
 @mock.patch("deepfellow.infra.config_command.set.echo")
@@ -94,3 +98,21 @@ def test_set_with_secret_flag_reveals_secret_entries(
     printed = json.loads(mock_echo.info.call_args[0][0])
     assert printed["entries"][0]["value"] == "the-real-secret"
     assert printed["entries"][1]["value"] == "my-infra"
+
+
+def test_set_cli_rejects_old_server_option():
+    result = runner.invoke(app, ["otel_tracing_enabled=true", "--server", SERVER])
+
+    assert result.exit_code == 2
+    assert "no such option: --server" in result.output.lower()
+
+
+@mock.patch("deepfellow.infra.config_command.set.infra_admin_request")
+@mock.patch("deepfellow.infra.config_command.set.resolve_infra_admin", return_value=(SERVER, "the-key"))
+def test_set_cli_accepts_url_option(mock_resolve: Mock, mock_request: Mock):
+    mock_request.return_value = {"otel_tracing_enabled": True}
+
+    result = runner.invoke(app, ["otel_tracing_enabled=true", "--url", SERVER])
+
+    assert result.exit_code == 0
+    assert mock_resolve.call_args == mock.call(SERVER, api_key=None)

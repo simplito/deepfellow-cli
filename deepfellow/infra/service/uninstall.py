@@ -26,7 +26,7 @@ app = typer.Typer()
 
 @app.command()
 def uninstall(
-    server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Infra address"),
+    server: str | None = typer.Option(None, "--url", callback=validate_server, help="DeepFellow Infra address"),
     name: str = typer.Argument(..., help="service name (e.g. ollama)"),
     purge: bool = typer.Option(False, help="Remove service with all its files."),
 ) -> None:

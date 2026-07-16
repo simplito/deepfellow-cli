@@ -17,11 +17,14 @@ from unittest.mock import Mock
 import httpx
 import pytest
 import typer
+from typer.testing import CliRunner
 
 from deepfellow.common.state import state
-from deepfellow.infra.info import ENV_METADATA, _dynamic_config_values, info
+from deepfellow.infra.info import ENV_METADATA, _dynamic_config_values, app, info
 
 SERVER = "http://localhost:8086"
+
+runner = CliRunner()
 
 
 @pytest.fixture
@@ -223,3 +226,19 @@ def test_dynamic_config_values_exits_when_response_is_not_a_dict(mock_get: Mock,
         _dynamic_config_values(server=SERVER, api_key="explicit-key", secret=False)
 
     assert exc_info.value.exit_code == 1
+
+
+def test_info_cli_rejects_old_server_option():
+    result = runner.invoke(app, ["--server", SERVER])
+
+    assert result.exit_code == 2
+    assert "no such option: --server" in result.output.lower()
+
+
+@mock.patch("deepfellow.infra.info._dynamic_config_values", return_value={})
+@mock.patch("deepfellow.infra.info.print_env_info")
+def test_info_cli_accepts_url_option(mock_print: Mock, mock_dynamic: Mock):
+    result = runner.invoke(app, ["--url", SERVER])
+
+    assert result.exit_code == 0
+    assert mock_dynamic.call_args == mock.call(SERVER, None, False)

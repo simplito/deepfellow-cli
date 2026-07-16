@@ -29,7 +29,7 @@ def opentelemetry(
         help="Open Telemetry url (DF_OTEL_EXPORTER_OTLP_ENDPOINT).",
         callback=validate_url,
     ),
-    server: str | None = typer.Option(None, "--server", callback=validate_server, help="DeepFellow Server address"),
+    server: str | None = typer.Option(None, "--url", callback=validate_server, help="DeepFellow Server address"),
 ) -> None:
     """Connect the DeepFellow Server to Open Telemetry via PUT /admin/config. Applied without a restart."""
     secrets_file = state.cli_secrets_file

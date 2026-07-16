@@ -30,7 +30,7 @@ class Status(str, Enum):
 
 @app.command()
 def create(
-    server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Server address"),
+    server: str | None = typer.Option(None, "--url", callback=validate_server, help="DeepFellow Server address"),
     organization_id: str = typer.Argument(...),
     name: str = typer.Argument(...),
     status: Status = typer.Option(Status.active, help="Status of the Project"),

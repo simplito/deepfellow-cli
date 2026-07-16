@@ -47,7 +47,7 @@ def _format_service(service: dict[str, Any]) -> str:
 
 @app.command()
 def list(
-    server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Infra address"),
+    server: str | None = typer.Option(None, "--url", callback=validate_server, help="DeepFellow Infra address"),
 ) -> None:
     """Display list of installed services."""
     config_file = state.cli_config_file

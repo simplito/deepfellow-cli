@@ -23,7 +23,7 @@ app = typer.Typer()
 
 @app.command()
 def list(
-    server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Server address"),
+    server: str | None = typer.Option(None, "--url", callback=validate_server, help="DeepFellow Server address"),
 ) -> None:
     """Display list of organizations."""
     # Get token for the server

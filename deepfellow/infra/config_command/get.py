@@ -23,7 +23,7 @@ app = typer.Typer()
 
 @app.command(name="get")
 def get_(
-    server: str | None = typer.Option(None, "--server", callback=validate_server, help="DeepFellow Infra address"),
+    server: str | None = typer.Option(None, "--url", callback=validate_server, help="DeepFellow Infra address"),
     api_key: str | None = typer.Option(
         None, "--api-key", help="Infra Admin API Key to use, instead of the one currently stored locally."
     ),

@@ -10,9 +10,13 @@
 from unittest import mock
 from unittest.mock import Mock
 
-from deepfellow.server.opentelemetry import opentelemetry
+from typer.testing import CliRunner
+
+from deepfellow.server.opentelemetry import app, opentelemetry
 
 SERVER = "http://localhost:8000"
+
+runner = CliRunner()
 
 
 @mock.patch("deepfellow.server.opentelemetry.echo")
@@ -89,3 +93,20 @@ def test_opentelemetry_resolves_token_from_server_url(
     assert mock_server_url.call_args == mock.call("http://custom-server:9000")
     assert mock_get_token.call_count == 1
     assert mock_get_token.call_args.args[1] == SERVER
+
+
+def test_opentelemetry_cli_rejects_old_server_option():
+    result = runner.invoke(app, ["http://otel-collector:4318", "--server", SERVER])
+
+    assert result.exit_code == 2
+    assert "no such option: --server" in result.output.lower()
+
+
+@mock.patch("deepfellow.server.opentelemetry.make_request")
+@mock.patch("deepfellow.server.opentelemetry.get_token", return_value="dfuser_abc")
+@mock.patch("deepfellow.server.opentelemetry.get_server_url", return_value=SERVER)
+def test_opentelemetry_cli_accepts_url_option(mock_server_url: Mock, mock_get_token: Mock, mock_make_request: Mock):
+    result = runner.invoke(app, ["http://otel-collector:4318", "--url", SERVER])
+
+    assert result.exit_code == 0
+    assert mock_server_url.call_args == mock.call(SERVER)

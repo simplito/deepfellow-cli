@@ -23,7 +23,7 @@ app = typer.Typer()
 
 @app.command()
 def revoke(
-    server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow server address"),
+    server: str | None = typer.Option(None, "--url", callback=validate_server, help="DeepFellow server address"),
     organization_id: str = typer.Argument(..., help="Organization ID to add the API Key"),
     project_id: str = typer.Argument(..., help="Organization ID to add the API Key"),
     api_key_id: str = typer.Argument(..., help="Organization API Key to revoke"),

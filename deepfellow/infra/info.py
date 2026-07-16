@@ -35,7 +35,7 @@ def _dynamic_config_values(server: str | None, api_key: str | None, secret: bool
     """Fetch current dynamic config from Infra's `/admin/config`.
 
     Resolved the same way `infra config get` resolves its target: `server`/`api_key` (from
-    `--server`/`--api-key`) if given, otherwise the externally-configured Infra URL and the
+    `--url`/`--api-key`) if given, otherwise the externally-configured Infra URL and the
     admin API key stored locally. Unlike the env file view, this always talks to Infra: it exits
     with an error if nothing is resolvable, or the request fails for any reason (Infra down,
     unreachable, wrong credentials, a non-JSON or unexpected response, ...).
@@ -48,7 +48,7 @@ def _dynamic_config_values(server: str | None, api_key: str | None, secret: bool
         resolved_key = secrets.get("DF_INFRA_ADMIN_API_KEY")
 
     if not resolved_server or not resolved_key:
-        echo.error("No DeepFellow Infra server/API key configured. Pass --server/--api-key or run `infra connect`.")
+        echo.error("No DeepFellow Infra server/API key configured. Pass --url/--api-key or run `infra connect`.")
         raise typer.Exit(1)
 
     try:
@@ -84,7 +84,7 @@ def _dynamic_config_values(server: str | None, api_key: str | None, secret: bool
 @app.command()
 def info(
     server: str | None = typer.Option(
-        None, "--server", callback=validate_server, help="DeepFellow Infra address, for reading dynamic config."
+        None, "--url", callback=validate_server, help="DeepFellow Infra address, for reading dynamic config."
     ),
     api_key: str | None = typer.Option(
         None, "--api-key", help="Infra Admin API Key to use, instead of the one currently stored locally."
