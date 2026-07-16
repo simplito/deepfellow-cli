@@ -30,6 +30,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `infra connect` no longer takes the mesh key as a required command-line argument; in interactive mode it prompts for the key with masked (password-style) input, so the secret no longer leaks into the screen, shell history, or process list. The key can still be passed as an argument for scripting and `--non-interactive` runs.
 - `df infra/server install` both have switched order of questions. Docker Network prompt appears sooner.
 - Infra API error messages are now consistent across all `deepfellow infra service`/`infra model` commands and surface the server's error `detail` instead of a raw JSON response body.
+- Renamed the `--server` option to `--url` on all Server/Infra API-calling commands
+  (`--server` was overloaded — it's also the Docker container name, and in `infra` it
+  meant the Infra address, not the Server). **Breaking:** no alias — `--server` now errors.
 
 ## [0.8.0] - 2026-06-19
 

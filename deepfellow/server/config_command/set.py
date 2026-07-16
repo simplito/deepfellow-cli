@@ -27,7 +27,7 @@ app = typer.Typer()
 @app.command(name="set")
 def set_(
     updates: list[str] = typer.Argument(..., help="Fields to update, e.g. otel_tracing_enabled=true"),
-    server: str | None = typer.Option(None, "--server", callback=validate_server, help="DeepFellow Server address"),
+    server: str | None = typer.Option(None, "--url", callback=validate_server, help="DeepFellow Server address"),
     secret: bool = typer.Option(False, "--secret", help="Reveal secret field values instead of masking them."),
 ) -> None:
     """Update dynamic server configuration via PUT /admin/config. Applied without a restart."""

@@ -34,7 +34,7 @@ def _ensure_dict(config: Any) -> None:
 def _dynamic_config_values(server: str | None, secret: bool) -> dict[str, str]:
     """Fetch current dynamic config from the server's `/admin/config`.
 
-    Resolved the same way `server config get` resolves its target: `server` (from `--server`) if
+    Resolved the same way `server config get` resolves its target: `server` (from `--url`) if
     given, otherwise the CLI's configured default server URL, and the user token stored locally.
     Unlike the env file view, this always talks to the server: it exits with an error if nothing
     is resolvable without prompting (no login flow is triggered), or the request fails for any
@@ -45,7 +45,7 @@ def _dynamic_config_values(server: str | None, secret: bool) -> dict[str, str]:
     token = read_env_file(secrets_file).get("DF_USER_TOKEN") if secrets_file.is_file() else None
 
     if not resolved_server or not token:
-        echo.error("No DeepFellow Server/user token configured. Pass --server or log in with `server login`.")
+        echo.error("No DeepFellow Server/user token configured. Pass --url or log in with `server login`.")
         raise typer.Exit(1)
 
     try:
@@ -77,7 +77,7 @@ def _dynamic_config_values(server: str | None, secret: bool) -> dict[str, str]:
 @app.command()
 def info(
     server: str | None = typer.Option(
-        None, "--server", callback=validate_server, help="DeepFellow Server address, for reading dynamic config."
+        None, "--url", callback=validate_server, help="DeepFellow Server address, for reading dynamic config."
     ),
     secret: bool = typer.Option(
         False,

@@ -177,7 +177,7 @@ def _resolve_spec(
 
 @app.command()
 def install(
-    server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Infra address"),
+    server: str | None = typer.Option(None, "--url", callback=validate_server, help="DeepFellow Infra address"),
     name: str = typer.Argument(..., help="service name (e.g. ollama)"),
     service_api_key: str | None = typer.Option(None, "--api-key", help="API key for remote services (e.g. claude)"),
     spec: str | None = typer.Option(

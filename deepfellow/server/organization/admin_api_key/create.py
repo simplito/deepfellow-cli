@@ -23,7 +23,7 @@ app = typer.Typer()
 
 @app.command()
 def create(
-    server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Server address"),
+    server: str | None = typer.Option(None, "--url", callback=validate_server, help="DeepFellow Server address"),
     organization_id: str = typer.Argument(..., help="Organization ID to add the API Key"),
     name: str = typer.Argument(..., help="Name of the API Key"),
 ) -> None:

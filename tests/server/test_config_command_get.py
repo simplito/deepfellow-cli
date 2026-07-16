@@ -11,9 +11,13 @@ import json
 from unittest import mock
 from unittest.mock import Mock
 
-from deepfellow.server.config_command.get import get_
+from typer.testing import CliRunner
+
+from deepfellow.server.config_command.get import app, get_
 
 SERVER = "http://localhost:8000"
+
+runner = CliRunner()
 
 
 @mock.patch("deepfellow.server.config_command.get.echo")
@@ -77,3 +81,22 @@ def test_get_with_secret_flag_reveals_masked_paths(
     assert printed["smtp"]["password"] == "the-real-secret"
     assert printed["smtp"]["host"] == "smtp.example.com"
     assert printed["name"] == "my-server"
+
+
+def test_get_cli_rejects_old_server_option():
+    result = runner.invoke(app, ["--server", SERVER])
+
+    assert result.exit_code == 2
+    assert "no such option: --server" in result.output.lower()
+
+
+@mock.patch("deepfellow.server.config_command.get.http_get")
+@mock.patch("deepfellow.server.config_command.get.get_token", return_value="dfuser_abc")
+@mock.patch("deepfellow.server.config_command.get.get_server_url", return_value=SERVER)
+def test_get_cli_accepts_url_option(mock_server_url: Mock, mock_get_token: Mock, mock_http_get: Mock):
+    mock_http_get.return_value = {}
+
+    result = runner.invoke(app, ["--url", SERVER])
+
+    assert result.exit_code == 0
+    assert mock_server_url.call_args == mock.call(SERVER)

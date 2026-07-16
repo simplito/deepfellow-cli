@@ -11,9 +11,13 @@ import json
 from unittest import mock
 from unittest.mock import Mock
 
-from deepfellow.server.config_command.set import set_
+from typer.testing import CliRunner
+
+from deepfellow.server.config_command.set import app, set_
 
 SERVER = "http://localhost:8000"
+
+runner = CliRunner()
 
 
 @mock.patch("deepfellow.server.config_command.set.echo")
@@ -86,3 +90,22 @@ def test_set_with_secret_flag_reveals_masked_paths(
     printed = json.loads(mock_echo.info.call_args[0][0])
     assert printed["smtp"]["password"] == "the-real-secret"
     assert printed["name"] == "my-server"
+
+
+def test_set_cli_rejects_old_server_option():
+    result = runner.invoke(app, ["otel_tracing_enabled=true", "--server", SERVER])
+
+    assert result.exit_code == 2
+    assert "no such option: --server" in result.output.lower()
+
+
+@mock.patch("deepfellow.server.config_command.set.make_request")
+@mock.patch("deepfellow.server.config_command.set.get_token", return_value="dfuser_abc")
+@mock.patch("deepfellow.server.config_command.set.get_server_url", return_value=SERVER)
+def test_set_cli_accepts_url_option(mock_server_url: Mock, mock_get_token: Mock, mock_make_request: Mock):
+    mock_make_request.return_value = {"otel_tracing_enabled": True}
+
+    result = runner.invoke(app, ["otel_tracing_enabled=true", "--url", SERVER])
+
+    assert result.exit_code == 0
+    assert mock_server_url.call_args == mock.call(SERVER)

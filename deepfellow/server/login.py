@@ -22,7 +22,7 @@ app = typer.Typer()
 
 @app.command()
 def login(
-    server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Server address"),
+    server: str | None = typer.Option(None, "--url", callback=validate_server, help="DeepFellow Server address"),
     email: str | None = typer.Option(None, callback=validate_email, help="User email"),
     password: str | None = typer.Option(None, callback=validate_password, help="User password"),
     token: str | None = typer.Option(

@@ -26,7 +26,7 @@ app = typer.Typer()
 
 @app.command()
 def install(
-    server: str | None = typer.Option(None, callback=validate_server, help="DeepFellow Infra address"),
+    server: str | None = typer.Option(None, "--url", callback=validate_server, help="DeepFellow Infra address"),
     service_name: str = typer.Argument(..., help="service name (e.g. ollama)"),
     model_name: str = typer.Argument(..., help="model name (e.g. llama-3.1-8B)"),
 ) -> None:

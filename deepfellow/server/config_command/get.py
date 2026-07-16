@@ -26,7 +26,7 @@ app = typer.Typer()
 
 @app.command(name="get")
 def get_(
-    server: str | None = typer.Option(None, "--server", callback=validate_server, help="DeepFellow Server address"),
+    server: str | None = typer.Option(None, "--url", callback=validate_server, help="DeepFellow Server address"),
     secret: bool = typer.Option(False, "--secret", help="Reveal secret field values instead of masking them."),
 ) -> None:
     """Read dynamic server configuration via GET /admin/config. Secret fields are masked unless --secret is given."""
