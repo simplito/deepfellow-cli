@@ -15,8 +15,9 @@ import pytest
 import typer
 
 from deepfellow.infra.service.fields import fields
-from deepfellow.infra.service.install import install
+from deepfellow.infra.service.install import install as install_command
 from deepfellow.infra.service.list import list as list_services
+from deepfellow.infra.utils.service_install import install
 
 
 @pytest.fixture(name="name")
@@ -25,9 +26,11 @@ def name_fixture() -> str:
 
 
 @mock.patch("deepfellow.infra.utils.connection.echo")
-@mock.patch("deepfellow.infra.service.install.post")
-@mock.patch("deepfellow.infra.service.install.get")
-@mock.patch("deepfellow.infra.service.install.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
+@mock.patch("deepfellow.infra.utils.service_install.post")
+@mock.patch("deepfellow.infra.utils.service_install.get")
+@mock.patch(
+    "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
 def test_install_connection_error(
     mock_resolve: Mock,
     mock_get: Mock,
@@ -47,10 +50,12 @@ def test_install_connection_error(
     )
 
 
-@mock.patch("deepfellow.infra.service.install.echo")
-@mock.patch("deepfellow.infra.service.install.post")
-@mock.patch("deepfellow.infra.service.install.get")
-@mock.patch("deepfellow.infra.service.install.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
+@mock.patch("deepfellow.infra.utils.service_install.echo")
+@mock.patch("deepfellow.infra.utils.service_install.post")
+@mock.patch("deepfellow.infra.utils.service_install.get")
+@mock.patch(
+    "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
 def test_install_success_without_api_key(
     mock_resolve: Mock,
     mock_get: Mock,
@@ -69,10 +74,12 @@ def test_install_success_without_api_key(
     assert mock_echo.success.call_count == 1
 
 
-@mock.patch("deepfellow.infra.service.install.echo")
-@mock.patch("deepfellow.infra.service.install.post")
-@mock.patch("deepfellow.infra.service.install.get")
-@mock.patch("deepfellow.infra.service.install.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
+@mock.patch("deepfellow.infra.utils.service_install.echo")
+@mock.patch("deepfellow.infra.utils.service_install.post")
+@mock.patch("deepfellow.infra.utils.service_install.get")
+@mock.patch(
+    "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
 def test_install_success_with_api_key(
     mock_resolve: Mock,
     mock_get: Mock,
@@ -91,10 +98,12 @@ def test_install_success_with_api_key(
     assert mock_echo.success.call_count == 1
 
 
-@mock.patch("deepfellow.infra.service.install.echo")
-@mock.patch("deepfellow.infra.service.install.post")
-@mock.patch("deepfellow.infra.service.install.get")
-@mock.patch("deepfellow.infra.service.install.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
+@mock.patch("deepfellow.infra.utils.service_install.echo")
+@mock.patch("deepfellow.infra.utils.service_install.post")
+@mock.patch("deepfellow.infra.utils.service_install.get")
+@mock.patch(
+    "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
 def test_install_with_valid_spec(
     mock_resolve: Mock,
     mock_get: Mock,
@@ -118,7 +127,7 @@ def test_install_with_invalid_json_spec(name: str) -> None:
         install(name=name, spec="not-json")
 
 
-@mock.patch("deepfellow.infra.service.install.echo")
+@mock.patch("deepfellow.infra.utils.service_install.echo")
 def test_install_with_non_object_json_spec(mock_echo: Mock, name: str) -> None:
     with pytest.raises(typer.Exit):
         install(name=name, spec='["a", "b"]')
@@ -127,11 +136,13 @@ def test_install_with_non_object_json_spec(mock_echo: Mock, name: str) -> None:
     assert mock_echo.error.call_args == mock.call("--spec must be a JSON object, not an array or scalar.")
 
 
-@mock.patch("deepfellow.infra.service.install.echo")
-@mock.patch("deepfellow.infra.service.install.post")
-@mock.patch("deepfellow.infra.service.install.get")
-@mock.patch("deepfellow.infra.service.install.is_interactive", return_value=False)
-@mock.patch("deepfellow.infra.service.install.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
+@mock.patch("deepfellow.infra.utils.service_install.echo")
+@mock.patch("deepfellow.infra.utils.service_install.post")
+@mock.patch("deepfellow.infra.utils.service_install.get")
+@mock.patch("deepfellow.infra.utils.service_install.is_interactive", return_value=False)
+@mock.patch(
+    "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
 def test_install_claude_with_api_key(
     mock_resolve: Mock,
     mock_is_interactive: Mock,
@@ -179,11 +190,13 @@ def test_install_claude_with_api_key(
     assert mock_echo.success.call_count == 1
 
 
-@mock.patch("deepfellow.infra.service.install.echo")
-@mock.patch("deepfellow.infra.service.install.post")
-@mock.patch("deepfellow.infra.service.install.get")
-@mock.patch("deepfellow.infra.service.install.is_interactive", return_value=False)
-@mock.patch("deepfellow.infra.service.install.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
+@mock.patch("deepfellow.infra.utils.service_install.echo")
+@mock.patch("deepfellow.infra.utils.service_install.post")
+@mock.patch("deepfellow.infra.utils.service_install.get")
+@mock.patch("deepfellow.infra.utils.service_install.is_interactive", return_value=False)
+@mock.patch(
+    "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
 def test_install_google_with_api_key(
     mock_resolve: Mock,
     mock_is_interactive: Mock,
@@ -223,11 +236,13 @@ def test_install_google_with_api_key(
     assert mock_echo.success.call_count == 1
 
 
-@mock.patch("deepfellow.infra.service.install.echo")
-@mock.patch("deepfellow.infra.service.install.post")
-@mock.patch("deepfellow.infra.service.install.get")
-@mock.patch("deepfellow.infra.service.install.is_interactive", return_value=False)
-@mock.patch("deepfellow.infra.service.install.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
+@mock.patch("deepfellow.infra.utils.service_install.echo")
+@mock.patch("deepfellow.infra.utils.service_install.post")
+@mock.patch("deepfellow.infra.utils.service_install.get")
+@mock.patch("deepfellow.infra.utils.service_install.is_interactive", return_value=False)
+@mock.patch(
+    "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
 def test_install_openai_with_api_key(
     mock_resolve: Mock,
     mock_is_interactive: Mock,
@@ -267,11 +282,13 @@ def test_install_openai_with_api_key(
     assert mock_echo.success.call_count == 1
 
 
-@mock.patch("deepfellow.infra.service.install.echo")
-@mock.patch("deepfellow.infra.service.install.post")
-@mock.patch("deepfellow.infra.service.install.get")
-@mock.patch("deepfellow.infra.service.install.is_interactive", return_value=False)
-@mock.patch("deepfellow.infra.service.install.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
+@mock.patch("deepfellow.infra.utils.service_install.echo")
+@mock.patch("deepfellow.infra.utils.service_install.post")
+@mock.patch("deepfellow.infra.utils.service_install.get")
+@mock.patch("deepfellow.infra.utils.service_install.is_interactive", return_value=False)
+@mock.patch(
+    "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
 def test_install_sindri_with_api_key(
     mock_resolve: Mock,
     mock_is_interactive: Mock,
@@ -309,6 +326,31 @@ def test_install_sindri_with_api_key(
     call_kwargs = mock_post.call_args[1]
     assert call_kwargs["data"] == {"spec": {"api_key": "sindri-key-123"}}
     assert mock_echo.success.call_count == 1
+
+
+@mock.patch("deepfellow.infra.service.install.install_util")
+def test_install_command_delegates_to_install_util(
+    mock_install_util: Mock,
+    name: str,
+) -> None:
+    install_command(
+        server="http://infra:8086",
+        name=name,
+        service_api_key="sk-test-123",
+        spec=None,
+        set_args=None,
+        prompt_all=True,
+    )
+
+    assert mock_install_util.call_count == 1
+    assert mock_install_util.call_args == mock.call(
+        name=name,
+        server="http://infra:8086",
+        service_api_key="sk-test-123",
+        spec=None,
+        set_args=None,
+        prompt_all=True,
+    )
 
 
 @mock.patch("deepfellow.infra.service.list.echo")
