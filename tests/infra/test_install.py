@@ -54,6 +54,10 @@ def default_install_kwargs(directory: Path, docker_config: Mock) -> dict:
         "docker_network": DF_INFRA_DOCKER_NETWORK,
         "force_install": False,
         "allow_rootful": False,
+        "allow_print_keys": None,
+        "keep_compose_prefix": None,
+        "keep_storage": None,
+        "keep_metrics": None,
     }
 
 
@@ -435,6 +439,198 @@ def test_install_flag_print_keys_false_does_not_print_keys(
 @mock.patch("deepfellow.infra.utils.install.get_socket")
 @mock.patch("deepfellow.infra.utils.install.assert_docker")
 @mock.patch("deepfellow.infra.utils.install.echo")
+def test_install_forwards_allow_print_keys_as_from_args(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_get_socket: Mock,
+    mock_ensure_dir: Mock,
+    mock_read: Mock,
+    mock_configure_uuid: Mock,
+    mock_gen_password: Mock,
+    mock_env_set: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    default_install_kwargs: dict,
+) -> None:
+    _setup_echo(mock_echo)
+    mock_read.return_value = {}
+
+    install(**{**default_install_kwargs, "allow_print_keys": True})
+
+    print_keys_call = mock_echo.confirm.call_args_list[0]
+    assert print_keys_call.kwargs["from_args"] is True
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.add_network_to_service")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.generate_password")
+@mock.patch("deepfellow.infra.utils.install.configure_uuid_key")
+@mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.utils.install.ensure_directory")
+@mock.patch("deepfellow.infra.utils.install.get_socket")
+@mock.patch("deepfellow.infra.utils.install.assert_docker")
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_install_forwards_keep_compose_prefix_as_from_args(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_get_socket: Mock,
+    mock_ensure_dir: Mock,
+    mock_read: Mock,
+    mock_configure_uuid: Mock,
+    mock_gen_password: Mock,
+    mock_env_set: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    default_install_kwargs: dict,
+) -> None:
+    _setup_echo(mock_echo)
+    mock_read.return_value = {"df_infra_compose_prefix": "dfabcdef_"}
+
+    install(**{**default_install_kwargs, "keep_compose_prefix": False})
+
+    compose_prefix_call = mock_echo.confirm.call_args_list[1]
+    assert compose_prefix_call.kwargs["from_args"] is False
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.add_network_to_service")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.generate_password")
+@mock.patch("deepfellow.infra.utils.install.configure_uuid_key")
+@mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.utils.install.ensure_directory")
+@mock.patch("deepfellow.infra.utils.install.get_socket")
+@mock.patch("deepfellow.infra.utils.install.assert_docker")
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_install_keep_compose_prefix_ignored_without_original(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_get_socket: Mock,
+    mock_ensure_dir: Mock,
+    mock_read: Mock,
+    mock_configure_uuid: Mock,
+    mock_gen_password: Mock,
+    mock_env_set: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    default_install_kwargs: dict,
+) -> None:
+    """keep_compose_prefix=True has no effect when there is no previous prefix to keep."""
+    _setup_echo(mock_echo)
+    mock_read.return_value = {}
+
+    install(**{**default_install_kwargs, "keep_compose_prefix": True})
+
+    infra_values = mock_save_env.call_args[0][1]
+    assert re.match(r"^df[a-z0-9]{6}_$", infra_values["DF_INFRA_COMPOSE_PREFIX"])
+    assert mock_echo.confirm.call_count == 1
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.add_network_to_service")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.generate_password")
+@mock.patch("deepfellow.infra.utils.install.configure_uuid_key")
+@mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.utils.install.ensure_directory")
+@mock.patch("deepfellow.infra.utils.install.get_socket")
+@mock.patch("deepfellow.infra.utils.install.assert_docker")
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_install_forwards_keep_storage_as_from_args(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_get_socket: Mock,
+    mock_ensure_dir: Mock,
+    mock_read: Mock,
+    mock_configure_uuid: Mock,
+    mock_gen_password: Mock,
+    mock_env_set: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    default_install_kwargs: dict,
+) -> None:
+    _setup_echo(mock_echo)
+    mock_read.return_value = {"df_infra_storage_dir": "/custom/storage"}
+
+    install(**{**default_install_kwargs, "keep_storage": True})
+
+    storage_call = mock_echo.confirm.call_args_list[1]
+    assert storage_call.kwargs["from_args"] is True
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.add_network_to_service")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.generate_password")
+@mock.patch("deepfellow.infra.utils.install.configure_uuid_key")
+@mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.utils.install.ensure_directory")
+@mock.patch("deepfellow.infra.utils.install.get_socket")
+@mock.patch("deepfellow.infra.utils.install.assert_docker")
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_install_forwards_keep_metrics_as_from_args(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_get_socket: Mock,
+    mock_ensure_dir: Mock,
+    mock_read: Mock,
+    mock_configure_uuid: Mock,
+    mock_gen_password: Mock,
+    mock_env_set: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    default_install_kwargs: dict,
+) -> None:
+    _setup_echo(mock_echo)
+    mock_read.return_value = {"df_metrics_username": "orig_user", "df_metrics_password": "orig_pass"}
+
+    install(**{**default_install_kwargs, "keep_metrics": False})
+
+    metrics_call = mock_echo.confirm.call_args_list[1]
+    assert metrics_call.kwargs["from_args"] is False
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.add_network_to_service")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.generate_password")
+@mock.patch("deepfellow.infra.utils.install.configure_uuid_key")
+@mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.utils.install.ensure_directory")
+@mock.patch("deepfellow.infra.utils.install.get_socket")
+@mock.patch("deepfellow.infra.utils.install.assert_docker")
+@mock.patch("deepfellow.infra.utils.install.echo")
 def test_install_calls_ensure_network(
     mock_echo: Mock,
     mock_assert_docker: Mock,
@@ -615,7 +811,7 @@ def test_install_storage_kept_when_confirmed(
     mock_echo.prompt.side_effect = [DF_INFRA_NAME, DF_INFRA_DOCKER_NETWORK, "", ""]
     mock_echo.prompt_until_valid.return_value = DF_INFRA_URL
     mock_echo.confirm.side_effect = [False, True]
-    mock_read.return_value = {"DF_INFRA_STORAGE_DIR": original_storage}
+    mock_read.return_value = {"df_infra_storage_dir": str(original_storage)}
 
     install(**default_install_kwargs)
 
@@ -1312,6 +1508,29 @@ def test_install_command_delegates_to_install_util(
 
     assert mock_install_util.call_count == 1
     assert mock_install_util.call_args == mock.call(**default_install_kwargs)
+
+
+@mock.patch("deepfellow.infra.install.install_util")
+def test_install_command_forwards_explicit_confirm_flags_to_install_util(
+    mock_install_util: Mock,
+    default_install_kwargs: dict,
+) -> None:
+    install_command(
+        **{
+            **default_install_kwargs,
+            "allow_print_keys": True,
+            "keep_compose_prefix": False,
+            "keep_storage": True,
+            "keep_metrics": False,
+        }
+    )
+
+    assert mock_install_util.call_count == 1
+    call_kwargs = mock_install_util.call_args.kwargs
+    assert call_kwargs["allow_print_keys"] is True
+    assert call_kwargs["keep_compose_prefix"] is False
+    assert call_kwargs["keep_storage"] is True
+    assert call_kwargs["keep_metrics"] is False
 
 
 @mock.patch("deepfellow.infra.utils.install.run")

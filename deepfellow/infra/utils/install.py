@@ -13,7 +13,7 @@ import random
 import string
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 from deepfellow.common.config import (
     configure_uuid_key,
@@ -62,6 +62,10 @@ def install(  # noqa: C901
     docker_network: str = DF_INFRA_DOCKER_NETWORK,
     force_install: bool = False,
     allow_rootful: bool = False,
+    allow_print_keys: bool | None = None,
+    keep_compose_prefix: bool | None = None,
+    keep_storage: bool | None = None,
+    keep_metrics: bool | None = None,
 ) -> None:
     """Install infra with docker."""
     # Retrieve the docker info to fail early in the process in docker is not running or configured differently
@@ -119,7 +123,7 @@ def install(  # noqa: C901
     # Create the network if needed
     ensure_network(docker_network)
 
-    flag_print_keys = echo.confirm("Is it safe to print API keys here?")
+    flag_print_keys = echo.confirm("Is it safe to print API keys here?", from_args=allow_print_keys)
 
     # Collect DF_INFRA_ADMIN_API_KEY
     echo.info("Configuration of DF_INFRA_ADMIN_API_KEY\nkey required for an admin identify in DeepFellow Infra.")
@@ -150,7 +154,9 @@ def install(  # noqa: C901
     original_compose_prefix = original_env_content.get("df_infra_compose_prefix")
     compose_prefix = None
     if original_compose_prefix is not None and echo.confirm(
-        f"Would you like to keep the previously configured compose prefix '{original_compose_prefix}'?", default=True
+        f"Would you like to keep the previously configured compose prefix '{original_compose_prefix}'?",
+        from_args=keep_compose_prefix,
+        default=True,
     ):
         compose_prefix = original_compose_prefix
     else:
@@ -158,13 +164,15 @@ def install(  # noqa: C901
         compose_prefix = f"df{random_letters}_"
 
     # Find out the infra storage dir
-    original_storage: Any = original_env_content.get("DF_INFRA_STORAGE_DIR")
+    original_storage_raw = original_env_content.get("df_infra_storage_dir")
+    original_storage: Path | None = Path(str(original_storage_raw)) if original_storage_raw is not None else None
     if (
         original_storage is not None
         and original_storage != DF_INFRA_STORAGE_DIR
         and storage == DF_INFRA_STORAGE_DIR
         and echo.confirm(
             f"Would you like to keep the previously configured storage dir '{original_storage}'?",
+            from_args=keep_storage,
             default=True,
         )
     ):
@@ -176,7 +184,11 @@ def install(  # noqa: C901
     if (
         original_metrics_username is not None
         and original_metrics_password is not None
-        and echo.confirm("Would you like to keep the previously configured metrics credentials?", default=True)
+        and echo.confirm(
+            "Would you like to keep the previously configured metrics credentials?",
+            from_args=keep_metrics,
+            default=True,
+        )
     ):
         metrics_username = original_metrics_username
         metrics_password = original_metrics_password

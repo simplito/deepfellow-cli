@@ -48,6 +48,27 @@ def install(
     ),
     force_install: bool = typer.Option(False, help="Force install"),
     allow_rootful: bool = typer.Option(False, help="Allow rootful Docker without asking user for permission"),
+    allow_print_keys: bool | None = typer.Option(
+        None,
+        "--allow-print-keys/--no-allow-print-keys",
+        help="Print API keys to the console. If not given, asks interactively (default: don't print).",
+    ),
+    keep_compose_prefix: bool | None = typer.Option(
+        None,
+        "--keep-compose-prefix/--no-keep-compose-prefix",
+        help="Keep the previously configured compose prefix, if any. If not given, asks interactively (default: keep).",
+    ),
+    keep_storage: bool | None = typer.Option(
+        None,
+        "--keep-storage/--no-keep-storage",
+        help="Keep the previously configured storage dir, if any. If not given, asks interactively (default: keep).",
+    ),
+    keep_metrics: bool | None = typer.Option(
+        None,
+        "--keep-metrics/--no-keep-metrics",
+        help="Keep the previously configured metrics credentials, if any. "
+        "If not given, asks interactively (default: keep).",
+    ),
 ) -> None:
     """Install infra with docker."""
     install_util(
@@ -64,4 +85,8 @@ def install(
         docker_network=docker_network,
         force_install=force_install,
         allow_rootful=allow_rootful,
+        allow_print_keys=allow_print_keys,
+        keep_compose_prefix=keep_compose_prefix,
+        keep_storage=keep_storage,
+        keep_metrics=keep_metrics,
     )

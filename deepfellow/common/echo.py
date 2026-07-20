@@ -108,10 +108,24 @@ class Echo(Console):
         final_msg = f"💀\t[bold red]{add_tabs(message)}[/]" if is_interactive() else message
         self.print(final_msg)
 
-    def confirm(self, message: str, **kwargs: Any) -> bool:
-        """Prompt the user for confirmation."""
+    def confirm(self, message: str, from_args: bool | None = None, **kwargs: Any) -> bool:
+        """Prompt the user for confirmation.
+
+        Args:
+            message: The confirmation message to display
+            from_args: Value provided via CLI arguments. When not `None`, it is returned
+                immediately without prompting, in both interactive and non-interactive mode.
+            **kwargs: Additional arguments passed to Confirm.ask (e.g. `default`)
+
+        Returns:
+            The final value (from args, user input, or default)
+        """
         if "default" not in kwargs:
             kwargs["default"] = False
+
+        if from_args is not None:
+            self.info(f"{message} (set automatically: {from_args})")
+            return from_args
 
         if not is_interactive():
             return kwargs["default"]

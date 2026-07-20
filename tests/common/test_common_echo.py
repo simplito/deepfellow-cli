@@ -446,6 +446,52 @@ def test_get_return_value_from_args_zero_is_valid_value(mock_is_interactive: moc
     assert get_return_value("Enter value", from_args=0, original_default=1) == 0
 
 
+@patch("deepfellow.common.echo.Confirm.ask")
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_confirm_interactive_from_args_true_skips_prompt(mock_interactive, mock_ask, prompter):
+    """Explicit from_args=True skips the interactive prompt."""
+    result = prompter.confirm("Keep X?", from_args=True)
+
+    assert mock_ask.call_count == 0
+    assert result is True
+
+
+@patch("deepfellow.common.echo.Confirm.ask")
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_confirm_interactive_from_args_false_skips_prompt(mock_interactive, mock_ask, prompter):
+    """Explicit from_args=False skips the interactive prompt."""
+    result = prompter.confirm("Keep X?", from_args=False)
+
+    assert mock_ask.call_count == 0
+    assert result is False
+
+
+@patch(_IS_INTERACTIVE, return_value=False)
+def test_confirm_non_interactive_from_args_true_ignores_default(mock_interactive, prompter):
+    """Explicit from_args=True is returned even when non-interactive default is False."""
+    result = prompter.confirm("Keep X?", from_args=True, default=False)
+
+    assert result is True
+
+
+@patch(_IS_INTERACTIVE, return_value=False)
+def test_confirm_non_interactive_from_args_none_uses_default(mock_interactive, prompter):
+    """from_args=None in non-interactive mode falls back to default, as before this change."""
+    result = prompter.confirm("Keep X?", default=True)
+
+    assert result is True
+
+
+@patch("deepfellow.common.echo.Confirm.ask", return_value=True)
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_confirm_interactive_from_args_none_still_prompts(mock_interactive, mock_ask, prompter):
+    """from_args=None in interactive mode still prompts, as before this change."""
+    result = prompter.confirm("Keep X?")
+
+    assert mock_ask.call_count == 1
+    assert result is True
+
+
 def test_is_interactive_returns_true_when_non_interactive_false():
     state.non_interactive = False
 
