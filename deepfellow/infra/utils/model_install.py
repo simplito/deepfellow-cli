@@ -1,0 +1,69 @@
+# DeepFellow Software Framework.
+# Copyright © 2026 Simplito sp. z o.o.
+#
+# This file is part of the DeepFellow Software Framework (https://deepfellow.ai).
+# This software is Licensed under the DeepFellow Free License.
+#
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Install model core logic."""
+
+from typing import cast
+
+import typer
+
+from deepfellow.common.config import read_env_file
+from deepfellow.common.echo import echo
+from deepfellow.common.env import env_set
+from deepfellow.common.rest import post
+from deepfellow.common.state import state
+from deepfellow.common.validation import validate_server
+from deepfellow.infra.utils.connection import call_infra
+
+
+def install(
+    service_name: str,
+    model_name: str,
+    server: str | None = None,
+) -> None:
+    """Install model."""
+    # Get token for the server
+    config_file = state.cli_config_file
+    config = state.cli_config
+    config_external_server = config.get("df_infra_external_url")
+    secrets_file = state.cli_secrets_file
+
+    if server is None and config_external_server is not None:
+        server = config_external_server
+
+    if server is None and config_external_server is None:
+        while server is None:
+            try:
+                server = echo.prompt(
+                    "Provide DeepFellow Infra URL", default=config_external_server, validation=validate_server
+                )
+            except typer.BadParameter:
+                echo.error("Invalid Deepfellow Infra address. Please try again.")
+
+    if server != config_external_server:
+        env_set(config_file, "DF_INFRA_EXTERNAL_URL", cast("str", server), should_raise=False)
+
+    secrets = read_env_file(secrets_file) if secrets_file.is_file() else {}
+    api_key = secrets.get("DF_INFRA_ADMIN_API_KEY")
+    if api_key is None:
+        api_key = echo.prompt("Provide Infra Admin API Key", password=True)
+        env_set(secrets_file, "DF_INFRA_ADMIN_API_KEY", api_key, should_raise=False)
+
+    url = f"{server}/admin/services/{service_name}/models/_?model_id={model_name}"
+
+    data = call_infra(
+        lambda: post(url, api_key, item_name="Service", data={"spec": {}}, reraise=True),
+        "Unable to install model.",
+    )
+
+    if data.get("status") != "OK":
+        echo.error("Unable to install model.")
+        raise typer.Exit(1)
+
+    echo.success(f"Model {model_name} installed.")
