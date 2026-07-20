@@ -18,13 +18,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `deepfellow server config get`/`deepfellow server config set` — same as above, for the Server
 - `--secret` flag on all four `infra config`/`server config` `get`/`set` commands — reveal secret field values instead of masking them, via `/admin/config/{key}/reveal`
 - `deepfellow server login --token` — register an already-obtained access token directly, skipping the email/password login flow
+- `deepfellow infra install` gains `--allow-print-keys`/`--keep-compose-prefix`/`--keep-storage`/`--keep-metrics` flags (each with a `--no-...` counterpart) to pre-answer the corresponding confirmation prompts non-interactively, without needing full `--non-interactive` mode
 - `--remove-images` flag on `deepfellow infra uninstall` — also removes the Docker images used by the DeepFellow Infra stack (including the image recorded in `DF_INFRA_IMAGE`); off by default, so a plain `deepfellow infra uninstall` keeps images as before
-
-### Fixed
 - `deepfellow cli update` no longer reports failure (exit code 1, no success message) after a successful upgrade; it now exits 0 and prints "updated successfully" when the upgrade completes, and only errors out when the upgrade command actually fails.
 - Fixed `--non-interactive` failing with "Please provide the value in args" when a CLI argument value equals the Typer default (e.g. `--mongodb-database-name deepfellow` during `server install`).
 - Fixed server organization delete: wrong success message and added --yes parity.
 - `deepfellow infra service` and `infra model` commands no longer exit with a raw traceback on connection timeouts or other transport errors — every Infra API call now fails with a readable error message.
+- `deepfellow infra install` now correctly offers to keep a previously configured storage directory when reinstalling over an existing install; the check was silently broken and always regenerated the default storage path.
 
 ### Changed
 - `deepfellow cli update` now resolves its upgrade command from the `DF_UPDATE_COMMAND` value stored in config (written by `install.sh` at install time), instead of always probing the package manager; existing installs keep working via detection fallback, and the resolved command is written back to config on first run. `install.sh` now records `DF_UPDATE_COMMAND` alongside `DF_UNINSTALL_COMMAND`, so `cli update` also works for pip/pip3 installs.
