@@ -67,6 +67,49 @@ pyright:
   script:
     - PYRIGHT_PYTHON_NODE_VERSION=24.10.0 uv run pyright
 
+check-version-bump:
+  <<: *uv
+  stage: analysis
+  variables:
+    UV_CACHE_DIR: .uv-cache
+    # Full clone so all release tags are available for comparison.
+    GIT_DEPTH: 0
+  script:
+    - command -v git >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends git)
+    - git fetch --tags --quiet
+    - |
+      LAST_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+      NEW_VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+      echo "Last tag: ${LAST_TAG:-<none>}, New version: $NEW_VERSION"
+      if [ -n "$LAST_TAG" ]; then
+        LAST_VERSION=${LAST_TAG#v}
+        if [ "$NEW_VERSION" = "$LAST_VERSION" ]; then
+          echo "ERROR: version in pyproject.toml ($NEW_VERSION) was not bumped (still same as last tag $LAST_TAG)"
+          exit 1
+        fi
+        HIGHEST=$(printf '%s\n%s\n' "$LAST_VERSION" "$NEW_VERSION" | sort -V | tail -1)
+        if [ "$HIGHEST" != "$NEW_VERSION" ]; then
+          echo "ERROR: version in pyproject.toml ($NEW_VERSION) is lower than last tag $LAST_TAG"
+          exit 1
+        fi
+      fi
+    - |
+      if grep -q '## \[Unreleased\]' CHANGELOG.md; then
+        echo "ERROR: CHANGELOG.md still has [Unreleased] section — rename it to the new version before release (see RELEASE.md)"
+        exit 1
+      fi
+      CHANGELOG_VERSION=$(grep -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+      if [ -z "$CHANGELOG_VERSION" ]; then
+        echo "ERROR: could not find a version section (## [X.Y.Z]) in CHANGELOG.md"
+        exit 1
+      fi
+      if [ "$CHANGELOG_VERSION" != "$NEW_VERSION" ]; then
+        echo "ERROR: top CHANGELOG.md version ($CHANGELOG_VERSION) does not match pyproject.toml version ($NEW_VERSION)"
+        exit 1
+      fi
+  only:
+    - /^release\/.*$/
+
 
 pytest:
   <<: *uv
