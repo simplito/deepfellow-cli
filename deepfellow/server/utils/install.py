@@ -25,6 +25,7 @@ from deepfellow.common.defaults import (
     DF_MONGO_DB,
     DF_MONGO_PORT,
     DF_MONGO_URL,
+    DF_SERVER_DIRECTORY,
     DF_SERVER_IMAGE,
     DF_SERVER_IMAGE_HUB,
     DF_SERVER_PORT,
@@ -45,12 +46,12 @@ from deepfellow.common.docker import (
     save_compose_file,
 )
 from deepfellow.common.echo import echo
+from deepfellow.common.exceptions import translate_to_install_error
 from deepfellow.common.generate import generate_password
 from deepfellow.common.install import assert_docker, ensure_directory
 from deepfellow.common.registry import get_newest_image_tag
 from deepfellow.common.system import run
 from deepfellow.server.utils.configure import configure_infra, configure_mongo, configure_otel, configure_vector_db
-from deepfellow.server.utils.options import default_directory_callback, set_default_server_directory
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
@@ -77,8 +78,9 @@ def expose_ports_to_host(services: dict[str, Any]) -> None:
             service["ports"] = [f"{port}:{port}" for port in service["expose"]]
 
 
+@translate_to_install_error
 def install(  # noqa: C901
-    directory: Path | None = None,
+    directory: Path = DF_SERVER_DIRECTORY,
     port: int = DF_SERVER_PORT,
     image: str = DF_SERVER_IMAGE,
     local_image: bool = False,
@@ -108,8 +110,6 @@ def install(  # noqa: C901
     if otel_local and otel_url:
         echo.error("--otel-local and --otel-url are mutually exclusive; pass only one.")
         raise typer.Exit(1)
-
-    directory = default_directory_callback(directory)
 
     echo.info("Installing DeepFellow Server.")
     assert_docker()
@@ -282,8 +282,6 @@ def install(  # noqa: C901
     # Create directory for plugins
     plugins_directory = directory / "plugins"
     plugins_directory.mkdir(exist_ok=True)
-
-    set_default_server_directory(directory, force=False)
 
     services["server"]["volumes"] = [
         f"{DF_SERVER_STORAGE_DIRECTORY}:/app/storage",

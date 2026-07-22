@@ -21,6 +21,7 @@ from deepfellow.common.defaults import (
     DF_INFRA_STORAGE_DIR,
     DF_INFRA_URL,
 )
+from deepfellow.common.exceptions import InstallError, reraise_if_debug
 from deepfellow.infra.utils.install import install as install_util
 from deepfellow.infra.utils.options import directory_option
 
@@ -71,22 +72,25 @@ def install(
     ),
 ) -> None:
     """Install infra with docker."""
-    install_util(
-        directory=directory,
-        port=port,
-        image=image,
-        local_image=local_image,
-        docker_config=docker_config,
-        storage=storage,
-        hugging_face_token=hugging_face_token,
-        civitai_token=civitai_token,
-        infra_name=infra_name,
-        infra_url=infra_url,
-        docker_network=docker_network,
-        force_install=force_install,
-        allow_rootful=allow_rootful,
-        allow_print_keys=allow_print_keys,
-        keep_compose_prefix=keep_compose_prefix,
-        keep_storage=keep_storage,
-        keep_metrics=keep_metrics,
-    )
+    try:
+        install_util(
+            directory=directory,
+            port=port,
+            image=image,
+            local_image=local_image,
+            docker_config=docker_config,
+            storage=storage,
+            hugging_face_token=hugging_face_token,
+            civitai_token=civitai_token,
+            infra_name=infra_name,
+            infra_url=infra_url,
+            docker_network=docker_network,
+            force_install=force_install,
+            allow_rootful=allow_rootful,
+            allow_print_keys=allow_print_keys,
+            keep_compose_prefix=keep_compose_prefix,
+            keep_storage=keep_storage,
+            keep_metrics=keep_metrics,
+        )
+    except InstallError as exc:
+        reraise_if_debug(exc)

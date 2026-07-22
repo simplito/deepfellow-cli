@@ -26,9 +26,11 @@ from deepfellow.common.defaults import (
     DF_MONGO_DB,
     DF_MONGO_PORT,
     DF_MONGO_URL,
+    DF_SERVER_DIRECTORY,
     DF_SERVER_PORT,
     VectorDBTypeChoice,
 )
+from deepfellow.common.exceptions import InstallError
 from deepfellow.server.install import install as install_command
 from deepfellow.server.utils.install import install
 
@@ -42,10 +44,8 @@ MOCK_CONFIGURE_VECTOR_DB = mock.patch("deepfellow.server.utils.install.configure
 MOCK_CONFIGURE_OTEL = mock.patch("deepfellow.server.utils.install.configure_otel")
 MOCK_RUN = mock.patch("deepfellow.server.utils.install.run")
 MOCK_SAVE_COMPOSE_FILE = mock.patch("deepfellow.server.utils.install.save_compose_file")
-MOCK_SET_DEFAULT_SERVER_DIRECTORY = mock.patch("deepfellow.server.utils.install.set_default_server_directory")
 MOCK_SAVE_ENV_FILE = mock.patch("deepfellow.server.utils.install.save_env_file")
 MOCK_GET_NEWEST_IMAGE_TAG = mock.patch("deepfellow.server.utils.install.get_newest_image_tag")
-MOCK_DEFAULT_DIRECTORY_CALLBACK = mock.patch("deepfellow.server.utils.install.default_directory_callback")
 
 
 def install_kwargs(directory: Path) -> dict[str, Any]:
@@ -97,10 +97,9 @@ def configure_install_mocks(
 def test_install_otel_local_and_otel_url_are_mutually_exclusive(
     mock_echo, mock_assert_docker, mock_configure_otel, mock_ensure_directory
 ):
-    with pytest.raises(typer.Exit) as exc_info:
+    with pytest.raises(InstallError):
         install(otel_local=True, otel_url="http://existing-otel:4317")
 
-    assert exc_info.value.exit_code == 1
     assert mock_echo.error.call_count == 1
     assert mock_echo.error.call_args == mock.call("--otel-local and --otel-url are mutually exclusive; pass only one.")
     assert mock_assert_docker.call_count == 0
@@ -108,7 +107,6 @@ def test_install_otel_local_and_otel_url_are_mutually_exclusive(
     assert mock_ensure_directory.call_count == 0
 
 
-@MOCK_SET_DEFAULT_SERVER_DIRECTORY
 @MOCK_SAVE_COMPOSE_FILE
 @MOCK_RUN
 @MOCK_CONFIGURE_OTEL
@@ -128,7 +126,6 @@ def test_install_writes_log_level_and_plugins_setup_defaults(
     mock_configure_otel,
     mock_run,
     mock_save_compose_file,
-    mock_set_default_server_directory,
     tmp_path,
 ):
     configure_install_mocks(
@@ -142,7 +139,6 @@ def test_install_writes_log_level_and_plugins_setup_defaults(
     assert env_vars["DF_PLUGINS_SETUP"] == "{}"
 
 
-@MOCK_SET_DEFAULT_SERVER_DIRECTORY
 @MOCK_SAVE_COMPOSE_FILE
 @MOCK_RUN
 @MOCK_CONFIGURE_OTEL
@@ -162,7 +158,6 @@ def test_install_preserves_existing_log_level_and_plugins_setup(
     mock_configure_otel,
     mock_run,
     mock_save_compose_file,
-    mock_set_default_server_directory,
     tmp_path,
 ):
     configure_install_mocks(
@@ -177,7 +172,6 @@ def test_install_preserves_existing_log_level_and_plugins_setup(
     assert json.loads(env_vars["DF_PLUGINS_SETUP"]) == {"df_anonymize_models": ["model-a"]}
 
 
-@MOCK_SET_DEFAULT_SERVER_DIRECTORY
 @MOCK_SAVE_COMPOSE_FILE
 @MOCK_RUN
 @MOCK_CONFIGURE_OTEL
@@ -197,7 +191,6 @@ def test_install_compose_environment_forwards_log_level_and_plugins_setup(
     mock_configure_otel,
     mock_run,
     mock_save_compose_file,
-    mock_set_default_server_directory,
     tmp_path,
 ):
     configure_install_mocks(
@@ -213,7 +206,6 @@ def test_install_compose_environment_forwards_log_level_and_plugins_setup(
     assert "DF_PLUGINS_SETUP=${DF_PLUGINS_SETUP}" in environment
 
 
-@MOCK_SET_DEFAULT_SERVER_DIRECTORY
 @MOCK_SAVE_COMPOSE_FILE
 @MOCK_RUN
 @MOCK_CONFIGURE_OTEL
@@ -233,7 +225,6 @@ def test_install_rejects_invalid_plugins_setup(
     mock_configure_otel,
     mock_run,
     mock_save_compose_file,
-    mock_set_default_server_directory,
     tmp_path,
 ):
     configure_install_mocks(
@@ -241,15 +232,13 @@ def test_install_rejects_invalid_plugins_setup(
     )
     (tmp_path / ".env").write_text("DF_PLUGINS_SETUP=not-json\n")
 
-    with pytest.raises(typer.Exit) as exc_info:
+    with pytest.raises(InstallError):
         install(**install_kwargs(tmp_path))
 
-    assert exc_info.value.exit_code == 1
     assert mock_echo.error.call_count == 1
     assert mock_save_compose_file.call_count == 0
 
 
-@MOCK_SET_DEFAULT_SERVER_DIRECTORY
 @MOCK_SAVE_COMPOSE_FILE
 @MOCK_RUN
 @MOCK_CONFIGURE_OTEL
@@ -269,7 +258,6 @@ def test_install_rejects_invalid_log_level(
     mock_configure_otel,
     mock_run,
     mock_save_compose_file,
-    mock_set_default_server_directory,
     tmp_path,
 ):
     configure_install_mocks(
@@ -277,16 +265,16 @@ def test_install_rejects_invalid_log_level(
     )
     (tmp_path / ".env").write_text("DF_LOG_LEVEL=verbose-9\n")
 
-    with pytest.raises(typer.Exit) as exc_info:
+    with pytest.raises(InstallError):
         install(**install_kwargs(tmp_path))
 
-    assert exc_info.value.exit_code == 1
     assert mock_echo.error.call_count == 1
     assert mock_save_compose_file.call_count == 0
 
 
+@mock.patch("deepfellow.server.install.set_default_server_directory")
 @mock.patch("deepfellow.server.install.install_util")
-def test_install_command_delegates_to_install_util(mock_install_util, tmp_path):
+def test_install_command_delegates_to_install_util(mock_install_util, mock_set_default_server_directory, tmp_path):
     kwargs = install_kwargs(tmp_path)
 
     install_command(**kwargs)
@@ -294,6 +282,58 @@ def test_install_command_delegates_to_install_util(mock_install_util, tmp_path):
     assert mock_install_util.call_count == 1
     assert mock_install_util.call_args == mock.call(**kwargs)
     assert set(mock_install_util.call_args[1]) == set(inspect.signature(install).parameters)
+
+
+@mock.patch("deepfellow.server.install.install_util")
+def test_install_command_translates_install_error_to_exit(mock_install_util, tmp_path):
+    mock_install_util.side_effect = InstallError("boom")
+
+    with pytest.raises(typer.Exit) as exc_info:
+        install_command(**install_kwargs(tmp_path))
+
+    assert exc_info.value.exit_code == 1
+
+
+@mock.patch("deepfellow.server.install.set_default_server_directory")
+@mock.patch("deepfellow.server.install.install_util")
+def test_install_command_sets_default_server_directory_after_success(
+    mock_install_util, mock_set_default_server_directory, tmp_path
+):
+    """Remembering the installed directory as the CLI default is a Typer-command-only side
+    effect now - core install() no longer touches state.cli_config_file itself (point 4)."""
+    install_command(**install_kwargs(tmp_path))
+
+    assert mock_set_default_server_directory.call_count == 1
+    assert mock_set_default_server_directory.call_args == mock.call(tmp_path, force=False)
+
+
+@mock.patch("deepfellow.server.install.set_default_server_directory")
+@mock.patch("deepfellow.server.install.install_util")
+def test_install_command_skips_default_directory_when_install_fails(
+    mock_install_util, mock_set_default_server_directory, tmp_path
+):
+    mock_install_util.side_effect = InstallError("boom")
+
+    with pytest.raises(typer.Exit):
+        install_command(**install_kwargs(tmp_path))
+
+    assert mock_set_default_server_directory.call_count == 0
+
+
+@mock.patch("deepfellow.common.exceptions.echo")
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_install_util_translates_bad_parameter_to_install_error(
+    mock_echo, mock_assert_docker, mock_exceptions_echo, tmp_path
+):
+    """A caller outside Click (e.g. a future in-process suite install) sees a message-carrying
+    InstallError instead of an unhandled, message-less typer.BadParameter."""
+    mock_echo.prompt.side_effect = typer.BadParameter("Invalid docker network name")
+
+    with pytest.raises(InstallError, match="Invalid docker network name"):
+        install(**install_kwargs(tmp_path))
+
+    assert mock_exceptions_echo.error.call_args == mock.call("Invalid docker network name")
 
 
 def test_install_command_signature_matches_install_util():
@@ -305,7 +345,6 @@ def test_install_command_signature_matches_install_util():
 
 @MOCK_GET_NEWEST_IMAGE_TAG
 @MOCK_SAVE_ENV_FILE
-@MOCK_SET_DEFAULT_SERVER_DIRECTORY
 @MOCK_SAVE_COMPOSE_FILE
 @MOCK_RUN
 @MOCK_CONFIGURE_OTEL
@@ -327,7 +366,6 @@ def test_install_defaults_resolve_to_real_values_when_arguments_omitted(
     mock_configure_otel,
     mock_run,
     mock_save_compose_file,
-    mock_set_default_server_directory,
     mock_save_env_file,
     mock_get_newest_image_tag,
     tmp_path,
@@ -354,45 +392,9 @@ def test_install_defaults_resolve_to_real_values_when_arguments_omitted(
     assert not any(isinstance(value, OptionInfo) for value in vectordb_args)
 
 
-@MOCK_DEFAULT_DIRECTORY_CALLBACK
-@MOCK_GET_NEWEST_IMAGE_TAG
-@MOCK_SAVE_ENV_FILE
-@MOCK_SET_DEFAULT_SERVER_DIRECTORY
-@MOCK_SAVE_COMPOSE_FILE
-@MOCK_RUN
-@MOCK_CONFIGURE_OTEL
-@MOCK_CONFIGURE_VECTOR_DB
-@MOCK_CONFIGURE_INFRA
-@MOCK_CONFIGURE_MONGO
-@MOCK_ENSURE_NETWORK
-@MOCK_ENSURE_DIRECTORY
-@MOCK_ASSERT_DOCKER
-@MOCK_ECHO
-def test_install_resolves_default_directory_when_omitted(
-    mock_echo,
-    mock_assert_docker,
-    mock_ensure_directory,
-    mock_ensure_network,
-    mock_configure_mongo,
-    mock_configure_infra,
-    mock_configure_vector_db,
-    mock_configure_otel,
-    mock_run,
-    mock_save_compose_file,
-    mock_set_default_server_directory,
-    mock_save_env_file,
-    mock_get_newest_image_tag,
-    mock_default_directory_callback,
-    tmp_path,
-):
-    configure_install_mocks(
-        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
-    )
-    mock_get_newest_image_tag.return_value = "deepfellow/server:1.2.3"
-    mock_default_directory_callback.return_value = tmp_path
-
-    install()
-
-    assert mock_default_directory_callback.call_count == 1
-    assert mock_default_directory_callback.call_args == mock.call(None)
-    assert mock_save_env_file.call_args[0][0] == tmp_path / ".env"
+def test_install_directory_defaults_to_df_server_directory():
+    """Core install() no longer resolves a directory=None default against global state (that
+    read/mutated state.cli_config_file even for an in-process caller main() never populated).
+    It now takes a fixed, real default - mirroring how infra's core install() already worked -
+    and the state-dependent resolution lives only in the Typer option's own callback."""
+    assert inspect.signature(install).parameters["directory"].default == DF_SERVER_DIRECTORY

@@ -7,20 +7,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for configure_otel and configure_embedding."""
+"""Tests for configure_otel, configure_embedding and configure_infra."""
 
 from unittest import mock
 
 import pytest
+import typer
 
 from deepfellow.common.defaults import (
     DEFAULT_OTEL_URL,
     DEFAULT_VECTOR_DATABASE,
+    DF_INFRA_URL,
     DOCKER_COMPOSE_OTEL_COLLECTOR,
     SPARSE_EMBEDDING_MODEL,
     SPARSE_EMBEDDING_SIZE,
 )
-from deepfellow.server.utils.configure import configure_embedding, configure_otel
+from deepfellow.server.utils.configure import configure_embedding, configure_infra, configure_otel
 
 
 @pytest.fixture
@@ -216,6 +218,18 @@ def test_configure_otel_url_provided_skips_prompts(mock_echo, mock_load, mock_sa
 @mock.patch("deepfellow.server.utils.configure.save_compose_file")
 @mock.patch("deepfellow.server.utils.configure.load_compose_file", return_value={})
 @mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_otel_url_provided_directly_is_validated(mock_echo, mock_load, mock_save, tmp_directory):
+    """A caller passing otel_url directly (bypassing the interactive prompt, which validates
+    itself) still gets the URL validated, instead of it being silently written unchecked."""
+    with pytest.raises(typer.BadParameter):
+        configure_otel(tmp_directory, "not-a-url", None)
+
+    assert mock_save.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.save_compose_file")
+@mock.patch("deepfellow.server.utils.configure.load_compose_file", return_value={})
+@mock.patch("deepfellow.server.utils.configure.echo")
 def test_configure_otel_local_run_debug_only_non_interactive_defaults(mock_echo, mock_load, mock_save, tmp_directory):
     # In non-interactive mode, echo.confirm uses defaults: False, True (config_file doesn't exist), False
     mock_echo.confirm.side_effect = [False, True, False]
@@ -265,3 +279,25 @@ def test_configure_otel_flag_off_still_uses_prompt_flow(mock_echo, mock_load, mo
     assert mock_echo.confirm.call_count == 2
     assert result.docker_compose == {}
     assert mock_save.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_infra_returns_url_and_api_key(mock_echo):
+    mock_echo.prompt.return_value = "http://infra:8086"
+    mock_echo.prompt_until_valid.return_value = "secret-key"
+
+    result = configure_infra("secret-key", "http://infra:8086", None)
+
+    assert result == {"DF_INFRA__URL": "http://infra:8086", "DF_INFRA__API_KEY": "secret-key"}
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_infra_rejects_empty_api_key(mock_echo):
+    """echo.prompt_until_valid can return an unvalidated empty string when the value comes
+    from a non-interactive default rather than a freshly-typed interactive one (it only
+    validates interactive input) - configure_infra must not let that empty value through."""
+    mock_echo.prompt.return_value = DF_INFRA_URL
+    mock_echo.prompt_until_valid.return_value = ""
+
+    with pytest.raises(typer.BadParameter):
+        configure_infra(None, DF_INFRA_URL, None)

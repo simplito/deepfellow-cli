@@ -40,6 +40,7 @@ from deepfellow.common.docker import (
 )
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
+from deepfellow.common.exceptions import translate_to_install_error
 from deepfellow.common.generate import generate_password
 from deepfellow.common.install import assert_docker, ensure_directory
 from deepfellow.common.registry import get_newest_image_tag
@@ -48,6 +49,7 @@ from deepfellow.common.system import run
 from deepfellow.common.validation import validate_df_name, validate_url
 
 
+@translate_to_install_error
 def install(  # noqa: C901
     directory: Path = DF_INFRA_DIRECTORY,
     port: int = DF_INFRA_PORT,

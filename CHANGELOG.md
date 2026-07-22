@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fixed server organization delete: wrong success message and added --yes parity.
 - `deepfellow infra service` and `infra model` commands no longer exit with a raw traceback on connection timeouts or other transport errors — every Infra API call now fails with a readable error message.
 - `deepfellow infra install` now correctly offers to keep a previously configured storage directory when reinstalling over an existing install; the check was silently broken and always regenerated the default storage path.
+- `deepfellow server install` now rejects an invalid `--otel-url` and an empty Infra API key with a clear error instead of silently writing them to `.env`.
 
 ### Changed
 - `deepfellow cli update` now resolves its upgrade command from the `DF_UPDATE_COMMAND` value stored in config (written by `install.sh` at install time), instead of always probing the package manager; existing installs keep working via detection fallback, and the resolved command is written back to config on first run. `install.sh` now records `DF_UPDATE_COMMAND` alongside `DF_UNINSTALL_COMMAND`, so `cli update` also works for pip/pip3 installs.
