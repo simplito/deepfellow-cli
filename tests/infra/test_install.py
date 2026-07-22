@@ -13,6 +13,7 @@ from unittest import mock
 from unittest.mock import Mock
 
 import pytest
+import typer
 from typer.models import OptionInfo
 
 from deepfellow.common.defaults import (
@@ -24,6 +25,7 @@ from deepfellow.common.defaults import (
     DF_INFRA_URL,
     DOCKER_COMPOSE_CONFIG_FILENAME,
 )
+from deepfellow.common.exceptions import InstallError
 from deepfellow.common.state import state
 from deepfellow.infra.install import install as install_command
 from deepfellow.infra.utils.install import install
@@ -1531,6 +1533,61 @@ def test_install_command_forwards_explicit_confirm_flags_to_install_util(
     assert call_kwargs["keep_compose_prefix"] is False
     assert call_kwargs["keep_storage"] is True
     assert call_kwargs["keep_metrics"] is False
+
+
+@mock.patch("deepfellow.infra.install.install_util")
+def test_install_command_translates_install_error_to_exit(
+    mock_install_util: Mock,
+    default_install_kwargs: dict,
+) -> None:
+    mock_install_util.side_effect = InstallError("boom")
+
+    with pytest.raises(typer.Exit) as exc_info:
+        install_command(**default_install_kwargs)
+
+    assert exc_info.value.exit_code == 1
+
+
+@mock.patch("deepfellow.common.exceptions.echo")
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.add_network_to_service")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.generate_password")
+@mock.patch("deepfellow.infra.utils.install.configure_uuid_key")
+@mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.utils.install.ensure_directory")
+@mock.patch("deepfellow.infra.utils.install.get_socket")
+@mock.patch("deepfellow.infra.utils.install.assert_docker")
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_install_util_translates_bad_parameter_to_install_error(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_get_socket: Mock,
+    mock_ensure_dir: Mock,
+    mock_read: Mock,
+    mock_configure_uuid: Mock,
+    mock_gen_password: Mock,
+    mock_env_set: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    mock_exceptions_echo: Mock,
+    default_install_kwargs: dict,
+) -> None:
+    """A caller outside Click (e.g. a future in-process suite install) sees a message-carrying
+    InstallError instead of an unhandled, message-less typer.BadParameter."""
+    mock_echo.prompt.side_effect = typer.BadParameter("Invalid DF_NAME - cannot be empty")
+    mock_read.return_value = {}
+
+    with pytest.raises(InstallError, match="Invalid DF_NAME - cannot be empty"):
+        install(**default_install_kwargs)
+
+    assert mock_exceptions_echo.error.call_args == mock.call("Invalid DF_NAME - cannot be empty")
 
 
 @mock.patch("deepfellow.infra.utils.install.run")

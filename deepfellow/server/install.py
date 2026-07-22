@@ -26,9 +26,10 @@ from deepfellow.common.defaults import (
     MILVUS_DATABASE,
     VectorDBTypeChoice,
 )
+from deepfellow.common.exceptions import InstallError, reraise_if_debug
 from deepfellow.common.validation import validate_url
 from deepfellow.server.utils.install import install as install_util
-from deepfellow.server.utils.options import directory_option
+from deepfellow.server.utils.options import directory_option, set_default_server_directory
 
 app = typer.Typer()
 
@@ -89,30 +90,35 @@ def install(
     dev: bool = typer.Option(False, "--dev", help="Expose internal service ports to host for development."),
 ) -> None:
     """Install DeepFellow Server with docker."""
-    install_util(
-        directory=directory,
-        port=port,
-        image=image,
-        local_image=local_image,
-        otel_url=otel_url,
-        otel_local=otel_local,
-        infra_url=infra_url,
-        infra_api_key=infra_api_key,
-        docker_network=docker_network,
-        mongodb_url=mongodb_url,
-        mongodb_port=mongodb_port,
-        mongodb_database_name=mongodb_database_name,
-        mongodb_username=mongodb_username,
-        mongodb_password=mongodb_password,
-        vectordb_active=vectordb_active,
-        vectordb_type=vectordb_type,
-        vectordb_url=vectordb_url,
-        vectordb_database_name=vectordb_database_name,
-        vectordb_username=vectordb_username,
-        vectordb_password=vectordb_password,
-        embedding_model=embedding_model,
-        embedding_size=embedding_size,
-        embedding_sparse=embedding_sparse,
-        force_install=force_install,
-        dev=dev,
-    )
+    try:
+        install_util(
+            directory=directory,
+            port=port,
+            image=image,
+            local_image=local_image,
+            otel_url=otel_url,
+            otel_local=otel_local,
+            infra_url=infra_url,
+            infra_api_key=infra_api_key,
+            docker_network=docker_network,
+            mongodb_url=mongodb_url,
+            mongodb_port=mongodb_port,
+            mongodb_database_name=mongodb_database_name,
+            mongodb_username=mongodb_username,
+            mongodb_password=mongodb_password,
+            vectordb_active=vectordb_active,
+            vectordb_type=vectordb_type,
+            vectordb_url=vectordb_url,
+            vectordb_database_name=vectordb_database_name,
+            vectordb_username=vectordb_username,
+            vectordb_password=vectordb_password,
+            embedding_model=embedding_model,
+            embedding_size=embedding_size,
+            embedding_sparse=embedding_sparse,
+            force_install=force_install,
+            dev=dev,
+        )
+    except InstallError as exc:
+        reraise_if_debug(exc)
+
+    set_default_server_directory(directory, force=False)

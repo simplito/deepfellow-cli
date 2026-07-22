@@ -274,7 +274,13 @@ def configure_vector_db(
 def configure_infra(
     infra_api_key: str | None, infra_url: str, original_env: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    """Configure single infra."""
+    """Configure single infra.
+
+    Raises:
+        typer.BadParameter: If the resolved API key is empty. ``echo.prompt_until_valid``
+            only validates a freshly-typed interactive value, not a value taken as-is from
+            ``infra_api_key``/config defaults, so the result is re-checked here explicitly.
+    """
     infra = {}
     original_env = original_env or {}
 
@@ -293,13 +299,15 @@ def configure_infra(
             echo.error("Invalid DeepFellow Infra URL. Please try again.")
             correct = False
 
-    infra["DF_INFRA__API_KEY"] = echo.prompt_until_valid(
-        "Provide Deepfellow Infra API KEY",
-        validation=validate_truthy,
-        from_args=infra_api_key,
-        original_default=None,
-        default=original_env.get("df_infra", {}).get("api_key") or "",
-        password=True,
+    infra["DF_INFRA__API_KEY"] = validate_truthy(
+        echo.prompt_until_valid(
+            "Provide Deepfellow Infra API KEY",
+            validation=validate_truthy,
+            from_args=infra_api_key,
+            original_default=None,
+            default=original_env.get("df_infra", {}).get("api_key") or "",
+            password=True,
+        )
     )
     return infra
 
@@ -394,10 +402,17 @@ def configure_otel(
     written config matches the interactive "run locally" + "no Elasticsearch" path, but the
     prompts and the post-write review warning are skipped. Mutual exclusion with ``otel_url``
     is enforced by the caller (``install()``); when ``otel_local`` is set, ``otel_url`` is ignored.
+
+    Raises:
+        typer.BadParameter: If ``otel_url`` is given directly (not via the interactive prompt,
+            which validates it itself) and is not a valid URL.
     """
     original_env = original_env or {}
     docker_compose = {}
     envs = {}
+
+    if otel_url:
+        validate_url(otel_url)
 
     config_file: Path = directory / "otel-collector-config.yaml"
 
