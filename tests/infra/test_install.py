@@ -28,7 +28,7 @@ from deepfellow.common.defaults import (
 from deepfellow.common.exceptions import InstallError
 from deepfellow.common.state import state
 from deepfellow.infra.install import install as install_command
-from deepfellow.infra.utils.install import install
+from deepfellow.infra.utils.install import InstallConfig, apply, install
 
 
 @pytest.fixture
@@ -36,6 +36,35 @@ def docker_config() -> Mock:
     m = Mock(spec=Path)
     m.is_file.return_value = True
     return m
+
+
+@pytest.fixture
+def install_config(directory: Path, docker_config: Mock) -> InstallConfig:
+    state.cli_config_file = Mock(name="config-file")
+    state.cli_secrets_file = Mock(name="secrets-file")
+    return InstallConfig(
+        directory=directory,
+        docker_socket="/var/run/docker.sock",
+        df_name=DF_INFRA_NAME,
+        infra_url=DF_INFRA_URL,
+        infra_port=DF_INFRA_PORT,
+        df_infra_image=DF_INFRA_IMAGE,
+        docker_network=DF_INFRA_DOCKER_NETWORK,
+        docker_config=docker_config,
+        admin_api_key="admin-key",
+        api_key="api-key",
+        mesh_key="mesh-key",
+        compose_prefix="dfabc123_",
+        storage_dir=DF_INFRA_STORAGE_DIR,
+        metrics_username="metrics-user",
+        metrics_password="metrics-pass",
+        hugging_face_token=None,
+        civitai_token=None,
+        local_image=False,
+        print_keys=False,
+        df_connect_to_mesh_url=None,
+        df_connect_to_mesh_key=None,
+    )
 
 
 @pytest.fixture
@@ -1685,3 +1714,306 @@ def test_install_passes_explicit_values_to_prompts_as_from_args(
     assert url_prompt_kwargs["from_args"] == "https://custom.example.com"
     network_prompt_kwargs = mock_echo.prompt.call_args_list[1][1]
     assert network_prompt_kwargs["from_args"] == "custom-net"
+
+
+# apply() is purely programmatic (network, .env, compose, pull) - no prompts, so none of these
+# tests mock echo.prompt/echo.confirm.
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.add_network_to_service")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_apply_creates_docker_config_when_not_a_file(
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+    docker_config: Mock,
+) -> None:
+    docker_config.is_file.return_value = False
+
+    apply(install_config)
+
+    assert docker_config.write_text.call_count == 1
+    assert docker_config.write_text.call_args == (("{}",), {"encoding": "utf-8"})
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.add_network_to_service")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_apply_does_not_create_docker_config_when_file_exists(
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+    docker_config: Mock,
+) -> None:
+    docker_config.is_file.return_value = True
+
+    apply(install_config)
+
+    assert docker_config.write_text.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.add_network_to_service")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_apply_calls_ensure_network_with_configured_docker_network(
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    apply(install_config)
+
+    assert mock_ensure_network.call_count == 1
+    assert mock_ensure_network.call_args == ((install_config.docker_network,), {})
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.add_network_to_service")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_apply_writes_expected_env_values(
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    apply(install_config)
+
+    assert mock_save_env.call_count == 1
+    env_file, infra_values = mock_save_env.call_args[0]
+    assert env_file == install_config.directory / ".env"
+    assert infra_values["DF_NAME"] == install_config.df_name
+    assert infra_values["DF_INFRA_URL"] == install_config.infra_url
+    assert infra_values["DF_INFRA_PORT"] == install_config.infra_port
+    assert infra_values["DF_INFRA_IMAGE"] == install_config.df_infra_image
+    assert infra_values["DF_MESH_KEY"] == install_config.mesh_key
+    assert infra_values["DF_INFRA_API_KEY"] == install_config.api_key
+    assert infra_values["DF_INFRA_ADMIN_API_KEY"] == install_config.admin_api_key
+    assert infra_values["DF_INFRA_DOCKER_SUBNET"] == install_config.docker_network
+    assert infra_values["DF_INFRA_COMPOSE_PREFIX"] == install_config.compose_prefix
+    assert infra_values["DF_INFRA_DOCKER_CONFIG"] == str(install_config.docker_config)
+    assert infra_values["DF_INFRA_STORAGE_DIR"] == install_config.storage_dir.expanduser().resolve().as_posix()
+    assert infra_values["DF_METRICS_USERNAME"] == install_config.metrics_username
+    assert infra_values["DF_METRICS_PASSWORD"] == install_config.metrics_password
+    assert "DF_HUGGING_FACE_TOKEN" not in infra_values
+    assert "DF_CIVITAI_TOKEN" not in infra_values
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.add_network_to_service")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_apply_includes_optional_tokens_when_present(
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    install_config.hugging_face_token = "hf-token"
+    install_config.civitai_token = "civitai-token"
+
+    apply(install_config)
+
+    infra_values = mock_save_env.call_args[0][1]
+    assert infra_values["DF_HUGGING_FACE_TOKEN"] == "hf-token"
+    assert infra_values["DF_CIVITAI_TOKEN"] == "civitai-token"
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.add_network_to_service")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_apply_sets_external_url_and_admin_api_key(
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    apply(install_config)
+
+    assert mock_env_set.call_count == 2
+    assert mock_env_set.call_args_list[0] == mock.call(
+        state.cli_config_file,
+        "DF_INFRA_EXTERNAL_URL",
+        f"http://localhost:{install_config.infra_port}",
+        should_raise=False,
+    )
+    assert mock_env_set.call_args_list[1] == mock.call(
+        state.cli_secrets_file,
+        "DF_INFRA_ADMIN_API_KEY",
+        install_config.admin_api_key,
+        should_raise=False,
+    )
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.add_network_to_service")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_apply_adds_docker_socket_volumes_to_compose(
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    apply(install_config)
+
+    assert mock_save_compose.call_count == 1
+    compose_dict, compose_file = mock_save_compose.call_args[0]
+    volumes = compose_dict["services"]["infra"]["volumes"]
+    assert f"{install_config.docker_socket}:/run/docker.sock" in volumes
+    assert f"{install_config.docker_socket}:/var/run/docker.sock" in volumes
+    assert compose_dict["networks"] == {install_config.docker_network: {"external": True}}
+    assert compose_file == install_config.directory / DOCKER_COMPOSE_CONFIG_FILENAME
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.add_network_to_service")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_apply_sets_pull_policy_never_when_local_image(
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    install_config.local_image = True
+
+    apply(install_config)
+
+    compose_dict = mock_save_compose.call_args[0][0]
+    assert compose_dict["services"]["infra"]["pull_policy"] == "never"
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.add_network_to_service")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_apply_does_not_set_pull_policy_when_not_local_image(
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    install_config.local_image = False
+
+    apply(install_config)
+
+    compose_dict = mock_save_compose.call_args[0][0]
+    assert "pull_policy" not in compose_dict["services"]["infra"]
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.add_network_to_service")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_apply_pulls_docker_image(
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    apply(install_config)
+
+    assert mock_run.call_count == 1
+    assert mock_run.call_args == mock.call(["docker", "compose", "pull"], install_config.directory, quiet=True)
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.add_network_to_service")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_apply_prints_success_message(
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    apply(install_config)
+
+    assert mock_echo.success.call_count == 1
+    assert mock_echo.prompt.call_count == 0
+    assert mock_echo.confirm.call_count == 0
