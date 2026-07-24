@@ -36,6 +36,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   (`--server` was overloaded — it's also the Docker container name, and in `infra` it
   meant the Infra address, not the Server). **Breaking:** no alias — `--server` now errors.
 
+### Fixed
+- `deepfellow infra install` no longer creates the docker network before all setup questions have been answered; aborting the install partway through no longer leaves an orphaned docker network behind.
+
 ## [0.8.0] - 2026-06-19
 
 ### Added
