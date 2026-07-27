@@ -16,10 +16,10 @@ import typer
 from deepfellow.common.config import read_env_file
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
-from deepfellow.common.rest import post
 from deepfellow.common.state import state
 from deepfellow.common.validation import validate_server
 from deepfellow.infra.utils.connection import call_infra
+from deepfellow.infra.utils.progress import install_with_progress
 
 
 def install(
@@ -58,12 +58,13 @@ def install(
     url = f"{server}/admin/services/{service_name}/models/_?model_id={model_name}"
 
     data = call_infra(
-        lambda: post(url, api_key, item_name="Service", data={"spec": {}}, reraise=True),
+        lambda: install_with_progress(url, api_key, data={"spec": {}}),
         "Unable to install model.",
     )
 
-    if data.get("status") != "OK":
-        echo.error("Unable to install model.")
+    if data.get("status", "").lower() != "ok":
+        message = data.get("detail") or data.get("error")
+        echo.error(f"Unable to install model.{f' {message}' if message else ''}")
         raise typer.Exit(1)
 
     echo.success(f"Model {model_name} installed.")

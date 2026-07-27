@@ -15,8 +15,9 @@ from typing import Any, cast
 import typer
 
 from deepfellow.common.echo import echo, is_interactive
-from deepfellow.common.rest import get, post
+from deepfellow.common.rest import get
 from deepfellow.infra.utils.connection import call_infra, resolve_infra_connection
+from deepfellow.infra.utils.progress import install_with_progress
 
 
 def _parse_spec(spec: str | None) -> dict[str, Any]:
@@ -198,12 +199,13 @@ def install(
     spec_res = _resolve_spec(parsed_spec, server, api_key, name, set_values, service_api_key, prompt_all=prompt_all)
 
     data = call_infra(
-        lambda: post(url, api_key, item_name="Service", data={"spec": spec_res}, reraise=True),
+        lambda: install_with_progress(url, api_key, data={"spec": spec_res}),
         "Unable to install service",
     )
 
-    if data.get("status") != "OK":
-        echo.error("Unable to install service.")
+    if data.get("status", "").lower() != "ok":
+        message = data.get("detail") or data.get("error")
+        echo.error(f"Unable to install service.{f' {message}' if message else ''}")
         raise typer.Exit(1)
 
     echo.success(f"Service {name} installed.")

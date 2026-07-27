@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- `deepfellow infra service install` and `deepfellow infra model install` now show a live progress bar while a Docker image is pulled or a model is downloaded (e.g. multi-GB chat models), so long installs no longer look hung. When the server doesn't stream progress the command falls back to the previous single-response behaviour, and in `--non-interactive` mode it prints periodic percentage lines instead of a live bar.
 - --set flag to `fields` command - prints fields in --set param=<value> friendly manner
 - `deepfellow infra service install` now fetches the service spec from the API and interactively prompts for required fields before installing; `--set key=value` (repeatable) allows non-interactive configuration without knowing the JSON structure upfront
 - `deepfellow infra service fields <service-name>` command — calls `GET /admin/services/{service-name}` and lists the configuration fields the service expects, printing each as `- {name}: {description} (default: {default})`; for `oneof` fields it also lists the available options (`available: ...`); exits with a clear error when the service is not found
