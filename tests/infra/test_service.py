@@ -26,7 +26,7 @@ def name_fixture() -> str:
 
 
 @mock.patch("deepfellow.infra.utils.connection.echo")
-@mock.patch("deepfellow.infra.utils.service_install.post")
+@mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.service_install.get")
 @mock.patch(
     "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
@@ -34,12 +34,12 @@ def name_fixture() -> str:
 def test_install_connection_error(
     mock_resolve: Mock,
     mock_get: Mock,
-    mock_post: Mock,
+    mock_install_with_progress: Mock,
     mock_echo: Mock,
     name: str,
 ) -> None:
     mock_get.return_value = {"spec": {"fields": []}}
-    mock_post.side_effect = httpx.ConnectError("TEST")
+    mock_install_with_progress.side_effect = httpx.ConnectError("TEST")
 
     with pytest.raises(typer.Exit):
         install(name=name, spec=None)
@@ -51,7 +51,7 @@ def test_install_connection_error(
 
 
 @mock.patch("deepfellow.infra.utils.service_install.echo")
-@mock.patch("deepfellow.infra.utils.service_install.post")
+@mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.service_install.get")
 @mock.patch(
     "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
@@ -59,23 +59,23 @@ def test_install_connection_error(
 def test_install_success_without_api_key(
     mock_resolve: Mock,
     mock_get: Mock,
-    mock_post: Mock,
+    mock_install_with_progress: Mock,
     mock_echo: Mock,
     name: str,
 ) -> None:
     mock_get.return_value = {"spec": {"fields": []}}
-    mock_post.return_value = {"status": "OK"}
+    mock_install_with_progress.return_value = {"status": "OK"}
 
     install(name=name, service_api_key=None, spec=None)
 
-    assert mock_post.call_count == 1
-    call_kwargs = mock_post.call_args[1]
+    assert mock_install_with_progress.call_count == 1
+    call_kwargs = mock_install_with_progress.call_args[1]
     assert call_kwargs["data"] == {"spec": {}}
     assert mock_echo.success.call_count == 1
 
 
 @mock.patch("deepfellow.infra.utils.service_install.echo")
-@mock.patch("deepfellow.infra.utils.service_install.post")
+@mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.service_install.get")
 @mock.patch(
     "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
@@ -83,23 +83,23 @@ def test_install_success_without_api_key(
 def test_install_success_with_api_key(
     mock_resolve: Mock,
     mock_get: Mock,
-    mock_post: Mock,
+    mock_install_with_progress: Mock,
     mock_echo: Mock,
     name: str,
 ) -> None:
     mock_get.return_value = {"spec": {"fields": []}}
-    mock_post.return_value = {"status": "OK"}
+    mock_install_with_progress.return_value = {"status": "OK"}
 
     install(name=name, service_api_key="sk-test-123", spec=None)
 
-    assert mock_post.call_count == 1
-    call_kwargs = mock_post.call_args[1]
+    assert mock_install_with_progress.call_count == 1
+    call_kwargs = mock_install_with_progress.call_args[1]
     assert call_kwargs["data"] == {"spec": {}}
     assert mock_echo.success.call_count == 1
 
 
 @mock.patch("deepfellow.infra.utils.service_install.echo")
-@mock.patch("deepfellow.infra.utils.service_install.post")
+@mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.service_install.get")
 @mock.patch(
     "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
@@ -107,19 +107,43 @@ def test_install_success_with_api_key(
 def test_install_with_valid_spec(
     mock_resolve: Mock,
     mock_get: Mock,
-    mock_post: Mock,
+    mock_install_with_progress: Mock,
     mock_echo: Mock,
     name: str,
 ) -> None:
-    mock_post.return_value = {"status": "OK"}
+    mock_install_with_progress.return_value = {"status": "OK"}
 
     install(name=name, spec='{"url": "http://host:11434"}')
 
     assert mock_get.call_count == 0
-    assert mock_post.call_count == 1
-    assert mock_post.call_args == mock.call(
-        mock.ANY, mock.ANY, item_name="Service", data={"spec": {"url": "http://host:11434"}}, reraise=True
+    assert mock_install_with_progress.call_count == 1
+    assert mock_install_with_progress.call_args == mock.call(
+        mock.ANY, mock.ANY, data={"spec": {"url": "http://host:11434"}}
     )
+
+
+@mock.patch("deepfellow.infra.utils.service_install.echo")
+@mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
+@mock.patch("deepfellow.infra.utils.service_install.get")
+@mock.patch(
+    "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
+def test_install_exits_with_detail_when_finish_status_error(
+    mock_resolve: Mock,
+    mock_get: Mock,
+    mock_install_with_progress: Mock,
+    mock_echo: Mock,
+    name: str,
+) -> None:
+    mock_get.return_value = {"spec": {"fields": []}}
+    mock_install_with_progress.return_value = {"type": "finish", "status": "error", "detail": "disk full"}
+
+    with pytest.raises(typer.Exit):
+        install(name=name, spec=None)
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call("Unable to install service. disk full")
+    assert mock_echo.success.call_count == 0
 
 
 def test_install_with_invalid_json_spec(name: str) -> None:
@@ -137,7 +161,7 @@ def test_install_with_non_object_json_spec(mock_echo: Mock, name: str) -> None:
 
 
 @mock.patch("deepfellow.infra.utils.service_install.echo")
-@mock.patch("deepfellow.infra.utils.service_install.post")
+@mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.service_install.get")
 @mock.patch("deepfellow.infra.utils.service_install.is_interactive", return_value=False)
 @mock.patch(
@@ -147,7 +171,7 @@ def test_install_claude_with_api_key(
     mock_resolve: Mock,
     mock_is_interactive: Mock,
     mock_get: Mock,
-    mock_post: Mock,
+    mock_install_with_progress: Mock,
     mock_echo: Mock,
 ) -> None:
     mock_get.return_value = {
@@ -180,18 +204,18 @@ def test_install_claude_with_api_key(
             ]
         }
     }
-    mock_post.return_value = {"status": "OK"}
+    mock_install_with_progress.return_value = {"status": "OK"}
 
     install(name="claude", service_api_key="sk-test-123", spec=None)
 
-    assert mock_post.call_count == 1
-    call_kwargs = mock_post.call_args[1]
+    assert mock_install_with_progress.call_count == 1
+    call_kwargs = mock_install_with_progress.call_args[1]
     assert call_kwargs["data"] == {"spec": {"api_key": "sk-test-123", "anthropic_version": "2023-06-01"}}
     assert mock_echo.success.call_count == 1
 
 
 @mock.patch("deepfellow.infra.utils.service_install.echo")
-@mock.patch("deepfellow.infra.utils.service_install.post")
+@mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.service_install.get")
 @mock.patch("deepfellow.infra.utils.service_install.is_interactive", return_value=False)
 @mock.patch(
@@ -201,7 +225,7 @@ def test_install_google_with_api_key(
     mock_resolve: Mock,
     mock_is_interactive: Mock,
     mock_get: Mock,
-    mock_post: Mock,
+    mock_install_with_progress: Mock,
     mock_echo: Mock,
 ) -> None:
     mock_get.return_value = {
@@ -226,18 +250,18 @@ def test_install_google_with_api_key(
             ]
         }
     }
-    mock_post.return_value = {"status": "OK"}
+    mock_install_with_progress.return_value = {"status": "OK"}
 
     install(name="google", service_api_key="google-key-123", spec=None)
 
-    assert mock_post.call_count == 1
-    call_kwargs = mock_post.call_args[1]
+    assert mock_install_with_progress.call_count == 1
+    call_kwargs = mock_install_with_progress.call_args[1]
     assert call_kwargs["data"] == {"spec": {"api_key": "google-key-123"}}
     assert mock_echo.success.call_count == 1
 
 
 @mock.patch("deepfellow.infra.utils.service_install.echo")
-@mock.patch("deepfellow.infra.utils.service_install.post")
+@mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.service_install.get")
 @mock.patch("deepfellow.infra.utils.service_install.is_interactive", return_value=False)
 @mock.patch(
@@ -247,7 +271,7 @@ def test_install_openai_with_api_key(
     mock_resolve: Mock,
     mock_is_interactive: Mock,
     mock_get: Mock,
-    mock_post: Mock,
+    mock_install_with_progress: Mock,
     mock_echo: Mock,
 ) -> None:
     mock_get.return_value = {
@@ -272,18 +296,18 @@ def test_install_openai_with_api_key(
             ]
         }
     }
-    mock_post.return_value = {"status": "OK"}
+    mock_install_with_progress.return_value = {"status": "OK"}
 
     install(name="openai", service_api_key="openai-key-123", spec=None)
 
-    assert mock_post.call_count == 1
-    call_kwargs = mock_post.call_args[1]
+    assert mock_install_with_progress.call_count == 1
+    call_kwargs = mock_install_with_progress.call_args[1]
     assert call_kwargs["data"] == {"spec": {"api_key": "openai-key-123"}}
     assert mock_echo.success.call_count == 1
 
 
 @mock.patch("deepfellow.infra.utils.service_install.echo")
-@mock.patch("deepfellow.infra.utils.service_install.post")
+@mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.service_install.get")
 @mock.patch("deepfellow.infra.utils.service_install.is_interactive", return_value=False)
 @mock.patch(
@@ -293,7 +317,7 @@ def test_install_sindri_with_api_key(
     mock_resolve: Mock,
     mock_is_interactive: Mock,
     mock_get: Mock,
-    mock_post: Mock,
+    mock_install_with_progress: Mock,
     mock_echo: Mock,
 ) -> None:
     mock_get.return_value = {
@@ -318,12 +342,12 @@ def test_install_sindri_with_api_key(
             ]
         }
     }
-    mock_post.return_value = {"status": "OK"}
+    mock_install_with_progress.return_value = {"status": "OK"}
 
     install(name="sindri", service_api_key="sindri-key-123", spec=None)
 
-    assert mock_post.call_count == 1
-    call_kwargs = mock_post.call_args[1]
+    assert mock_install_with_progress.call_count == 1
+    call_kwargs = mock_install_with_progress.call_args[1]
     assert call_kwargs["data"] == {"spec": {"api_key": "sindri-key-123"}}
     assert mock_echo.success.call_count == 1
 

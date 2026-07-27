@@ -34,14 +34,14 @@ def default_state(secrets_file: Mock) -> None:
 
 
 @mock.patch("deepfellow.infra.utils.connection.echo")
-@mock.patch("deepfellow.infra.utils.model_install.post")
+@mock.patch("deepfellow.infra.utils.model_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.model_install.read_env_file", return_value={"DF_INFRA_ADMIN_API_KEY": "test-key"})
 def test_install_raises_on_connect_error(
     mock_read_env_file: Mock,
-    mock_post: Mock,
+    mock_install_with_progress: Mock,
     mock_echo: Mock,
 ) -> None:
-    mock_post.side_effect = httpx.ConnectError("TEST")
+    mock_install_with_progress.side_effect = httpx.ConnectError("TEST")
 
     with pytest.raises(typer.Exit):
         install(server=None, service_name="ollama", model_name="llama-3.1-8B")
@@ -50,6 +50,24 @@ def test_install_raises_on_connect_error(
     assert mock_echo.error.call_args == mock.call(
         "No connection with DeepFellow Infra. Is it up? (deepfellow infra start)"
     )
+
+
+@mock.patch("deepfellow.infra.utils.model_install.echo")
+@mock.patch("deepfellow.infra.utils.model_install.install_with_progress")
+@mock.patch("deepfellow.infra.utils.model_install.read_env_file", return_value={"DF_INFRA_ADMIN_API_KEY": "test-key"})
+def test_install_exits_with_detail_when_finish_status_error(
+    mock_read_env_file: Mock,
+    mock_install_with_progress: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_install_with_progress.return_value = {"type": "finish", "status": "error", "detail": "out of memory"}
+
+    with pytest.raises(typer.Exit):
+        install(server="http://infra:8086", service_name="ollama", model_name="llama-3.1-8B")
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call("Unable to install model. out of memory")
+    assert mock_echo.success.call_count == 0
 
 
 @mock.patch("deepfellow.infra.model.install.install_util")
