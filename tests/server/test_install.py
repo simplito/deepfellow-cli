@@ -214,6 +214,44 @@ def test_install_compose_environment_forwards_log_level_and_plugins_setup(
 @MOCK_CONFIGURE_MONGO
 @MOCK_ENSURE_NETWORK
 @MOCK_ASSERT_DOCKER
+@mock.patch("deepfellow.server.utils.install.DF_SERVER_STORAGE_DIRECTORY")
+@MOCK_ECHO
+def test_install_translates_storage_directory_oserror_to_install_error(
+    mock_echo,
+    mock_storage_directory,
+    mock_assert_docker,
+    mock_ensure_network,
+    mock_configure_mongo,
+    mock_configure_infra,
+    mock_configure_vector_db,
+    mock_configure_otel,
+    mock_run,
+    mock_save_compose_file,
+    tmp_path,
+):
+    """A permission error while creating the storage bind-mount directory must surface as a
+    clean InstallError (echo.error + reraise_if_debug -> typer.Exit -> InstallError), not an
+    unhandled OSError propagating out of install()."""
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+    mock_storage_directory.mkdir.side_effect = OSError("Permission denied")
+
+    with pytest.raises(InstallError):
+        install(**install_kwargs(tmp_path))
+
+    assert mock_echo.error.call_count == 1
+    assert mock_save_compose_file.call_count == 0
+
+
+@MOCK_SAVE_COMPOSE_FILE
+@MOCK_RUN
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@MOCK_ENSURE_NETWORK
+@MOCK_ASSERT_DOCKER
 @MOCK_ECHO
 def test_install_rejects_invalid_plugins_setup(
     mock_echo,

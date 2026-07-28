@@ -103,11 +103,11 @@ def test_get_newest_image_tag_falls_back_to_latest_on_http_error(mock_get: Mock)
 
 
 @mock.patch("deepfellow.common.registry.httpx.get")
-def test_get_newest_image_tag_falls_back_when_no_semver_tags(mock_get: Mock) -> None:
+def test_get_newest_image_tag_falls_back_when_no_semver_or_dev_tags(mock_get: Mock) -> None:
     mock_get.side_effect = [
         _make_probe_response("https://auth.example.com/token"),
         _make_token_response("tok"),
-        _make_tags_response(["latest", "abc123def", "dev"]),
+        _make_tags_response(["latest", "abc123def"]),
     ]
 
     result = get_newest_image_tag(HUB)

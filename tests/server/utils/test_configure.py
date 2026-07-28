@@ -7,7 +7,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for configure_otel, configure_embedding and configure_infra."""
+"""Tests for configure_otel, configure_embedding, configure_infra and configure_milvus_specific_fields."""
 
 from unittest import mock
 
@@ -22,7 +22,13 @@ from deepfellow.common.defaults import (
     SPARSE_EMBEDDING_MODEL,
     SPARSE_EMBEDDING_SIZE,
 )
-from deepfellow.server.utils.configure import configure_embedding, configure_infra, configure_otel
+from deepfellow.common.validation import validate_truthy
+from deepfellow.server.utils.configure import (
+    configure_embedding,
+    configure_infra,
+    configure_milvus_specific_fields,
+    configure_otel,
+)
 
 
 @pytest.fixture
@@ -301,3 +307,62 @@ def test_configure_infra_rejects_empty_api_key(mock_echo):
 
     with pytest.raises(typer.BadParameter):
         configure_infra(None, DF_INFRA_URL, None)
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_milvus_specific_fields_generates_credentials_when_missing(mock_echo):
+    """Custom Milvus with no credentials provided must not raise KeyError, and must generate
+    fresh user/password values rather than defaulting to something empty/missing."""
+    mock_echo.prompt_until_valid.side_effect = ["deepfellow-db", "generated-user", "generated-password"]
+
+    result = configure_milvus_specific_fields({}, "deepfellow", "", "")
+
+    assert result == {"db": "deepfellow-db", "user": "generated-user", "password": "generated-password"}
+    assert mock_echo.prompt_until_valid.call_count == 3
+    generated_username = mock_echo.prompt_until_valid.call_args_list[1].kwargs["default"]
+    generated_password = mock_echo.prompt_until_valid.call_args_list[2].kwargs["default"]
+    assert len(generated_username) == 8
+    assert len(generated_password) == 12
+    assert mock_echo.prompt_until_valid.call_args_list[1] == mock.call(
+        "Provide Milvus provider user",
+        validate_truthy,
+        from_args="",
+        original_default="",
+        default=generated_username,
+    )
+    assert mock_echo.prompt_until_valid.call_args_list[2] == mock.call(
+        "Provide Milvus provider password",
+        validate_truthy,
+        from_args="",
+        original_default="",
+        default=generated_password,
+        password=True,
+    )
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_milvus_specific_fields_explicit_username_not_overridden_by_env(mock_echo):
+    """A --vectordb-username explicitly provided on the CLI must reach echo as a distinct
+    from_args (differing from original_default), so it is not silently replaced by a stale
+    user/password already present in the existing .env (original_provider)."""
+    mock_echo.prompt_until_valid.side_effect = ["deepfellow-db", "explicit-user", "explicit-password"]
+    original_provider = {"user": "stale-env-user", "password": "stale-env-password"}
+
+    result = configure_milvus_specific_fields(original_provider, "deepfellow", "explicit-user", "explicit-password")
+
+    assert result == {"db": "deepfellow-db", "user": "explicit-user", "password": "explicit-password"}
+    assert mock_echo.prompt_until_valid.call_args_list[1] == mock.call(
+        "Provide Milvus provider user",
+        validate_truthy,
+        from_args="explicit-user",
+        original_default="",
+        default="stale-env-user",
+    )
+    assert mock_echo.prompt_until_valid.call_args_list[2] == mock.call(
+        "Provide Milvus provider password",
+        validate_truthy,
+        from_args="explicit-password",
+        original_default="",
+        default="stale-env-password",
+        password=True,
+    )

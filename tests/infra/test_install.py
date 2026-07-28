@@ -1542,6 +1542,19 @@ def test_install_command_delegates_to_install_util(
 
 
 @mock.patch("deepfellow.infra.install.install_util")
+def test_install_command_translates_install_error_to_exit(
+    mock_install_util: Mock,
+    default_install_kwargs: dict,
+) -> None:
+    mock_install_util.side_effect = InstallError("boom")
+
+    with pytest.raises(typer.Exit) as exc_info:
+        install_command(**default_install_kwargs)
+
+    assert exc_info.value.exit_code == 1
+
+
+@mock.patch("deepfellow.infra.install.install_util")
 def test_install_command_forwards_explicit_confirm_flags_to_install_util(
     mock_install_util: Mock,
     default_install_kwargs: dict,
@@ -1562,19 +1575,6 @@ def test_install_command_forwards_explicit_confirm_flags_to_install_util(
     assert call_kwargs["keep_compose_prefix"] is False
     assert call_kwargs["keep_storage"] is True
     assert call_kwargs["keep_metrics"] is False
-
-
-@mock.patch("deepfellow.infra.install.install_util")
-def test_install_command_translates_install_error_to_exit(
-    mock_install_util: Mock,
-    default_install_kwargs: dict,
-) -> None:
-    mock_install_util.side_effect = InstallError("boom")
-
-    with pytest.raises(typer.Exit) as exc_info:
-        install_command(**default_install_kwargs)
-
-    assert exc_info.value.exit_code == 1
 
 
 @mock.patch("deepfellow.common.exceptions.echo")
