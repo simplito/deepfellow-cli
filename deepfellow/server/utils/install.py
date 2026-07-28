@@ -46,7 +46,7 @@ from deepfellow.common.docker import (
     save_compose_file,
 )
 from deepfellow.common.echo import echo
-from deepfellow.common.exceptions import translate_to_install_error
+from deepfellow.common.exceptions import reraise_if_debug, translate_to_install_error
 from deepfellow.common.generate import generate_password
 from deepfellow.common.install import assert_docker, ensure_directory
 from deepfellow.common.registry import get_newest_image_tag
@@ -279,9 +279,19 @@ def install(  # noqa: C901
     for _, service in services.items():
         add_network_to_service(service, docker_network)
 
-    # Create directory for plugins
+    # Create directories for plugins and storage so Docker never has to auto-create these
+    # bind-mount sources itself (which it would do as root, breaking later writes as this user).
     plugins_directory = directory / "plugins"
-    plugins_directory.mkdir(exist_ok=True)
+    try:
+        plugins_directory.mkdir(exist_ok=True)
+    except OSError as exc:
+        echo.error(f"Unable to create {plugins_directory}: {exc}.")
+        reraise_if_debug(exc)
+    try:
+        DF_SERVER_STORAGE_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        echo.error(f"Unable to create {DF_SERVER_STORAGE_DIRECTORY}: {exc}.")
+        reraise_if_debug(exc)
 
     services["server"]["volumes"] = [
         f"{DF_SERVER_STORAGE_DIRECTORY}:/app/storage",

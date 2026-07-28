@@ -29,6 +29,7 @@ from .infra import app as infra_app
 from .otel import app as otel_app
 from .prune import app as prune_app
 from .server import app as server_app
+from .suite import app as suite_app
 
 app = typer.Typer(invoke_without_command=True)
 
@@ -114,6 +115,9 @@ app.add_typer(infra_app, name="infra")
 app.add_typer(otel_app, name="otel", help="Manage local OpenTelemetry collector.")
 app.add_typer(prune_app)
 app.add_typer(server_app, name="server")
+app.add_typer(
+    suite_app, name="suite", help="One-step installation for infra, server, tools and automatic configuration."
+)
 
 if __name__ == "__main__":
     app()

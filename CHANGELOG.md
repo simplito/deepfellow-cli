@@ -5,8 +5,8 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
-
 ### Added
+- `deepfellow suite install` — provisions a complete DeepFellow workspace in one non-interactive-friendly run: infra install, infra start, infra service install (`ollama`, GPU spec), the three default models (chat, embedding, fast), server install (Milvus, `mxbai-embed-large`), server start, admin creation, login, and one call to the server's atomic workspace-creation endpoint (organization "Workspace", project "Default", API key "app"). All defaults are hardcoded in this version (no `--template` flag); it's a one-shot command with no `--resume`/progress tracking — a failure partway through must be recovered manually or by continuing with individual `infra`/`server` subcommands.
 - `deepfellow infra service install` and `deepfellow infra model install` now show a live progress bar while a Docker image is pulled or a model is downloaded (e.g. multi-GB chat models), so long installs no longer look hung. When the server doesn't stream progress the command falls back to the previous single-response behaviour, and in `--non-interactive` mode it prints periodic percentage lines instead of a live bar.
 - --set flag to `fields` command - prints fields in --set param=<value> friendly manner
 - `deepfellow infra service install` now fetches the service spec from the API and interactively prompts for required fields before installing; `--set key=value` (repeatable) allows non-interactive configuration without knowing the JSON structure upfront
@@ -39,6 +39,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 - `deepfellow infra install` no longer creates the docker network before all setup questions have been answered; aborting the install partway through no longer leaves an orphaned docker network behind.
+- `server install`/`server reconfigure` with a custom Milvus vector database now correctly keeps an explicitly-provided `--vectordb-username`/`--vectordb-password`, instead of silently overriding it with a stale value from an existing `.env` file.
+- `server install` no longer crashes with an unhandled `OSError` if creating the storage/plugins bind-mount directories fails (e.g. permission denied); it now shows a clear error message instead.
+- `deepfellow suite install` no longer crashes with a raw traceback when a step fails; failures now exit cleanly with a readable error message, matching `infra install`/`server install`.
 
 ## [0.8.0] - 2026-06-19
 

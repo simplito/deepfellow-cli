@@ -38,6 +38,7 @@ from deepfellow.common.defaults import (
 )
 from deepfellow.common.docker import load_compose_file, save_compose_file
 from deepfellow.common.echo import echo
+from deepfellow.common.exceptions import reraise_if_debug
 from deepfellow.common.generate import generate_password
 from deepfellow.common.validation import validate_connection_string, validate_truthy, validate_url, validate_username
 
@@ -91,7 +92,20 @@ def configure_milvus_specific_fields(
     vectordb_username: str | None,
     vectordb_password: str | None,
 ) -> dict[str, str]:
-    """Configure fields specific for milvus."""
+    """Configure fields specific for milvus.
+
+    An explicitly-provided ``vectordb_username``/``vectordb_password`` must win over a stale
+    value already present in ``original_provider`` (loaded from an existing ``.env`` on
+    reconfigure). ``echo.prompt_until_valid`` detects "explicitly provided on the CLI" by
+    comparing ``from_args`` against ``original_default``, so ``from_args`` must stay the raw,
+    unmutated CLI value - generating a fallback into the same variable before this comparison
+    (as a previous version did) makes it always differ from ``original_default`` and defeats
+    the detection, so the ``.env`` value would never be used even when nothing was passed on
+    the CLI.
+    """
+    default_username = original_provider.get("user") or generate_password(8)
+    default_password = original_provider.get("password") or generate_password(12)
+
     return {
         "db": echo.prompt_until_valid(
             "Provide Milvus provider database name",
@@ -104,15 +118,15 @@ def configure_milvus_specific_fields(
             "Provide Milvus provider user",
             validate_truthy,
             from_args=vectordb_username,
-            original_default=MILVUS_DATABASE["provider"]["user"],
-            default=original_provider.get("user", vectordb_username),
+            original_default="",
+            default=default_username,
         ),
         "password": echo.prompt_until_valid(
             "Provide Milvus provider password",
             validate_truthy,
             from_args=vectordb_password,
-            original_default=MILVUS_DATABASE["provider"]["password"],
-            default=original_provider.get("password", vectordb_password),
+            original_default="",
+            default=default_password,
             password=True,
         ),
     }
@@ -378,8 +392,12 @@ def configure_mongo(
 
         # Store the create user script
         init_mongo_path = directory / "init-mongo.sh"
-        init_mongo_path.write_text(MONGO_DB_INIT_SH)
-        init_mongo_path.chmod(0o755)
+        try:
+            init_mongo_path.write_text(MONGO_DB_INIT_SH)
+            init_mongo_path.chmod(0o755)
+        except OSError as exc:
+            echo.error(f"Unable to write {init_mongo_path.as_posix()}: {exc}.")
+            reraise_if_debug(exc)
 
         echo.info("A default MongoDB setup is created.")
 
