@@ -199,3 +199,4 @@ openspec/changes
 .claude/skills/create-work-item
 .claude/skills/release
 /BASE_WORKFLOW.md
+.claude/skills/review-mr
