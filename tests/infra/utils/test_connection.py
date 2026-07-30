@@ -17,7 +17,7 @@ import pytest
 import typer
 
 from deepfellow.common.state import state
-from deepfellow.infra.utils.connection import call_infra, resolve_infra_connection
+from deepfellow.infra.utils.connection import call_infra, persist_infra_connection, resolve_infra_connection
 
 
 @pytest.fixture
@@ -46,7 +46,6 @@ def test_resolve_infra_connection_uses_provided_server_and_secrets(
     mock_echo: Mock,
     mock_read_env_file: Mock,
     mock_env_set: Mock,
-    config_file: Mock,
     secrets_file: Mock,
 ) -> None:
     mock_read_env_file.return_value = {"DF_INFRA_ADMIN_API_KEY": "existing-key"}
@@ -57,10 +56,7 @@ def test_resolve_infra_connection_uses_provided_server_and_secrets(
     assert api_key == "existing-key"
     assert mock_read_env_file.call_count == 1
     assert mock_read_env_file.call_args == mock.call(secrets_file)
-    assert mock_env_set.call_count == 1
-    assert mock_env_set.call_args == mock.call(
-        config_file, "DF_INFRA_EXTERNAL_URL", "http://infra:8086", should_raise=False
-    )
+    assert mock_env_set.call_count == 0
     assert mock_echo.prompt.call_count == 0
     assert mock_echo.prompt_until_valid.call_count == 0
 
@@ -72,7 +68,6 @@ def test_resolve_infra_connection_reuses_matching_config_server(
     mock_echo: Mock,
     mock_read_env_file: Mock,
     mock_env_set: Mock,
-    config_file: Mock,
 ) -> None:
     state.cli_config = {"df_infra_external_url": "http://infra:8086"}
     mock_read_env_file.return_value = {"DF_INFRA_ADMIN_API_KEY": "existing-key"}
@@ -110,7 +105,6 @@ def test_resolve_infra_connection_prompts_for_server_when_none_available(
     mock_echo: Mock,
     mock_read_env_file: Mock,
     mock_env_set: Mock,
-    config_file: Mock,
 ) -> None:
     mock_echo.prompt_until_valid.return_value = "http://prompted-infra:8086"
     mock_read_env_file.return_value = {"DF_INFRA_ADMIN_API_KEY": "existing-key"}
@@ -120,9 +114,7 @@ def test_resolve_infra_connection_prompts_for_server_when_none_available(
     assert server == "http://prompted-infra:8086"
     assert api_key == "existing-key"
     assert mock_echo.prompt_until_valid.call_count == 1
-    assert mock_env_set.call_args == mock.call(
-        config_file, "DF_INFRA_EXTERNAL_URL", "http://prompted-infra:8086", should_raise=False
-    )
+    assert mock_env_set.call_count == 0
 
 
 @mock.patch("deepfellow.infra.utils.connection.env_set")
@@ -144,9 +136,7 @@ def test_resolve_infra_connection_prompts_for_api_key_when_secrets_file_missing(
     assert mock_read_env_file.call_count == 0
     assert mock_echo.prompt.call_count == 1
     assert mock_echo.prompt.call_args == mock.call("Provide Infra Admin API Key", password=True)
-    assert mock_env_set.call_args == mock.call(
-        secrets_file, "DF_INFRA_ADMIN_API_KEY", "prompted-key", should_raise=False
-    )
+    assert mock_env_set.call_count == 0
 
 
 @mock.patch("deepfellow.infra.utils.connection.env_set")
@@ -156,7 +146,6 @@ def test_resolve_infra_connection_prompts_for_api_key_when_not_in_secrets(
     mock_echo: Mock,
     mock_read_env_file: Mock,
     mock_env_set: Mock,
-    secrets_file: Mock,
 ) -> None:
     mock_read_env_file.return_value = {}
     mock_echo.prompt.return_value = "prompted-key"
@@ -165,8 +154,19 @@ def test_resolve_infra_connection_prompts_for_api_key_when_not_in_secrets(
 
     assert api_key == "prompted-key"
     assert mock_echo.prompt.call_count == 1
-    assert mock_env_set.call_args == mock.call(
-        secrets_file, "DF_INFRA_ADMIN_API_KEY", "prompted-key", should_raise=False
+    assert mock_env_set.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.connection.env_set")
+def test_persist_infra_connection_writes_url_and_key(mock_env_set: Mock, config_file: Mock, secrets_file: Mock) -> None:
+    persist_infra_connection("http://infra:8086", "the-key")
+
+    assert mock_env_set.call_count == 2
+    assert mock_env_set.call_args_list[0] == mock.call(
+        config_file, "DF_INFRA_EXTERNAL_URL", "http://infra:8086", should_raise=False, quiet=False
+    )
+    assert mock_env_set.call_args_list[1] == mock.call(
+        secrets_file, "DF_INFRA_ADMIN_API_KEY", "the-key", should_raise=False, quiet=False
     )
 
 
@@ -178,6 +178,39 @@ def test_call_infra_returns_request_result(mock_echo: Mock) -> None:
 
     assert result == {"status": "OK"}
     assert mock_echo.error.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.connection.persist_infra_connection")
+@mock.patch("deepfellow.infra.utils.connection.echo")
+def test_call_infra_persists_on_success_when_server_and_api_key_given(mock_echo: Mock, mock_persist: Mock) -> None:
+    request = Mock(return_value={"status": "OK"})
+
+    result = call_infra(request, "Unable to call Infra", server="http://infra:8086", api_key="the-key")
+
+    assert result == {"status": "OK"}
+    assert mock_persist.call_count == 1
+    assert mock_persist.call_args == mock.call("http://infra:8086", "the-key", quiet=False)
+
+
+@mock.patch("deepfellow.infra.utils.connection.persist_infra_connection")
+@mock.patch("deepfellow.infra.utils.connection.echo")
+def test_call_infra_does_not_persist_without_server_and_api_key(mock_echo: Mock, mock_persist: Mock) -> None:
+    request = Mock(return_value={"status": "OK"})
+
+    call_infra(request, "Unable to call Infra")
+
+    assert mock_persist.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.connection.persist_infra_connection")
+@mock.patch("deepfellow.infra.utils.connection.echo")
+def test_call_infra_does_not_persist_on_connect_error(mock_echo: Mock, mock_persist: Mock) -> None:
+    request = Mock(side_effect=httpx.ConnectError("TEST"))
+
+    with pytest.raises(typer.Exit):
+        call_infra(request, "Unable to call Infra", server="http://infra:8086", api_key="the-key")
+
+    assert mock_persist.call_count == 0
 
 
 @mock.patch("deepfellow.infra.utils.connection.echo")

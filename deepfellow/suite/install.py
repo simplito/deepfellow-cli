@@ -11,6 +11,7 @@
 
 import typer
 
+from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import InstallError, reraise_if_debug
 from deepfellow.common.validation import validate_email, validate_password
 from deepfellow.suite.utils.install import install as install_util
@@ -39,4 +40,5 @@ def install(
     try:
         install_util(admin_name=admin_name, admin_email=admin_email, admin_password=admin_password)
     except InstallError as exc:
+        echo.error(str(exc))
         reraise_if_debug(exc)

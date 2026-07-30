@@ -27,6 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `deepfellow infra service` and `infra model` commands no longer exit with a raw traceback on connection timeouts or other transport errors — every Infra API call now fails with a readable error message.
 - `deepfellow infra install` now correctly offers to keep a previously configured storage directory when reinstalling over an existing install; the check was silently broken and always regenerated the default storage path.
 - `deepfellow server install` now rejects an invalid `--otel-url` and an empty Infra API key with a clear error instead of silently writing them to `.env`.
+- `deepfellow infra install`/`update` and `server install`/`update` now print a warning when the registry token needed to resolve the newest image tag can't be obtained, before falling back to `:latest`; this previously failed silently.
 
 ### Changed
 - `deepfellow cli update` now resolves its upgrade command from the `DF_UPDATE_COMMAND` value stored in config (written by `install.sh` at install time), instead of always probing the package manager; existing installs keep working via detection fallback, and the resolved command is written back to config on first run. `install.sh` now records `DF_UPDATE_COMMAND` alongside `DF_UNINSTALL_COMMAND`, so `cli update` also works for pip/pip3 installs.
@@ -39,6 +40,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 - `deepfellow infra install` no longer creates the docker network before all setup questions have been answered; aborting the install partway through no longer leaves an orphaned docker network behind.
+- `deepfellow server install` no longer creates the docker network before all setup questions have been answered; aborting the install partway through no longer leaves an orphaned docker network behind.
+- `deepfellow server install` no longer crashes with a raw `TypeError` when it fails; the failure is now reported with the usual error message.
+- `deepfellow infra install`/`server install` no longer print a false "installed" success message when `docker compose pull` fails (registry errors, auth failures, disk full); the failure is now reported and the install aborts.
+- `deepfellow infra install`/`server install` no longer crash with a raw traceback if writing the `.env`/compose files fails (e.g. disk full, permission denied); the failure is now reported cleanly instead.
+- `deepfellow server install` no longer crashes with a raw traceback if saving the default server directory fails after an otherwise successful install.
+- `deepfellow server install` no longer crashes on a corrupted or deeply-nested `DF_PLUGINS_SETUP` value in an existing `.env` file; it's now reported as an invalid value like any other malformed input.
+- `deepfellow infra service install`/`infra service fields`/`infra model install` no longer permanently save a bad `--url` or Infra Admin API Key to local config before confirming it actually works; the value is now only persisted once a request against it succeeds.
 - `server install`/`server reconfigure` with a custom Milvus vector database now correctly keeps an explicitly-provided `--vectordb-username`/`--vectordb-password`, instead of silently overriding it with a stale value from an existing `.env` file.
 - `server install` no longer crashes with an unhandled `OSError` if creating the storage/plugins bind-mount directories fails (e.g. permission denied); it now shows a clear error message instead.
 - `deepfellow suite install` no longer crashes with a raw traceback when a step fails; failures now exit cleanly with a readable error message, matching `infra install`/`server install`.

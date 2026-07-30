@@ -21,6 +21,7 @@ from deepfellow.common.defaults import (
     DF_INFRA_STORAGE_DIR,
     DF_INFRA_URL,
 )
+from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import InstallError, reraise_if_debug
 from deepfellow.infra.utils.install import install as install_util
 from deepfellow.infra.utils.options import directory_option
@@ -93,4 +94,5 @@ def install(
             keep_metrics=keep_metrics,
         )
     except InstallError as exc:
+        echo.error(str(exc))
         reraise_if_debug(exc)

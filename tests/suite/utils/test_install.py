@@ -157,9 +157,8 @@ def test_install_non_interactive_missing_credentials_fails(mock_echo: Mock) -> N
     assert mock_echo.prompt_until_valid.call_count == 1
 
 
-@mock.patch("deepfellow.common.exceptions.echo")
 @mock.patch("deepfellow.suite.utils.install.echo")
-def test_install_translates_bad_parameter_to_install_error(mock_echo: Mock, mock_exceptions_echo: Mock) -> None:
+def test_install_translates_bad_parameter_to_install_error(mock_echo: Mock) -> None:
     """A caller outside Click (e.g. the suite Typer command) sees a message-carrying
     InstallError instead of an unhandled, message-less typer.BadParameter - mirroring how
     server's install() is made safe by the same @translate_to_install_error decorator."""
@@ -167,8 +166,6 @@ def test_install_translates_bad_parameter_to_install_error(mock_echo: Mock, mock
 
     with pytest.raises(InstallError, match="Invalid admin email"):
         install(admin_name=None, admin_email=None, admin_password=None)
-
-    assert mock_exceptions_echo.error.call_args == mock.call("Invalid admin email")
 
 
 @mock.patch("deepfellow.suite.utils.install.echo")

@@ -40,6 +40,7 @@ def _dynamic_config_values(server: str | None, api_key: str | None, secret: bool
     with an error if nothing is resolvable, or the request fails for any reason (Infra down,
     unreachable, wrong credentials, a non-JSON or unexpected response, ...).
     """
+    config: dict[str, Any] = {}
     resolved_server = server or state.cli_config.get("df_infra_external_url")
     resolved_key = api_key
     if resolved_key is None:
@@ -58,7 +59,7 @@ def _dynamic_config_values(server: str | None, api_key: str | None, secret: bool
             timeout=5.0,
         )
         response.raise_for_status()
-        config: dict[str, Any] = response.json()
+        config = response.json()
         _ensure_dict(config)
 
         if secret:

@@ -9,17 +9,14 @@
 
 """infra service fields command."""
 
-from typing import Any, cast
+from typing import Any
 
 import typer
 
-from deepfellow.common.config import read_env_file
 from deepfellow.common.echo import echo
-from deepfellow.common.env import env_set
 from deepfellow.common.rest import make_request
-from deepfellow.common.state import state
 from deepfellow.common.validation import validate_server
-from deepfellow.infra.utils.connection import call_infra
+from deepfellow.infra.utils.connection import call_infra, resolve_infra_connection
 
 app = typer.Typer()
 
@@ -88,30 +85,7 @@ def fields(
     server: str | None = typer.Option(None, "--url", callback=validate_server, help="DeepFellow Infra address"),
 ) -> None:
     """Display configuration fields a service expects."""
-    config_file = state.cli_config_file
-    config = state.cli_config
-    config_external_server = config.get("df_infra_external_url")
-    secrets_file = state.cli_secrets_file
-
-    if server is None:
-        if config_external_server is not None:
-            server = config_external_server
-        else:
-            server = echo.prompt_until_valid(
-                message="Provide DeepFellow Infra URL",
-                validation=validate_server,
-                error_message="Invalid Deepfellow infra address. Please try again.",
-            )
-
-    server = cast("str", server)
-    if server != config_external_server:
-        env_set(config_file, "DF_INFRA_EXTERNAL_URL", server, should_raise=False)
-
-    secrets = read_env_file(secrets_file) if secrets_file.is_file() else {}
-    api_key = secrets.get("DF_INFRA_ADMIN_API_KEY")
-    if api_key is None:
-        api_key = echo.prompt("Provide Infra Admin API Key", password=True)
-        env_set(secrets_file, "DF_INFRA_ADMIN_API_KEY", api_key, should_raise=False)
+    server, api_key = resolve_infra_connection(server)
 
     url = f"{server}/admin/services/{name}"
     data = call_infra(
@@ -123,6 +97,8 @@ def fields(
             reraise=True,
         ),
         f"Unable to get fields for service '{name}'.",
+        server=server,
+        api_key=api_key,
     )
 
     service_fields = data.get("spec", {}).get("fields", [])

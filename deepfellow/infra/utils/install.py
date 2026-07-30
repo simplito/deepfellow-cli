@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+import typer
+
 from deepfellow.common.config import (
     EnvDict,
     configure_uuid_key,
@@ -35,6 +37,7 @@ from deepfellow.common.defaults import (
     DOCKER_COMPOSE_INFRA,
 )
 from deepfellow.common.docker import (
+    DockerError,
     add_network_to_service,
     ensure_network,
     get_socket,
@@ -300,7 +303,11 @@ def apply(config: InstallConfig) -> None:
 
     # Create empty docker config if needed
     if not config.docker_config.is_file():
-        config.docker_config.write_text("{}", encoding="utf-8")
+        try:
+            config.docker_config.write_text("{}", encoding="utf-8")
+        except OSError as exc:
+            echo.error(str(exc))
+            raise typer.Exit(1) from exc
 
     # Create the network if needed
     ensure_network(config.docker_network)
@@ -351,7 +358,11 @@ def apply(config: InstallConfig) -> None:
     )
 
     echo.info("Pulling docker image(s).")
-    run(["docker", "compose", "pull"], config.directory, quiet=True)
+    try:
+        run(["docker", "compose", "pull"], config.directory, raises=DockerError)
+    except DockerError as exc:
+        echo.error(f"Failed to pull docker image(s): {exc}\nCheck registry access, credentials, and disk space.")
+        raise typer.Exit(1) from exc
     echo.success(
         "DeepFellow Infra installed.\n"
         "To start the docker image - `deepfellow infra start`.\n"
