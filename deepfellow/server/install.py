@@ -26,6 +26,7 @@ from deepfellow.common.defaults import (
     MILVUS_DATABASE,
     VectorDBTypeChoice,
 )
+from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import InstallError, reraise_if_debug
 from deepfellow.common.validation import validate_url
 from deepfellow.server.utils.install import install as install_util
@@ -118,7 +119,7 @@ def install(
             force_install=force_install,
             dev=dev,
         )
-    except InstallError as exc:
+        set_default_server_directory(directory, force=False)
+    except (InstallError, OSError) as exc:
+        echo.error(str(exc))
         reraise_if_debug(exc)
-
-    set_default_server_directory(directory, force=False)

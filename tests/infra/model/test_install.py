@@ -7,7 +7,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from pathlib import Path
 from unittest import mock
 from unittest.mock import Mock
 
@@ -15,31 +14,21 @@ import httpx
 import pytest
 import typer
 
-from deepfellow.common.state import state
 from deepfellow.infra.model.install import install as install_command
 from deepfellow.infra.utils.model_install import install
 
 
-@pytest.fixture
-def secrets_file() -> Mock:
-    m = Mock(spec=Path, name="secrets-file")
-    m.is_file.return_value = True
-    return m
-
-
-@pytest.fixture(autouse=True)
-def default_state(secrets_file: Mock) -> None:
-    state.cli_config = {"df_infra_external_url": "http://infra:8086"}
-    state.cli_secrets_file = secrets_file
-
-
+@mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.utils.connection.echo")
 @mock.patch("deepfellow.infra.utils.model_install.install_with_progress")
-@mock.patch("deepfellow.infra.utils.model_install.read_env_file", return_value={"DF_INFRA_ADMIN_API_KEY": "test-key"})
+@mock.patch(
+    "deepfellow.infra.utils.model_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
 def test_install_raises_on_connect_error(
-    mock_read_env_file: Mock,
+    mock_resolve: Mock,
     mock_install_with_progress: Mock,
     mock_echo: Mock,
+    mock_env_set: Mock,
 ) -> None:
     mock_install_with_progress.side_effect = httpx.ConnectError("TEST")
 
@@ -52,13 +41,59 @@ def test_install_raises_on_connect_error(
     )
 
 
+@mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.utils.model_install.echo")
 @mock.patch("deepfellow.infra.utils.model_install.install_with_progress")
-@mock.patch("deepfellow.infra.utils.model_install.read_env_file", return_value={"DF_INFRA_ADMIN_API_KEY": "test-key"})
-def test_install_exits_with_detail_when_finish_status_error(
-    mock_read_env_file: Mock,
+@mock.patch(
+    "deepfellow.infra.utils.model_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
+def test_install_success(
+    mock_resolve: Mock,
     mock_install_with_progress: Mock,
     mock_echo: Mock,
+    mock_env_set: Mock,
+) -> None:
+    mock_install_with_progress.return_value = {"status": "OK"}
+
+    install(server=None, service_name="ollama", model_name="llama-3.1-8B")
+
+    assert mock_install_with_progress.call_count == 1
+    assert mock_echo.success.call_count == 1
+    assert mock_echo.success.call_args == mock.call("Model llama-3.1-8B installed.")
+
+
+@mock.patch("deepfellow.infra.utils.connection.env_set")
+@mock.patch("deepfellow.infra.utils.model_install.echo")
+@mock.patch("deepfellow.infra.utils.model_install.install_with_progress")
+@mock.patch(
+    "deepfellow.infra.utils.model_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
+def test_install_raises_when_status_not_ok(
+    mock_resolve: Mock,
+    mock_install_with_progress: Mock,
+    mock_echo: Mock,
+    mock_env_set: Mock,
+) -> None:
+    mock_install_with_progress.return_value = {"status": "FAILED"}
+
+    with pytest.raises(typer.Exit):
+        install(server=None, service_name="ollama", model_name="llama-3.1-8B")
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call("Unable to install model.")
+
+
+@mock.patch("deepfellow.infra.utils.connection.env_set")
+@mock.patch("deepfellow.infra.utils.model_install.echo")
+@mock.patch("deepfellow.infra.utils.model_install.install_with_progress")
+@mock.patch(
+    "deepfellow.infra.utils.model_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
+def test_install_exits_with_detail_when_finish_status_error(
+    mock_resolve: Mock,
+    mock_install_with_progress: Mock,
+    mock_echo: Mock,
+    mock_env_set: Mock,
 ) -> None:
     mock_install_with_progress.return_value = {"type": "finish", "status": "error", "detail": "out of memory"}
 

@@ -15,7 +15,6 @@ from typing import NoReturn, ParamSpec
 
 import typer
 
-from deepfellow.common.echo import echo
 from deepfellow.common.state import state
 
 P = ParamSpec("P")
@@ -55,12 +54,19 @@ def translate_to_install_error(func: Callable[P, None]) -> Callable[P, None]:
 
     ``typer.Exit`` and ``typer.BadParameter`` are only safe error signals inside a Click
     dispatch loop: ``typer.Exit`` carries no message, and both are otherwise unhandled,
-    message-less exceptions to a plain in-process caller. This decorator catches both,
-    however deep they were raised (directly, or transitively via ``assert_docker``,
-    ``ensure_directory``, ``echo.prompt*``, ...), and re-raises ``InstallError(message)``
-    instead. ``BadParameter``'s message is never echoed by its raise site, so it is echoed
-    here to preserve today's CLI console output; ``typer.Exit`` raise sites already echo
-    their reason before raising, so it is not echoed twice.
+    message-less exceptions to a plain in-process caller. Docker-layer failures
+    (``DockerSocketNotFoundError``, ``DockerNetworkError``) and file-write failures
+    (``OSError``, e.g. from ``save_env_file``/``env_set``/``save_compose_file``) are equally
+    unhandled outside this decorator. This decorator catches all of them, however deep they
+    were raised (directly, or transitively via ``assert_docker``, ``ensure_directory``,
+    ``echo.prompt*``, ...), and re-raises ``InstallError(message)`` instead. It never echoes
+    the message itself — every caller of a decorated function is expected to catch
+    ``InstallError`` and echo ``str(exc)`` exactly once (as both CLI command layers do); doing
+    it here too would print the same message twice. The one exception is ``typer.Exit``,
+    which carries no message of its own: whatever specific reason caused it was already
+    echoed by its own raise site deeper in the call stack, so this decorator substitutes a
+    generic placeholder message for the caller to echo once, instead of duplicating that
+    specific reason.
     """
 
     @functools.wraps(func)
@@ -68,10 +74,14 @@ def translate_to_install_error(func: Callable[P, None]) -> Callable[P, None]:
         try:
             func(*args, **kwargs)
         except typer.BadParameter as exc:
-            message = str(exc)
-            echo.error(message)
-            raise InstallError(message) from exc
+            raise InstallError(str(exc)) from exc
         except typer.Exit as exc:
             raise InstallError("Installation failed; see console output above for details.") from exc
+        except DockerSocketNotFoundError as exc:
+            raise InstallError(str(exc)) from exc
+        except DockerNetworkError as exc:
+            raise InstallError(str(exc)) from exc
+        except OSError as exc:
+            raise InstallError(str(exc)) from exc
 
     return wrapper

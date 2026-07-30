@@ -25,6 +25,7 @@ def name_fixture() -> str:
     return "name"
 
 
+@mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.utils.connection.echo")
 @mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.service_install.get")
@@ -36,6 +37,7 @@ def test_install_connection_error(
     mock_get: Mock,
     mock_install_with_progress: Mock,
     mock_echo: Mock,
+    mock_env_set: Mock,
     name: str,
 ) -> None:
     mock_get.return_value = {"spec": {"fields": []}}
@@ -50,6 +52,7 @@ def test_install_connection_error(
     )
 
 
+@mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.utils.service_install.echo")
 @mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.service_install.get")
@@ -61,6 +64,7 @@ def test_install_success_without_api_key(
     mock_get: Mock,
     mock_install_with_progress: Mock,
     mock_echo: Mock,
+    mock_env_set: Mock,
     name: str,
 ) -> None:
     mock_get.return_value = {"spec": {"fields": []}}
@@ -72,8 +76,12 @@ def test_install_success_without_api_key(
     call_kwargs = mock_install_with_progress.call_args[1]
     assert call_kwargs["data"] == {"spec": {}}
     assert mock_echo.success.call_count == 1
+    assert mock_env_set.call_count == 4
+    assert mock_env_set.call_args_list[0].kwargs["quiet"] is False
+    assert mock_env_set.call_args_list[2].kwargs["quiet"] is True
 
 
+@mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.utils.service_install.echo")
 @mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.service_install.get")
@@ -85,6 +93,7 @@ def test_install_success_with_api_key(
     mock_get: Mock,
     mock_install_with_progress: Mock,
     mock_echo: Mock,
+    mock_env_set: Mock,
     name: str,
 ) -> None:
     mock_get.return_value = {"spec": {"fields": []}}
@@ -98,6 +107,7 @@ def test_install_success_with_api_key(
     assert mock_echo.success.call_count == 1
 
 
+@mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.utils.service_install.echo")
 @mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.service_install.get")
@@ -109,6 +119,7 @@ def test_install_with_valid_spec(
     mock_get: Mock,
     mock_install_with_progress: Mock,
     mock_echo: Mock,
+    mock_env_set: Mock,
     name: str,
 ) -> None:
     mock_install_with_progress.return_value = {"status": "OK"}
@@ -120,8 +131,11 @@ def test_install_with_valid_spec(
     assert mock_install_with_progress.call_args == mock.call(
         mock.ANY, mock.ANY, data={"spec": {"url": "http://host:11434"}}
     )
+    assert mock_env_set.call_count == 2
+    assert mock_env_set.call_args_list[0].kwargs["quiet"] is False
 
 
+@mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.utils.service_install.echo")
 @mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.service_install.get")
@@ -133,6 +147,7 @@ def test_install_exits_with_detail_when_finish_status_error(
     mock_get: Mock,
     mock_install_with_progress: Mock,
     mock_echo: Mock,
+    mock_env_set: Mock,
     name: str,
 ) -> None:
     mock_get.return_value = {"spec": {"fields": []}}
@@ -160,6 +175,7 @@ def test_install_with_non_object_json_spec(mock_echo: Mock, name: str) -> None:
     assert mock_echo.error.call_args == mock.call("--spec must be a JSON object, not an array or scalar.")
 
 
+@mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.utils.service_install.echo")
 @mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.service_install.get")
@@ -173,6 +189,7 @@ def test_install_claude_with_api_key(
     mock_get: Mock,
     mock_install_with_progress: Mock,
     mock_echo: Mock,
+    mock_env_set: Mock,
 ) -> None:
     mock_get.return_value = {
         "spec": {
@@ -214,6 +231,7 @@ def test_install_claude_with_api_key(
     assert mock_echo.success.call_count == 1
 
 
+@mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.utils.service_install.echo")
 @mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.service_install.get")
@@ -227,6 +245,7 @@ def test_install_google_with_api_key(
     mock_get: Mock,
     mock_install_with_progress: Mock,
     mock_echo: Mock,
+    mock_env_set: Mock,
 ) -> None:
     mock_get.return_value = {
         "spec": {
@@ -260,6 +279,7 @@ def test_install_google_with_api_key(
     assert mock_echo.success.call_count == 1
 
 
+@mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.utils.service_install.echo")
 @mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.service_install.get")
@@ -273,6 +293,7 @@ def test_install_openai_with_api_key(
     mock_get: Mock,
     mock_install_with_progress: Mock,
     mock_echo: Mock,
+    mock_env_set: Mock,
 ) -> None:
     mock_get.return_value = {
         "spec": {
@@ -306,6 +327,7 @@ def test_install_openai_with_api_key(
     assert mock_echo.success.call_count == 1
 
 
+@mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.utils.service_install.echo")
 @mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.service_install.get")
@@ -319,6 +341,7 @@ def test_install_sindri_with_api_key(
     mock_get: Mock,
     mock_install_with_progress: Mock,
     mock_echo: Mock,
+    mock_env_set: Mock,
 ) -> None:
     mock_get.return_value = {
         "spec": {
@@ -439,17 +462,15 @@ def test_list_with_no_installed_services(
     assert mock_echo.info.call_args == mock.call("No services installed.")
 
 
+@mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.service.fields.echo")
 @mock.patch("deepfellow.infra.service.fields.make_request")
-@mock.patch("deepfellow.infra.service.fields.cast")
-@mock.patch("deepfellow.infra.service.fields.read_env_file")
-@mock.patch("deepfellow.infra.service.fields.env_set")
+@mock.patch("deepfellow.infra.service.fields.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_fields_displays_fields(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
+    mock_resolve: Mock,
     mock_make_request: Mock,
     mock_echo: Mock,
+    mock_env_set: Mock,
 ) -> None:
     mock_make_request.return_value = {
         "spec": {
@@ -472,17 +493,15 @@ def test_fields_displays_fields(
     )
 
 
+@mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.service.fields.echo")
 @mock.patch("deepfellow.infra.service.fields.make_request")
-@mock.patch("deepfellow.infra.service.fields.cast")
-@mock.patch("deepfellow.infra.service.fields.read_env_file")
-@mock.patch("deepfellow.infra.service.fields.env_set")
+@mock.patch("deepfellow.infra.service.fields.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_fields_missing_default_shows_none(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
+    mock_resolve: Mock,
     mock_make_request: Mock,
     mock_echo: Mock,
+    mock_env_set: Mock,
 ) -> None:
     mock_make_request.return_value = {"spec": {"fields": [{"name": "token", "description": "API token"}]}}
 
@@ -492,17 +511,15 @@ def test_fields_missing_default_shows_none(
     assert mock_echo.info.call_args == mock.call("- token: API token (default: None)")
 
 
+@mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.service.fields.echo")
 @mock.patch("deepfellow.infra.service.fields.make_request")
-@mock.patch("deepfellow.infra.service.fields.cast")
-@mock.patch("deepfellow.infra.service.fields.read_env_file")
-@mock.patch("deepfellow.infra.service.fields.env_set")
+@mock.patch("deepfellow.infra.service.fields.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_fields_with_no_fields(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
+    mock_resolve: Mock,
     mock_make_request: Mock,
     mock_echo: Mock,
+    mock_env_set: Mock,
     name: str,
 ) -> None:
     mock_make_request.return_value = {"spec": {"fields": []}}
@@ -513,17 +530,15 @@ def test_fields_with_no_fields(
     assert mock_echo.info.call_args == mock.call(f"Service '{name}' has no configuration fields.")
 
 
+@mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.service.fields.echo")
 @mock.patch("deepfellow.infra.service.fields.make_request")
-@mock.patch("deepfellow.infra.service.fields.cast")
-@mock.patch("deepfellow.infra.service.fields.read_env_file")
-@mock.patch("deepfellow.infra.service.fields.env_set")
+@mock.patch("deepfellow.infra.service.fields.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_fields_oneof_lists_available_options(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
+    mock_resolve: Mock,
     mock_make_request: Mock,
     mock_echo: Mock,
+    mock_env_set: Mock,
 ) -> None:
     mock_make_request.return_value = {
         "spec": {
@@ -544,17 +559,15 @@ def test_fields_oneof_lists_available_options(
     assert mock_echo.info.call_args == mock.call("- hardware: Choose hardware: (default: GPU, available: GPU, CPU)")
 
 
+@mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.service.fields.echo")
 @mock.patch("deepfellow.infra.service.fields.make_request")
-@mock.patch("deepfellow.infra.service.fields.cast")
-@mock.patch("deepfellow.infra.service.fields.read_env_file")
-@mock.patch("deepfellow.infra.service.fields.env_set")
+@mock.patch("deepfellow.infra.service.fields.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_fields_set_displays_set_usage_hints(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
+    mock_resolve: Mock,
     mock_make_request: Mock,
     mock_echo: Mock,
+    mock_env_set: Mock,
 ) -> None:
     mock_make_request.return_value = {
         "spec": {
@@ -577,17 +590,15 @@ def test_fields_set_displays_set_usage_hints(
     )
 
 
+@mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.service.fields.echo")
 @mock.patch("deepfellow.infra.service.fields.make_request")
-@mock.patch("deepfellow.infra.service.fields.cast")
-@mock.patch("deepfellow.infra.service.fields.read_env_file")
-@mock.patch("deepfellow.infra.service.fields.env_set")
+@mock.patch("deepfellow.infra.service.fields.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_fields_set_missing_default_omits_default(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
+    mock_resolve: Mock,
     mock_make_request: Mock,
     mock_echo: Mock,
+    mock_env_set: Mock,
 ) -> None:
     mock_make_request.return_value = {"spec": {"fields": [{"name": "token", "description": "API token"}]}}
 
@@ -597,17 +608,15 @@ def test_fields_set_missing_default_omits_default(
     assert mock_echo.info.call_args == mock.call("  --set token=<value>  (optional)  API token")
 
 
+@mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.service.fields.echo")
 @mock.patch("deepfellow.infra.service.fields.make_request")
-@mock.patch("deepfellow.infra.service.fields.cast")
-@mock.patch("deepfellow.infra.service.fields.read_env_file")
-@mock.patch("deepfellow.infra.service.fields.env_set")
+@mock.patch("deepfellow.infra.service.fields.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_fields_set_oneof_lists_available_options(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
+    mock_resolve: Mock,
     mock_make_request: Mock,
     mock_echo: Mock,
+    mock_env_set: Mock,
 ) -> None:
     mock_make_request.return_value = {
         "spec": {

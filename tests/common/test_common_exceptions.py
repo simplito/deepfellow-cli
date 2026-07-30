@@ -11,13 +11,17 @@
 
 import inspect
 from collections.abc import Callable
-from unittest import mock
-from unittest.mock import Mock
 
 import pytest
 import typer
 
-from deepfellow.common.exceptions import InstallError, reraise_if_debug, translate_to_install_error
+from deepfellow.common.exceptions import (
+    DockerNetworkError,
+    DockerSocketNotFoundError,
+    InstallError,
+    reraise_if_debug,
+    translate_to_install_error,
+)
 from deepfellow.common.state import state
 
 
@@ -50,16 +54,13 @@ def test_reraise_if_debug_exits_with_code_1_when_debug_false():
     assert exc_info.value.exit_code == 1
 
 
-@mock.patch("deepfellow.common.exceptions.echo")
-def test_translate_to_install_error_wraps_bad_parameter_with_its_message(mock_echo: Mock) -> None:
+def test_translate_to_install_error_wraps_bad_parameter_with_its_message() -> None:
     @translate_to_install_error
     def install() -> None:
         raise typer.BadParameter("Invalid value")
 
     with pytest.raises(InstallError, match="Invalid value"):
         install()
-
-    assert mock_echo.error.call_args == mock.call("Invalid value")
 
 
 def test_translate_to_install_error_wraps_exit_with_generic_message() -> None:
@@ -68,6 +69,33 @@ def test_translate_to_install_error_wraps_exit_with_generic_message() -> None:
         raise typer.Exit(1)
 
     with pytest.raises(InstallError):
+        install()
+
+
+def test_translate_to_install_error_wraps_docker_socket_not_found_error_with_its_message() -> None:
+    @translate_to_install_error
+    def install() -> None:
+        raise DockerSocketNotFoundError("docker.sock not found")
+
+    with pytest.raises(InstallError, match=r"docker\.sock not found"):
+        install()
+
+
+def test_translate_to_install_error_wraps_docker_network_error_with_its_message() -> None:
+    @translate_to_install_error
+    def install() -> None:
+        raise DockerNetworkError("unable to list docker networks")
+
+    with pytest.raises(InstallError, match="unable to list docker networks"):
+        install()
+
+
+def test_translate_to_install_error_wraps_os_error_with_its_message() -> None:
+    @translate_to_install_error
+    def install() -> None:
+        raise OSError("disk full")
+
+    with pytest.raises(InstallError, match="disk full"):
         install()
 
 

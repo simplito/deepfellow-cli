@@ -25,10 +25,11 @@ from deepfellow.common.defaults import (
     DF_INFRA_URL,
     DOCKER_COMPOSE_CONFIG_FILENAME,
 )
+from deepfellow.common.docker import DockerError
 from deepfellow.common.exceptions import InstallError
 from deepfellow.common.state import state
 from deepfellow.infra.install import install as install_command
-from deepfellow.infra.utils.install import InstallConfig, apply, install
+from deepfellow.infra.utils.install import InstallConfig, InstallContext, apply, inspect, install, resolve
 
 
 @pytest.fixture
@@ -96,6 +97,154 @@ def _setup_echo(mock_echo: Mock) -> None:
     mock_echo.prompt.side_effect = [DF_INFRA_NAME, DF_INFRA_DOCKER_NETWORK, "", ""]
     mock_echo.prompt_until_valid.return_value = DF_INFRA_URL
     mock_echo.confirm.return_value = False
+
+
+@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.utils.install.ensure_directory")
+@mock.patch("deepfellow.infra.utils.install.get_socket")
+@mock.patch("deepfellow.infra.utils.install.assert_docker")
+def test_inspect_calls_assert_docker(
+    mock_assert_docker: Mock,
+    mock_get_socket: Mock,
+    mock_ensure_directory: Mock,
+    mock_read_env_file_to_dict: Mock,
+    mock_get_newest_image_tag: Mock,
+    directory: Path,
+) -> None:
+    mock_get_socket.return_value = "/var/run/docker.sock"
+    mock_read_env_file_to_dict.return_value = {}
+
+    inspect(directory=directory, allow_rootful=False, force_install=False, image=DF_INFRA_IMAGE, local_image=False)
+
+    assert mock_assert_docker.call_count == 1
+
+
+@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.utils.install.ensure_directory")
+@mock.patch("deepfellow.infra.utils.install.get_socket")
+@mock.patch("deepfellow.infra.utils.install.assert_docker")
+def test_inspect_passes_allow_rootful_to_get_socket(
+    mock_assert_docker: Mock,
+    mock_get_socket: Mock,
+    mock_ensure_directory: Mock,
+    mock_read_env_file_to_dict: Mock,
+    mock_get_newest_image_tag: Mock,
+    directory: Path,
+) -> None:
+    mock_get_socket.return_value = "/var/run/docker.sock"
+    mock_read_env_file_to_dict.return_value = {}
+
+    inspect(directory=directory, allow_rootful=True, force_install=False, image=DF_INFRA_IMAGE, local_image=False)
+
+    assert mock_get_socket.call_args == mock.call(allow_rootful=True)
+
+
+@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.utils.install.ensure_directory")
+@mock.patch("deepfellow.infra.utils.install.get_socket")
+@mock.patch("deepfellow.infra.utils.install.assert_docker")
+def test_inspect_ensures_directory_with_force_install(
+    mock_assert_docker: Mock,
+    mock_get_socket: Mock,
+    mock_ensure_directory: Mock,
+    mock_read_env_file_to_dict: Mock,
+    mock_get_newest_image_tag: Mock,
+    directory: Path,
+) -> None:
+    mock_get_socket.return_value = "/var/run/docker.sock"
+    mock_read_env_file_to_dict.return_value = {}
+
+    inspect(directory=directory, allow_rootful=False, force_install=True, image=DF_INFRA_IMAGE, local_image=False)
+
+    assert mock_ensure_directory.call_args == mock.call(
+        directory, error_message="Unable to create DeepFellow Infra directory.", force_install=True
+    )
+
+
+@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.utils.install.ensure_directory")
+@mock.patch("deepfellow.infra.utils.install.get_socket")
+@mock.patch("deepfellow.infra.utils.install.assert_docker")
+def test_inspect_resolves_newest_image_tag_for_default_image(
+    mock_assert_docker: Mock,
+    mock_get_socket: Mock,
+    mock_ensure_directory: Mock,
+    mock_read_env_file_to_dict: Mock,
+    mock_get_newest_image_tag: Mock,
+    directory: Path,
+) -> None:
+    mock_get_socket.return_value = "/var/run/docker.sock"
+    mock_read_env_file_to_dict.return_value = {}
+    mock_get_newest_image_tag.return_value = "v1.2.3"
+
+    context = inspect(
+        directory=directory, allow_rootful=False, force_install=False, image=DF_INFRA_IMAGE, local_image=False
+    )
+
+    assert context.newest_image_tag == "v1.2.3"
+    assert mock_get_newest_image_tag.call_count == 1
+
+
+@pytest.mark.parametrize(
+    ("image", "local_image"),
+    [
+        pytest.param(DF_INFRA_IMAGE, True, id="local_image"),
+        pytest.param("custom/image:tag", False, id="custom_image"),
+    ],
+)
+@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.utils.install.ensure_directory")
+@mock.patch("deepfellow.infra.utils.install.get_socket")
+@mock.patch("deepfellow.infra.utils.install.assert_docker")
+def test_inspect_skips_newest_image_tag_lookup(
+    mock_assert_docker: Mock,
+    mock_get_socket: Mock,
+    mock_ensure_directory: Mock,
+    mock_read_env_file_to_dict: Mock,
+    mock_get_newest_image_tag: Mock,
+    image: str,
+    local_image: bool,
+    directory: Path,
+) -> None:
+    mock_get_socket.return_value = "/var/run/docker.sock"
+    mock_read_env_file_to_dict.return_value = {}
+
+    context = inspect(
+        directory=directory, allow_rootful=False, force_install=False, image=image, local_image=local_image
+    )
+
+    assert context.newest_image_tag is None
+    assert mock_get_newest_image_tag.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.utils.install.ensure_directory")
+@mock.patch("deepfellow.infra.utils.install.get_socket")
+@mock.patch("deepfellow.infra.utils.install.assert_docker")
+def test_inspect_returns_context_with_docker_socket_and_env_content(
+    mock_assert_docker: Mock,
+    mock_get_socket: Mock,
+    mock_ensure_directory: Mock,
+    mock_read_env_file_to_dict: Mock,
+    mock_get_newest_image_tag: Mock,
+    directory: Path,
+) -> None:
+    mock_get_socket.return_value = "/var/run/docker.sock"
+    mock_read_env_file_to_dict.return_value = {"DF_NAME": "infra"}
+
+    context = inspect(
+        directory=directory, allow_rootful=False, force_install=False, image=DF_INFRA_IMAGE, local_image=False
+    )
+
+    assert context.directory == directory
+    assert context.docker_socket == "/var/run/docker.sock"
+    assert context.original_env_content == {"DF_NAME": "infra"}
 
 
 @mock.patch("deepfellow.infra.utils.install.run")
@@ -809,6 +958,31 @@ def test_install_compose_prefix_generated_when_no_original(
     assert re.match(r"^df[a-z0-9]{6}_$", infra_values["DF_INFRA_COMPOSE_PREFIX"])
 
 
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_resolve_skips_storage_prompt_when_stored_value_equals_default(
+    mock_echo: Mock,
+    default_install_kwargs: dict,
+    directory: Path,
+) -> None:
+    mock_echo.confirm.return_value = True
+    context = InstallContext(
+        directory=directory,
+        docker_socket="/var/run/docker.sock",
+        newest_image_tag=None,
+        original_env_content={"df_infra_storage_dir": str(DF_INFRA_STORAGE_DIR)},
+    )
+    kwargs = dict(default_install_kwargs)
+    del kwargs["directory"]
+    del kwargs["force_install"]
+    del kwargs["allow_rootful"]
+
+    config = resolve(context, **kwargs)
+
+    assert config.storage_dir == DF_INFRA_STORAGE_DIR
+    assert mock_echo.confirm.call_count == 1
+    assert mock_echo.confirm.call_args == mock.call("Is it safe to print API keys here?", from_args=None)
+
+
 @mock.patch("deepfellow.infra.utils.install.run")
 @mock.patch("deepfellow.infra.utils.install.save_compose_file")
 @mock.patch("deepfellow.infra.utils.install.add_network_to_service")
@@ -1334,7 +1508,7 @@ def test_install_calls_docker_compose_pull(
     install(**default_install_kwargs)
 
     assert mock_run.call_count == 1
-    assert mock_run.call_args == ((["docker", "compose", "pull"], directory), {"quiet": True})
+    assert mock_run.call_args == mock.call(["docker", "compose", "pull"], directory, raises=DockerError)
 
 
 @mock.patch("deepfellow.infra.utils.install.run")
@@ -1577,7 +1751,6 @@ def test_install_command_forwards_explicit_confirm_flags_to_install_util(
     assert call_kwargs["keep_metrics"] is False
 
 
-@mock.patch("deepfellow.common.exceptions.echo")
 @mock.patch("deepfellow.infra.utils.install.run")
 @mock.patch("deepfellow.infra.utils.install.save_compose_file")
 @mock.patch("deepfellow.infra.utils.install.add_network_to_service")
@@ -1605,7 +1778,6 @@ def test_install_util_translates_bad_parameter_to_install_error(
     mock_add_network: Mock,
     mock_save_compose: Mock,
     mock_run: Mock,
-    mock_exceptions_echo: Mock,
     default_install_kwargs: dict,
 ) -> None:
     """A caller outside Click (e.g. a future in-process suite install) sees a message-carrying
@@ -1615,8 +1787,6 @@ def test_install_util_translates_bad_parameter_to_install_error(
 
     with pytest.raises(InstallError, match="Invalid DF_NAME - cannot be empty"):
         install(**default_install_kwargs)
-
-    assert mock_exceptions_echo.error.call_args == mock.call("Invalid DF_NAME - cannot be empty")
 
 
 @mock.patch("deepfellow.infra.utils.install.run")
@@ -1753,6 +1923,36 @@ def test_apply_creates_docker_config_when_not_a_file(
 @mock.patch("deepfellow.infra.utils.install.save_env_file")
 @mock.patch("deepfellow.infra.utils.install.env_set")
 @mock.patch("deepfellow.infra.utils.install.echo")
+def test_apply_raises_exit_when_docker_config_write_fails(
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+    docker_config: Mock,
+) -> None:
+    docker_config.is_file.return_value = False
+    docker_config.write_text.side_effect = OSError("disk full")
+
+    with pytest.raises(typer.Exit):
+        apply(install_config)
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call("disk full")
+    assert mock_ensure_network.call_count == 0
+    assert mock_save_env.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.add_network_to_service")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.echo")
 def test_apply_does_not_create_docker_config_when_file_exists(
     mock_echo: Mock,
     mock_env_set: Mock,
@@ -1823,6 +2023,8 @@ def test_apply_writes_expected_env_values(
     assert infra_values["DF_MESH_KEY"] == install_config.mesh_key
     assert infra_values["DF_INFRA_API_KEY"] == install_config.api_key
     assert infra_values["DF_INFRA_ADMIN_API_KEY"] == install_config.admin_api_key
+    assert infra_values["DF_CONNECT_TO_MESH_URL"] == ""
+    assert infra_values["DF_CONNECT_TO_MESH_KEY"] == ""
     assert infra_values["DF_INFRA_DOCKER_SUBNET"] == install_config.docker_network
     assert infra_values["DF_INFRA_COMPOSE_PREFIX"] == install_config.compose_prefix
     assert infra_values["DF_INFRA_DOCKER_CONFIG"] == str(install_config.docker_config)
@@ -1992,7 +2194,36 @@ def test_apply_pulls_docker_image(
     apply(install_config)
 
     assert mock_run.call_count == 1
-    assert mock_run.call_args == mock.call(["docker", "compose", "pull"], install_config.directory, quiet=True)
+    assert mock_run.call_args == mock.call(["docker", "compose", "pull"], install_config.directory, raises=DockerError)
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.add_network_to_service")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_apply_raises_exit_when_docker_compose_pull_fails(
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    mock_run.side_effect = DockerError("pull access denied")
+
+    with pytest.raises(typer.Exit):
+        apply(install_config)
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call(
+        "Failed to pull docker image(s): pull access denied\nCheck registry access, credentials, and disk space."
+    )
+    assert mock_echo.success.call_count == 0
 
 
 @mock.patch("deepfellow.infra.utils.install.run")

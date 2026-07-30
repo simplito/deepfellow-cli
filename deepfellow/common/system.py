@@ -36,15 +36,19 @@ def run(
     Calls `subprocess.run` with a preset arguments.
 
     Raising exception logic:
-    - By default, `subprocess.CalledProcessError` is suppressed - `run` would return `None` if raised.
-    - If a custom exception is provided in `raises`, it will be raised.
-    - If `--debug` is used and `raises` is `None`, `subprocess.CalledProcessError` is reraised.
+    - A failure is either `subprocess.CalledProcessError` (command ran, exited non-zero) or an
+      `OSError` (command never started - missing executable, invalid `cwd`, permission denied).
+      Both are handled the same way.
+    - If a custom exception is provided in `raises`, it is raised for either failure mode.
+    - Otherwise, `--debug` reraises the original exception; without `--debug`, `run` exits with
+      code 1 after printing (for `CalledProcessError`) the filtered stderr, or (for `OSError`)
+      the error itself.
+    - `run` only returns `None` on success when the caller didn't capture output (no
+      `capture_output=True` / `stdout=...`) - a failure never produces a `None` return, it always
+      raises. Do not use `run(...) is None` to detect failure; use `raises=` and catch it instead.
 
     Sample usage:
     ```
-    if run(["some", "command"]) is None:
-        echo.error("some error")
-
     try:
         run(["some", "command"], raises=SomeError)
     except SomeError:
@@ -61,11 +65,11 @@ def run(
         kwargs: pass additional kwargs to subrocess.run
 
     Returns:
-        Process's `stdout` or `None` if error.
+        Process's `stdout`, or `None` if the caller didn't capture it.
 
     Raises:
         - Custom exception, if it is provided in the `raises` kwarg
-        - subprocess.CalledProcessError if in debug mode
+        - subprocess.CalledProcessError or OSError if in debug mode
     """
     cmd = command
     clean_env = os.environ.copy()
@@ -102,10 +106,15 @@ def run(
             if error_lines:
                 echo.error("\n".join(error_lines).strip())
         reraise_if_debug(exc_info)
+    except OSError as exc_info:
+        echo.debug(f"Failed to start command {command} {cwd=}: {exc_info}")
+        if raises is not None:
+            raise raises(str(exc_info)) from exc_info
+
+        echo.error(str(exc_info))
+        reraise_if_debug(exc_info)
     else:
         return process.stdout
-
-    return None
 
 
 def rmtree(path: Path) -> None:

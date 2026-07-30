@@ -40,6 +40,7 @@ def _dynamic_config_values(server: str | None, secret: bool) -> dict[str, str]:
     is resolvable without prompting (no login flow is triggered), or the request fails for any
     reason (server down, unreachable, expired token, a non-JSON or unexpected response, ...).
     """
+    config: dict[str, Any] = {}
     resolved_server = server or state.cli_config.get("df_server_url")
     secrets_file = state.cli_secrets_file
     token = read_env_file(secrets_file).get("DF_USER_TOKEN") if secrets_file.is_file() else None
@@ -55,7 +56,7 @@ def _dynamic_config_values(server: str | None, secret: bool) -> dict[str, str]:
             timeout=5.0,
         )
         response.raise_for_status()
-        config: dict[str, Any] = response.json()
+        config = response.json()
         _ensure_dict(config)
 
         if secret:

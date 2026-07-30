@@ -9,6 +9,7 @@
 
 """Tests for common/system.py."""
 
+import subprocess
 from pathlib import Path
 from unittest import mock
 from unittest.mock import Mock
@@ -17,7 +18,95 @@ import pytest
 import typer
 
 from deepfellow.common.state import state
-from deepfellow.common.system import rmtree
+from deepfellow.common.system import rmtree, run
+
+
+class _CustomError(Exception):
+    """Custom exception used to exercise the `raises=` kwarg."""
+
+
+@mock.patch("deepfellow.common.system.subprocess.run")
+def test_run_returns_stdout_on_success(mock_subprocess_run: Mock, directory: Path) -> None:
+    mock_subprocess_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="output")
+
+    result = run(["echo", "hi"], cwd=directory)
+
+    assert result == "output"
+
+
+@mock.patch("deepfellow.common.system.echo")
+@mock.patch("deepfellow.common.system.subprocess.run")
+def test_run_called_process_error_raises_custom_exception(
+    mock_subprocess_run: Mock, mock_echo: Mock, directory: Path
+) -> None:
+    mock_subprocess_run.side_effect = subprocess.CalledProcessError(1, ["cmd"], stderr="boom")
+
+    with pytest.raises(_CustomError, match="boom"):
+        run(["cmd"], cwd=directory, raises=_CustomError)
+
+    assert mock_echo.error.call_count == 0
+
+
+@mock.patch("deepfellow.common.system.echo")
+@mock.patch("deepfellow.common.system.subprocess.run")
+def test_run_called_process_error_without_raises_echoes_stderr_and_exits(
+    mock_subprocess_run: Mock, mock_echo: Mock, directory: Path
+) -> None:
+    mock_subprocess_run.side_effect = subprocess.CalledProcessError(1, ["cmd"], stderr="something failed")
+
+    with pytest.raises(typer.Exit):
+        run(["cmd"], cwd=directory)
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call("something failed")
+
+
+@mock.patch("deepfellow.common.system.echo")
+@mock.patch("deepfellow.common.system.subprocess.run")
+def test_run_called_process_error_in_debug_mode_reraises(
+    mock_subprocess_run: Mock, mock_echo: Mock, directory: Path
+) -> None:
+    exc = subprocess.CalledProcessError(1, ["cmd"], stderr="something failed")
+    mock_subprocess_run.side_effect = exc
+    state.debug = True
+
+    with pytest.raises(subprocess.CalledProcessError):
+        run(["cmd"], cwd=directory)
+
+
+@mock.patch("deepfellow.common.system.echo")
+@mock.patch("deepfellow.common.system.subprocess.run")
+def test_run_os_error_raises_custom_exception(mock_subprocess_run: Mock, mock_echo: Mock, directory: Path) -> None:
+    mock_subprocess_run.side_effect = FileNotFoundError(2, "No such file or directory")
+
+    with pytest.raises(_CustomError):
+        run(["docker", "compose", "pull"], cwd=directory, raises=_CustomError)
+
+    assert mock_echo.error.call_count == 0
+
+
+@mock.patch("deepfellow.common.system.echo")
+@mock.patch("deepfellow.common.system.subprocess.run")
+def test_run_os_error_without_raises_echoes_error_and_exits(
+    mock_subprocess_run: Mock, mock_echo: Mock, directory: Path
+) -> None:
+    mock_subprocess_run.side_effect = FileNotFoundError(2, "No such file or directory")
+
+    with pytest.raises(typer.Exit):
+        run(["docker", "compose", "pull"], cwd=directory)
+
+    assert mock_echo.error.call_count == 1
+
+
+@mock.patch("deepfellow.common.system.echo")
+@mock.patch("deepfellow.common.system.subprocess.run")
+def test_run_os_error_in_debug_mode_reraises(mock_subprocess_run: Mock, mock_echo: Mock, directory: Path) -> None:
+    exc = PermissionError(13, "Permission denied")
+    mock_subprocess_run.side_effect = exc
+    state.debug = True
+
+    with pytest.raises(PermissionError):
+        run(["docker", "compose", "pull"], cwd=directory)
 
 
 @mock.patch("deepfellow.common.system.shutil.rmtree")

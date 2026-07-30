@@ -59,6 +59,7 @@ def get_newest_image_tag(hub: str) -> str:
 
     token = _get_registry_token(registry, image_path)
     if not token:
+        echo.warning(f"Failed obtaining the token for {hub}, falling back to latest.")
         return f"{hub}:latest"
 
     try:

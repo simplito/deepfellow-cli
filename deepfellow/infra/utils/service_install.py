@@ -49,7 +49,12 @@ def _parse_set_args(set_args: list[str]) -> dict[str, str]:
 def _fetch_service_spec(server: str, api_key: str, name: str) -> list[dict[str, Any]]:
     """Fetch service spec fields from the API."""
     url = f"{server}/admin/services/{name}"
-    data = call_infra(lambda: get(url, api_key, item_name="Service spec", reraise=True), "Unable to fetch service spec")
+    data = call_infra(
+        lambda: get(url, api_key, item_name="Service spec", reraise=True),
+        "Unable to fetch service spec",
+        server=server,
+        api_key=api_key,
+    )
     return data.get("spec", {}).get("fields", [])
 
 
@@ -201,6 +206,9 @@ def install(
     data = call_infra(
         lambda: install_with_progress(url, api_key, data={"spec": spec_res}),
         "Unable to install service",
+        server=server,
+        api_key=api_key,
+        quiet=parsed_spec is None,
     )
 
     if data.get("status", "").lower() != "ok":
