@@ -37,6 +37,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Renamed the `--server` option to `--url` on all Server/Infra API-calling commands
   (`--server` was overloaded — it's also the Docker container name, and in `infra` it
   meant the Infra address, not the Server). **Breaking:** no alias — `--server` now errors.
+- Direct dependencies pinned at pre-1.0 versions (`httpx`, `deptry`, `ruff`) now use `~=` instead
+  of `>=`, so a future minor release can no longer be picked up silently; only patch updates are
+  allowed automatically. See `docs/adr/00001-pin-pre-1.0-dependencies.md`.
 
 ### Fixed
 - `deepfellow infra install` no longer creates the docker network before all setup questions have been answered; aborting the install partway through no longer leaves an orphaned docker network behind.
