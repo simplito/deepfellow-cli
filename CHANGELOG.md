@@ -50,6 +50,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `server install`/`server reconfigure` with a custom Milvus vector database now correctly keeps an explicitly-provided `--vectordb-username`/`--vectordb-password`, instead of silently overriding it with a stale value from an existing `.env` file.
 - `server install` no longer crashes with an unhandled `OSError` if creating the storage/plugins bind-mount directories fails (e.g. permission denied); it now shows a clear error message instead.
 - `deepfellow suite install` no longer crashes with a raw traceback when a step fails; failures now exit cleanly with a readable error message, matching `infra install`/`server install`.
+- `just check`'s `mypy`/`ruff` recipes now scan the same paths (`deepfellow/ tests/`) as the GitLab CI pipeline, so type and lint errors introduced only under `tests/` are caught locally instead of surfacing as CI-only failures.
 
 ## [0.8.0] - 2026-06-19
 
