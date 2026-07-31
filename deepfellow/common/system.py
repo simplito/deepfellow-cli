@@ -117,6 +117,10 @@ def run(
         return process.stdout
 
 
+class SudoRemoveError(Exception):
+    """Raised when ``sudo -n rm -rf`` fails to remove a directory tree."""
+
+
 def rmtree(path: Path) -> None:
     """Remove a directory tree, falling back to ``sudo rm -rf`` on PermissionError.
 
@@ -132,9 +136,11 @@ def rmtree(path: Path) -> None:
 
     echo.warning(f"Cannot remove {path.as_posix()}: permission denied (Docker-owned files).")
     if state.yes or echo.confirm("Retry with sudo?", default=True):
-        if run(["sudo", "-n", "rm", "-rf", path.as_posix()]) is None:
+        try:
+            run(["sudo", "-n", "rm", "-rf", path.as_posix()], raises=SudoRemoveError, quiet=True)
+        except SudoRemoveError:
             echo.error(f"sudo rm -rf failed. Remove manually: sudo rm -rf {path.as_posix()}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
     else:
         echo.error(f"Remove manually: sudo rm -rf {path.as_posix()}")
         raise typer.Exit(1)

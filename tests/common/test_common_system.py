@@ -18,7 +18,7 @@ import pytest
 import typer
 
 from deepfellow.common.state import state
-from deepfellow.common.system import rmtree, run
+from deepfellow.common.system import SudoRemoveError, rmtree, run
 
 
 class _CustomError(Exception):
@@ -134,7 +134,9 @@ def test_rmtree_permission_error_yes_flag_sudo_succeeds(
 
     assert mock_echo.confirm.call_count == 0
     assert mock_run.call_count == 1
-    assert mock_run.call_args == mock.call(["sudo", "-n", "rm", "-rf", directory.as_posix()])
+    assert mock_run.call_args == mock.call(
+        ["sudo", "-n", "rm", "-rf", directory.as_posix()], raises=SudoRemoveError, quiet=True
+    )
 
 
 @mock.patch("deepfellow.common.system.run")
@@ -154,7 +156,9 @@ def test_rmtree_permission_error_user_confirms_sudo_succeeds(
 
     assert mock_echo.confirm.call_count == 1
     assert mock_run.call_count == 1
-    assert mock_run.call_args == mock.call(["sudo", "-n", "rm", "-rf", directory.as_posix()])
+    assert mock_run.call_args == mock.call(
+        ["sudo", "-n", "rm", "-rf", directory.as_posix()], raises=SudoRemoveError, quiet=True
+    )
 
 
 @mock.patch("deepfellow.common.system.run")
@@ -168,7 +172,38 @@ def test_rmtree_permission_error_sudo_fails_raises_exit(
 ) -> None:
     mock_shutil_rmtree.side_effect = PermissionError
     mock_echo.confirm.return_value = True
-    mock_run.return_value = None
+    mock_run.side_effect = SudoRemoveError("sudo: interactive authentication is required")
+
+    with pytest.raises(typer.Exit):
+        rmtree(directory)
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call(
+        f"sudo rm -rf failed. Remove manually: sudo rm -rf {directory.as_posix()}"
+    )
+
+
+@mock.patch("deepfellow.common.system.echo")
+@mock.patch("deepfellow.common.system.subprocess.run")
+@mock.patch("deepfellow.common.system.shutil.rmtree")
+def test_rmtree_sudo_interactive_auth_required_raises_exit_with_remediation(
+    mock_shutil_rmtree: Mock,
+    mock_subprocess_run: Mock,
+    mock_echo: Mock,
+    directory: Path,
+) -> None:
+    """Regression test: exercises the real `run()`, not a mock of it.
+
+    Mocking `run()` directly (as the other rmtree tests do) hid a real bug where `rmtree()`
+    checked `run(...) is None` to detect failure - a contract `run()` never actually honors, since
+    it always raises on failure. That left the remediation message unreachable whenever `sudo -n`
+    failed for real (e.g. "sudo: interactive authentication is required").
+    """
+    mock_shutil_rmtree.side_effect = PermissionError
+    mock_echo.confirm.return_value = True
+    mock_subprocess_run.side_effect = subprocess.CalledProcessError(
+        1, ["sudo", "-n", "rm", "-rf"], stderr="sudo: interactive authentication is required\n"
+    )
 
     with pytest.raises(typer.Exit):
         rmtree(directory)
