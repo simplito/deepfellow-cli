@@ -18,7 +18,7 @@ import pytest
 import typer
 
 from deepfellow.common.state import state
-from deepfellow.server.env_command.set import _config_json_exists, _dynamic_field_name, set
+from deepfellow.server.env_command.set import _config_json_exists, _dynamic_field_name, _resolved_env_name, set
 
 
 @pytest.fixture
@@ -171,6 +171,33 @@ def test_dynamic_field_name_returns_none_when_port_missing(
     mock_is_service_running: Mock,
     directory: Path,
 ) -> None:
+    result = _dynamic_field_name(directory, "DF_OTEL_TRACING_ENABLED")
+
+    assert result is None
+
+
+def test_resolved_env_name_adds_prefix_when_missing() -> None:
+    result = _resolved_env_name("some_var", True)
+
+    assert result == "DF_SOME_VAR"
+
+
+def test_resolved_env_name_keeps_prefix_when_already_present() -> None:
+    result = _resolved_env_name("DF_SOME_VAR", True)
+
+    assert result == "DF_SOME_VAR"
+
+
+@mock.patch("deepfellow.server.env_command.set.is_service_running", return_value=True)
+def test_dynamic_field_name_returns_none_when_token_key_missing(
+    mock_is_service_running: Mock,
+    directory: Path,
+) -> None:
+    (directory / ".env").write_text("DF_SERVER_PORT=8000\n")
+    secrets_file = directory / "secrets"
+    secrets_file.write_text("SOME_OTHER_KEY=abc\n")
+    state.cli_secrets_file = secrets_file
+
     result = _dynamic_field_name(directory, "DF_OTEL_TRACING_ENABLED")
 
     assert result is None

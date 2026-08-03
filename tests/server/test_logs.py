@@ -1,0 +1,67 @@
+# DeepFellow Software Framework.
+# Copyright © 2026 Simplito sp. z o.o.
+#
+# This file is part of the DeepFellow Software Framework (https://deepfellow.ai).
+# This software is Licensed under the DeepFellow Free License.
+#
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from pathlib import Path
+from unittest import mock
+
+from deepfellow.server.logs import logs
+
+
+@mock.patch("deepfellow.server.logs.run")
+@mock.patch("deepfellow.server.logs.echo.info")
+def test_logs_runs_docker_compose_logs_with_default_tail(
+    mock_info: mock.MagicMock,
+    mock_run: mock.MagicMock,
+    directory: Path,
+) -> None:
+    logs(directory=directory, follow=False, tail=20)
+
+    assert mock_info.call_count == 1
+    assert mock_info.call_args == mock.call("Showing DeepFellow Server logs")
+    assert mock_run.call_count == 1
+    assert mock_run.call_args == mock.call(["docker", "compose", "logs", "server", "--tail", "20"], cwd=directory)
+
+
+@mock.patch("deepfellow.server.logs.run")
+@mock.patch("deepfellow.server.logs.echo.info")
+def test_logs_appends_follow_flag_when_follow_is_true(
+    mock_info: mock.MagicMock,
+    mock_run: mock.MagicMock,
+    directory: Path,
+) -> None:
+    logs(directory=directory, follow=True, tail=20)
+
+    assert mock_run.call_count == 1
+    assert mock_run.call_args == mock.call(["docker", "compose", "logs", "server", "-f", "--tail", "20"], cwd=directory)
+
+
+@mock.patch("deepfellow.server.logs.run")
+@mock.patch("deepfellow.server.logs.echo.info")
+def test_logs_omits_follow_flag_when_follow_is_false(
+    mock_info: mock.MagicMock,
+    mock_run: mock.MagicMock,
+    directory: Path,
+) -> None:
+    logs(directory=directory, follow=False, tail=50)
+
+    assert mock_run.call_count == 1
+    assert mock_run.call_args == mock.call(["docker", "compose", "logs", "server", "--tail", "50"], cwd=directory)
+
+
+@mock.patch("deepfellow.server.logs.run")
+@mock.patch("deepfellow.server.logs.echo.info")
+def test_logs_omits_tail_flag_when_tail_is_none(
+    mock_info: mock.MagicMock,
+    mock_run: mock.MagicMock,
+    directory: Path,
+) -> None:
+    logs(directory=directory, follow=False, tail=None)
+
+    assert mock_run.call_count == 1
+    assert mock_run.call_args == mock.call(["docker", "compose", "logs", "server"], cwd=directory)

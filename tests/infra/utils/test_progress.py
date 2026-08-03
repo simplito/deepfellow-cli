@@ -188,3 +188,103 @@ def test_install_with_progress_raises_http_status_error_on_client_error(
         install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
 
     assert response.read.call_count == 1
+
+
+@mock.patch("deepfellow.infra.utils.progress.Progress")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=True)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_returns_default_finish_when_stream_ends_without_finish_event(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_progress: Mock,
+) -> None:
+    response = _stream_response(lines=[])
+    mock_stream.return_value.__enter__.return_value = response
+
+    result = install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert result == {"type": "finish", "status": "error"}
+
+
+@mock.patch("deepfellow.infra.utils.progress.Progress")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=True)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_ignores_unknown_event_type_when_interactive(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_progress: Mock,
+) -> None:
+    response = _stream_response(
+        lines=_sse_lines(
+            {"type": "unknown"},
+            {"type": "finish", "status": "ok"},
+        )
+    )
+    mock_stream.return_value.__enter__.return_value = response
+
+    result = install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert result == {"type": "finish", "status": "ok"}
+
+
+@mock.patch("deepfellow.infra.utils.progress.echo")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=False)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_returns_default_finish_when_stream_ends_without_finish_event_non_interactive(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_echo: Mock,
+) -> None:
+    response = _stream_response(lines=[])
+    mock_stream.return_value.__enter__.return_value = response
+
+    result = install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert result == {"type": "finish", "status": "error"}
+    assert mock_echo.info.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.progress.echo")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=False)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_skips_progress_log_below_step_threshold_when_non_interactive(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_echo: Mock,
+) -> None:
+    response = _stream_response(
+        lines=_sse_lines(
+            {"type": "progress", "stage": "download", "value": 0.5},
+            {"type": "progress", "stage": "download", "value": 0.55},
+            {"type": "finish", "status": "ok"},
+        )
+    )
+    mock_stream.return_value.__enter__.return_value = response
+
+    result = install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert result == {"type": "finish", "status": "ok"}
+    assert mock_echo.info.call_count == 1
+    assert mock_echo.info.call_args == mock.call("download: 50%")
+
+
+@mock.patch("deepfellow.infra.utils.progress.echo")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=False)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_ignores_unknown_event_type_when_non_interactive(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_echo: Mock,
+) -> None:
+    response = _stream_response(
+        lines=_sse_lines(
+            {"type": "unknown"},
+            {"type": "finish", "status": "ok"},
+        )
+    )
+    mock_stream.return_value.__enter__.return_value = response
+
+    result = install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert result == {"type": "finish", "status": "ok"}
+    assert mock_echo.info.call_count == 0

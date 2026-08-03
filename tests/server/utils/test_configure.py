@@ -9,6 +9,7 @@
 
 """Tests for configure_otel, configure_embedding, configure_infra and configure_milvus_specific_fields."""
 
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -18,7 +19,12 @@ from deepfellow.common.defaults import (
     DEFAULT_OTEL_URL,
     DEFAULT_VECTOR_DATABASE,
     DF_INFRA_URL,
+    DF_MONGO_DB,
+    DF_MONGO_URL,
     DOCKER_COMPOSE_OTEL_COLLECTOR,
+    MILVUS_DATABASE,
+    MONGO_DB_INIT_SH,
+    QDRANT_DATABASE,
     SPARSE_EMBEDDING_MODEL,
     SPARSE_EMBEDDING_SIZE,
 )
@@ -27,7 +33,11 @@ from deepfellow.server.utils.configure import (
     configure_embedding,
     configure_infra,
     configure_milvus_specific_fields,
+    configure_mongo,
     configure_otel,
+    configure_vector_db,
+    is_custom_vectordb,
+    should_use_vector_db,
 )
 
 
@@ -366,3 +376,367 @@ def test_configure_milvus_specific_fields_explicit_username_not_overridden_by_en
         default="stale-env-password",
         password=True,
     )
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_should_use_vector_db_false_when_disabled_and_not_default(mock_echo):
+    default_active = DEFAULT_VECTOR_DATABASE["provider"]["active"]
+
+    result = should_use_vector_db(0 if default_active else 1)
+
+    assert result is False
+    assert mock_echo.warning.call_count == 1
+    assert mock_echo.confirm.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_should_use_vector_db_false_when_user_declines(mock_echo):
+    mock_echo.confirm.return_value = False
+    default_active = DEFAULT_VECTOR_DATABASE["provider"]["active"]
+
+    result = should_use_vector_db(default_active)
+
+    assert result is False
+    assert mock_echo.warning.call_count == 1
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_should_use_vector_db_true_when_user_confirms(mock_echo):
+    mock_echo.confirm.return_value = True
+    default_active = DEFAULT_VECTOR_DATABASE["provider"]["active"]
+
+    result = should_use_vector_db(default_active)
+
+    assert result is True
+    assert mock_echo.warning.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_is_custom_vectordb_true_when_qdrant_url_changed(mock_echo):
+    result = is_custom_vectordb("qdrant", "http://custom-qdrant:6333", "")
+
+    assert result is True
+    assert mock_echo.confirm.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_is_custom_vectordb_true_when_milvus_db_name_changed(mock_echo):
+    result = is_custom_vectordb(
+        "milvus",
+        MILVUS_DATABASE["provider"]["url"],
+        "custom-db-name",
+    )
+
+    assert result is True
+    assert mock_echo.confirm.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_is_custom_vectordb_false_when_defaults_and_local_confirmed(mock_echo):
+    mock_echo.confirm.return_value = True
+
+    result = is_custom_vectordb(
+        "qdrant",
+        QDRANT_DATABASE["provider"]["url"],
+        "",
+    )
+
+    assert result is False
+    assert mock_echo.confirm.call_args == mock.call(
+        "Install a local vector database for DeepFellow Server?", default=True
+    )
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_is_custom_vectordb_true_when_defaults_and_local_declined(mock_echo):
+    mock_echo.confirm.return_value = False
+
+    result = is_custom_vectordb(
+        "milvus",
+        MILVUS_DATABASE["provider"]["url"],
+        MILVUS_DATABASE["provider"]["db"],
+    )
+
+    assert result is True
+
+
+@mock.patch("deepfellow.server.utils.configure.should_use_vector_db", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_vector_db_returns_inactive_env_when_declined(mock_echo, mock_should_use_vector_db):
+    active, env = configure_vector_db(
+        "http://infra:8086",
+        {},
+        0,
+        "qdrant",
+        "http://qdrant:6333",
+        "",
+        "",
+        "",
+        "",
+        "",
+        False,
+        "qdrant",
+    )
+
+    assert active is False
+    assert env == {
+        "DF_VECTOR_DATABASE__PROVIDER__ACTIVE": "0",
+        "DF_VECTOR_DATABASE__EMBEDDING__ACTIVE": "0",
+    }
+    assert mock_should_use_vector_db.call_count == 1
+
+
+@mock.patch("deepfellow.server.utils.configure.is_custom_vectordb", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.should_use_vector_db", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_vector_db_managed_qdrant_generates_credentials(mock_echo, mock_should_use_vector_db, mock_is_custom):
+    mock_echo.choice.return_value = "qdrant"
+
+    active, env = configure_vector_db(
+        "http://infra:8086",
+        {},
+        1,
+        "qdrant",
+        "http://qdrant:6333",
+        "",
+        "",
+        "",
+        "",
+        "",
+        True,
+        "qdrant",
+    )
+
+    assert active is False
+    assert env["DF_VECTOR_DATABASE__PROVIDER__TYPE"] == "qdrant"
+    assert env["DF_VECTOR_DATABASE__PROVIDER__USER"]
+    assert env["DF_VECTOR_DATABASE__PROVIDER__PASSWORD"]
+    assert env["DF_VECTOR_DATABASE__EMBEDDING__MODEL"] == SPARSE_EMBEDDING_MODEL
+
+
+@mock.patch("deepfellow.server.utils.configure.is_custom_vectordb", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.should_use_vector_db", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_vector_db_custom_qdrant_prompts_for_url(mock_echo, mock_should_use_vector_db, mock_is_custom):
+    mock_echo.choice.return_value = "qdrant"
+    mock_echo.prompt_until_valid.return_value = "http://custom-qdrant:6333"
+
+    active, env = configure_vector_db(
+        "http://infra:8086",
+        {},
+        1,
+        "qdrant",
+        "http://custom-qdrant:6333",
+        "",
+        "",
+        "",
+        "",
+        "",
+        True,
+        "qdrant",
+    )
+
+    assert active is True
+    assert env["DF_VECTOR_DATABASE__PROVIDER__URL"] == "http://custom-qdrant:6333"
+    assert env["DF_VECTOR_DATABASE__PROVIDER__TYPE"] == "qdrant"
+
+
+@mock.patch("deepfellow.server.utils.configure.configure_milvus_specific_fields")
+@mock.patch("deepfellow.server.utils.configure.is_custom_vectordb", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.should_use_vector_db", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_vector_db_custom_milvus_merges_specific_fields(
+    mock_echo, mock_should_use_vector_db, mock_is_custom, mock_configure_milvus_specific_fields
+):
+    mock_echo.choice.return_value = "milvus"
+    mock_echo.prompt_until_valid.return_value = "http://milvus:19530"
+    mock_configure_milvus_specific_fields.return_value = {
+        "db": "deepfellow-db",
+        "user": "milvus-user",
+        "password": "milvus-password",
+    }
+
+    active, env = configure_vector_db(
+        "http://infra:8086",
+        {},
+        1,
+        "milvus",
+        "http://milvus:19530",
+        "deepfellow",
+        "",
+        "",
+        "",
+        "",
+        True,
+        "milvus",
+    )
+
+    assert active is True
+    assert env["DF_VECTOR_DATABASE__PROVIDER__DB"] == "deepfellow-db"
+    assert env["DF_VECTOR_DATABASE__PROVIDER__USER"] == "milvus-user"
+    assert env["DF_VECTOR_DATABASE__PROVIDER__PASSWORD"] == "milvus-password"
+    assert mock_configure_milvus_specific_fields.call_count == 1
+
+
+@mock.patch("deepfellow.server.utils.configure.is_custom_vectordb", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.should_use_vector_db", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_vector_db_managed_switches_default_url_on_type_change(
+    mock_echo, mock_should_use_vector_db, mock_is_custom
+):
+    mock_echo.choice.return_value = "milvus"
+
+    active, env = configure_vector_db(
+        "http://infra:8086",
+        {},
+        1,
+        "qdrant",
+        DEFAULT_VECTOR_DATABASE["provider"]["url"],
+        "",
+        "",
+        "",
+        "",
+        "",
+        True,
+        "milvus",
+    )
+
+    assert active is False
+    assert env["DF_VECTOR_DATABASE__PROVIDER__URL"] == MILVUS_DATABASE["provider"]["url"]
+    assert mock_is_custom.call_args == mock.call("milvus", MILVUS_DATABASE["provider"]["url"], "")
+
+
+@mock.patch("deepfellow.server.utils.configure.is_custom_vectordb", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.should_use_vector_db", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_vector_db_managed_generates_only_missing_password(
+    mock_echo, mock_should_use_vector_db, mock_is_custom
+):
+    mock_echo.choice.return_value = "qdrant"
+
+    active, env = configure_vector_db(
+        "http://infra:8086",
+        {},
+        1,
+        "qdrant",
+        "http://qdrant:6333",
+        "",
+        "given-user",
+        "",
+        "",
+        "",
+        True,
+        "qdrant",
+    )
+
+    assert active is False
+    assert "DF_VECTOR_DATABASE__PROVIDER__USER" not in env
+    assert env["DF_VECTOR_DATABASE__PROVIDER__PASSWORD"]
+
+
+@mock.patch("deepfellow.server.utils.configure.is_custom_vectordb", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.should_use_vector_db", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_vector_db_managed_generates_only_missing_username(
+    mock_echo, mock_should_use_vector_db, mock_is_custom
+):
+    mock_echo.choice.return_value = "qdrant"
+
+    active, env = configure_vector_db(
+        "http://infra:8086",
+        {},
+        1,
+        "qdrant",
+        "http://qdrant:6333",
+        "",
+        "",
+        "given-password",
+        "",
+        "",
+        True,
+        "qdrant",
+    )
+
+    assert active is False
+    assert env["DF_VECTOR_DATABASE__PROVIDER__USER"]
+    assert "DF_VECTOR_DATABASE__PROVIDER__PASSWORD" not in env
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_infra_retries_after_invalid_url(mock_echo):
+    mock_echo.prompt.side_effect = [typer.BadParameter("bad url"), "http://infra:8086"]
+    mock_echo.prompt_until_valid.return_value = "secret-key"
+
+    result = configure_infra("secret-key", "not-a-url", None)
+
+    assert result == {"DF_INFRA__URL": "http://infra:8086", "DF_INFRA__API_KEY": "secret-key"}
+    assert mock_echo.prompt.call_count == 2
+    assert mock_echo.error.call_count == 1
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_mongo_custom_prompts_all_fields(mock_echo, tmp_directory: Path):
+    mock_echo.prompt_until_valid.side_effect = [
+        "192.168.1.5:27017",
+        "custom-db",
+        "custom-user",
+        "custom-password",
+    ]
+
+    result = configure_mongo(tmp_directory, True, "custom-user", "custom-password")
+
+    assert result == {
+        "DF_MONGO_URL": "192.168.1.5:27017",
+        "DF_MONGO_USER": "custom-user",
+        "DF_MONGO_PASSWORD": "custom-password",
+        "DF_MONGO_DB": "custom-db",
+    }
+    assert mock_echo.prompt_until_valid.call_count == 4
+    assert not (tmp_directory / "init-mongo.sh").exists()
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_mongo_default_generates_missing_credentials_and_writes_init_script(mock_echo, tmp_directory: Path):
+    result = configure_mongo(tmp_directory, False, "", "")
+
+    assert result["DF_MONGO_URL"] == DF_MONGO_URL
+    assert result["DF_MONGO_DB"] == DF_MONGO_DB
+    assert result["DF_MONGO_USER"]
+    assert result["DF_MONGO_PASSWORD"]
+    assert result["DF_MONGO_INITDB_ROOT_USERNAME"]
+    assert result["DF_MONGO_INITDB_ROOT_PASSWORD"]
+    assert result["DF_MONGO_PORT"] == "27017"
+    init_script = tmp_directory / "init-mongo.sh"
+    assert init_script.read_text() == MONGO_DB_INIT_SH
+    assert (init_script.stat().st_mode & 0o777) == 0o755
+    assert mock_echo.info.call_count == 1
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_mongo_default_preserves_provided_user_and_password(mock_echo, tmp_directory: Path):
+    result = configure_mongo(tmp_directory, False, "given-user", "given-password")
+
+    assert result["DF_MONGO_USER"] == "given-user"
+    assert result["DF_MONGO_PASSWORD"] == "given-password"
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_mongo_default_reuses_existing_admin_credentials(mock_echo, tmp_directory: Path):
+    original_env = {
+        "df_mongo_initdb_root_username": "existing-admin",
+        "df_mongo_initdb_root_password": "existing-admin-password",
+    }
+
+    result = configure_mongo(tmp_directory, False, "", "", original_env=original_env)
+
+    assert result["DF_MONGO_INITDB_ROOT_USERNAME"] == "existing-admin"
+    assert result["DF_MONGO_INITDB_ROOT_PASSWORD"] == "existing-admin-password"
+
+
+@mock.patch.object(Path, "write_text", side_effect=OSError("Permission denied"))
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_mongo_default_raises_on_write_error(mock_echo, mock_write_text, tmp_directory: Path):
+    with pytest.raises(typer.Exit):
+        configure_mongo(tmp_directory, False, "", "")
+
+    assert mock_echo.error.call_count == 1

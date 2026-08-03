@@ -431,7 +431,7 @@ def test_is_json_object_rejects_deeply_nested_json_without_crashing():
     assert _is_json_object(deeply_nested) is False
 
 
-def test_expose_ports_to_host_adds_ports_from_expose_when_missing():
+def test_expose_ports_to_host_adds_ports_from_expose_when_missing() -> None:
     services: dict[str, Any] = {"otel-collector": {"expose": [4317, 4318]}}
 
     expose_ports_to_host(services)
@@ -439,7 +439,7 @@ def test_expose_ports_to_host_adds_ports_from_expose_when_missing():
     assert services["otel-collector"]["ports"] == ["4317:4317", "4318:4318"]
 
 
-def test_expose_ports_to_host_leaves_existing_ports_unchanged_when_both_present():
+def test_expose_ports_to_host_leaves_existing_ports_unchanged_when_both_present() -> None:
     services: dict[str, Any] = {"otel-collector": {"expose": [4317], "ports": ["4318:4318"]}}
 
     expose_ports_to_host(services)
@@ -1093,6 +1093,37 @@ def test_apply_creates_plugins_directory_and_mounts_volume(
     volumes = compose_dict["services"]["server"]["volumes"]
     assert f"{DF_SERVER_STORAGE_DIRECTORY}:/app/storage" in volumes
     assert f"{plugins_directory.as_posix()}:/app/plugins" in volumes
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+def test_apply_exits_when_plugins_directory_mkdir_fails(
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    plugins_directory = install_config.directory / "plugins"
+    original_mkdir = Path.mkdir
+
+    def fake_mkdir(self: Path, *args: Any, **kwargs: Any) -> None:
+        if self == plugins_directory:
+            raise OSError("Permission denied")
+        original_mkdir(self, *args, **kwargs)
+
+    with mock.patch.object(Path, "mkdir", autospec=True, side_effect=fake_mkdir), pytest.raises(typer.Exit):
+        apply(install_config)
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call(f"Unable to create {plugins_directory}: Permission denied.")
+    assert mock_save_compose.call_count == 0
 
 
 @mock.patch("deepfellow.server.utils.install.run")

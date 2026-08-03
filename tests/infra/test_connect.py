@@ -22,6 +22,7 @@ from deepfellow.infra.connect import (
     _verify_parent_connection,
     _VerifyResult,
     connect,
+    http_to_ws_converter,
 )
 
 
@@ -236,6 +237,14 @@ def test_is_localhost_url_returns_false_on_exception(mock_urlparse: Mock) -> Non
     mock_urlparse.side_effect = Exception("parse error")
 
     assert _is_localhost_url("not-a-url") is False
+
+
+def test_http_to_ws_converter_leaves_non_http_scheme_unchanged() -> None:
+    url = "ws://parent-infra:8086"
+
+    result = http_to_ws_converter(url)
+
+    assert result == url
 
 
 @mock.patch("deepfellow.infra.connect.run")

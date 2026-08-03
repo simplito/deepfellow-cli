@@ -184,3 +184,28 @@ def test_infra_admin_request_malformed_success_body_does_not_crash(mock_request:
         infra_admin_request("GET", f"{SERVER}/admin/config", SERVER, "the-key")
 
     assert mock_persist.call_count == 1
+
+
+@mock.patch("deepfellow.infra.utils.admin.persist_infra_admin")
+@mock.patch("deepfellow.infra.utils.admin.httpx.request")
+def test_infra_admin_request_http_error_raises_exit(mock_request: Mock, mock_persist: Mock) -> None:
+    mock_request.side_effect = httpx.HTTPError("TEST")
+
+    with pytest.raises(typer.Exit):
+        infra_admin_request("GET", f"{SERVER}/admin/config", SERVER, "the-key")
+
+    assert mock_persist.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.admin.persist_infra_admin")
+@mock.patch("deepfellow.infra.utils.admin.httpx.request")
+def test_infra_admin_request_error_body_not_json_falls_back_to_text(mock_request: Mock, mock_persist: Mock) -> None:
+    response = Mock(status_code=500)
+    response.json.side_effect = ValueError("not JSON")
+    response.text = "raw text fallback"
+    mock_request.return_value = response
+
+    with pytest.raises(typer.Exit):
+        infra_admin_request("GET", f"{SERVER}/admin/config", SERVER, "the-key")
+
+    assert mock_persist.call_count == 0

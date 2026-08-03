@@ -17,12 +17,26 @@ import httpx
 import pytest
 import typer
 
-from deepfellow.infra.env_command.set import _config_json_exists, _dynamic_field_name, set
+from deepfellow.infra.env_command.set import _config_json_exists, _dynamic_field_name, _resolved_env_name, set
 
 
 @pytest.fixture
 def directory(tmp_path: Path) -> Path:
     return tmp_path
+
+
+@pytest.mark.parametrize(
+    ("env_name", "df_prefix", "expected"),
+    [
+        ("some_var", True, "DF_SOME_VAR"),
+        ("DF_SOME_VAR", True, "DF_SOME_VAR"),
+        ("some_var", False, "SOME_VAR"),
+    ],
+)
+def test_resolved_env_name_applies_df_prefix(env_name: str, df_prefix: bool, expected: str) -> None:
+    result = _resolved_env_name(env_name, df_prefix)
+
+    assert result == expected
 
 
 @mock.patch("deepfellow.infra.env_command.set.is_service_running", return_value=False)

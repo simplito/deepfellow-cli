@@ -28,8 +28,8 @@ app = typer.Typer()
 @app.command()
 def ssl_on(
     directory: Path = directory_option(exists=True),
-    ssl_key_path: str = typer.Argument(None, help="Path to the SSL key path."),
-    ssl_cert_path: str = typer.Argument(None, help="Path to the SSL certificate path."),
+    ssl_key_path: str | None = typer.Argument(None, help="Path to the SSL key path."),
+    ssl_cert_path: str | None = typer.Argument(None, help="Path to the SSL certificate path."),
     port: int | None = typer.Option(None, help="Port to serve the SSL server from."),
     server: str | None = typer.Option(
         None, "--url", help="New SSL DeepFellow Server address.", callback=validate_server

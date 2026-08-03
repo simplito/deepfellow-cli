@@ -40,6 +40,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Direct dependencies pinned at pre-1.0 versions (`httpx`, `deptry`, `ruff`) now use `~=` instead
   of `>=`, so a future minor release can no longer be picked up silently; only patch updates are
   allowed automatically. See `docs/adr/00001-pin-pre-1.0-dependencies.md`.
+- `just test` now fails the build if total test coverage drops below 100%, instead of silently
+  allowing untested code to ship.
 
 ### Fixed
 - `deepfellow infra install` no longer creates the docker network before all setup questions have been answered; aborting the install partway through no longer leaves an orphaned docker network behind.

@@ -76,6 +76,23 @@ def test_logs_uses_custom_tail(
 @mock.patch("deepfellow.otel.logs.run")
 @mock.patch("deepfellow.otel.logs.echo")
 @mock.patch("deepfellow.otel.logs.is_service_running", return_value=True)
+@mock.patch("deepfellow.otel.logs.Path.exists", return_value=True)
+def test_logs_omits_tail_flag_when_tail_is_none(
+    mock_exists: mock.MagicMock,
+    mock_is_service_running: mock.MagicMock,
+    mock_echo: mock.MagicMock,
+    mock_run: mock.MagicMock,
+    directory: Path,
+):
+    logs(directory=directory, follow=False, tail=None)
+
+    assert mock_run.call_count == 1
+    assert mock_run.call_args == mock.call(["docker", "compose", "logs", "otel-collector"], cwd=directory)
+
+
+@mock.patch("deepfellow.otel.logs.run")
+@mock.patch("deepfellow.otel.logs.echo")
+@mock.patch("deepfellow.otel.logs.is_service_running", return_value=True)
 @mock.patch("deepfellow.otel.logs.Path.exists", return_value=False)
 def test_logs_exits_when_collector_not_installed(
     mock_exists: mock.MagicMock,

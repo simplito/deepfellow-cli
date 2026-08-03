@@ -18,7 +18,7 @@ import pytest
 import typer
 
 from deepfellow.common.state import state
-from deepfellow.common.system import SudoRemoveError, rmtree, run
+from deepfellow.common.system import SudoRemoveError, check_service_directory, is_command_available, rmtree, run
 
 
 class _CustomError(Exception):
@@ -107,6 +107,84 @@ def test_run_os_error_in_debug_mode_reraises(mock_subprocess_run: Mock, mock_ech
 
     with pytest.raises(PermissionError):
         run(["docker", "compose", "pull"], cwd=directory)
+
+
+def test_run_quiet_and_capture_output_raises_system_error(directory: Path) -> None:
+    with pytest.raises(SystemError, match="ERROR: If quiet then not capture_output"):
+        run(["cmd"], cwd=directory, quiet=True, capture_output=True)
+
+
+@mock.patch("deepfellow.common.system.subprocess.run")
+def test_run_quiet_sets_devnull_stdout_and_pipe_stderr(mock_subprocess_run: Mock, directory: Path) -> None:
+    mock_subprocess_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout=None)
+
+    run(["cmd"], cwd=directory, quiet=True)
+
+    assert mock_subprocess_run.call_count == 1
+    assert mock_subprocess_run.call_args.kwargs["stdout"] == subprocess.DEVNULL
+    assert mock_subprocess_run.call_args.kwargs["stderr"] == subprocess.PIPE
+
+
+@mock.patch("deepfellow.common.system.echo")
+@mock.patch("deepfellow.common.system.subprocess.run")
+def test_run_called_process_error_with_empty_stderr_skips_echo_error(
+    mock_subprocess_run: Mock, mock_echo: Mock, directory: Path
+) -> None:
+    mock_subprocess_run.side_effect = subprocess.CalledProcessError(1, ["cmd"], stderr="")
+
+    with pytest.raises(typer.Exit):
+        run(["cmd"], cwd=directory)
+
+    assert mock_echo.error.call_count == 0
+
+
+@mock.patch("deepfellow.common.system.echo")
+@mock.patch("deepfellow.common.system.subprocess.run")
+def test_run_called_process_error_with_only_warning_lines_skips_echo_error(
+    mock_subprocess_run: Mock, mock_echo: Mock, directory: Path
+) -> None:
+    mock_subprocess_run.side_effect = subprocess.CalledProcessError(
+        1, ["cmd"], stderr="level=warning: careful\nlevel=info: fyi"
+    )
+
+    with pytest.raises(typer.Exit):
+        run(["cmd"], cwd=directory)
+
+    assert mock_echo.error.call_count == 0
+
+
+@mock.patch("deepfellow.common.system.shutil.which")
+def test_is_command_available_returns_true_when_found(mock_which: Mock) -> None:
+    mock_which.return_value = "/usr/bin/docker"
+
+    result = is_command_available("docker")
+
+    assert result is True
+    assert mock_which.call_args == mock.call("docker")
+
+
+@mock.patch("deepfellow.common.system.shutil.which")
+def test_is_command_available_returns_false_when_not_found(mock_which: Mock) -> None:
+    mock_which.return_value = None
+
+    result = is_command_available("nonexistent")
+
+    assert result is False
+
+
+def test_check_service_directory_does_nothing_when_directory_exists(tmp_path: Path) -> None:
+    check_service_directory(tmp_path, "infra")
+
+
+@mock.patch("deepfellow.common.system.echo")
+def test_check_service_directory_raises_exit_when_directory_missing(mock_echo: Mock, tmp_path: Path) -> None:
+    missing = tmp_path / "missing"
+
+    with pytest.raises(typer.Exit):
+        check_service_directory(missing, "infra")
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call("Create Deepfellow infra first.")
 
 
 @mock.patch("deepfellow.common.system.shutil.rmtree")

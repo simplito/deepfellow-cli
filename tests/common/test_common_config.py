@@ -106,7 +106,7 @@ def test_dict_to_env_mixed_nested_and_flat():
     assert result == expected
 
 
-def test_dict_to_env_empty_dict():
+def test_dict_to_env_empty_dict() -> None:
     data: dict[str, Any] = {}
 
     result = dict_to_env(data)
@@ -115,7 +115,7 @@ def test_dict_to_env_empty_dict():
     assert result == expected
 
 
-def test_dict_to_env_nested_empty_dict():
+def test_dict_to_env_nested_empty_dict() -> None:
     data = {"parent": {}}
 
     result = dict_to_env(data)
@@ -273,7 +273,7 @@ def test_env_to_dict_mixed_types():
     assert result == expected
 
 
-def test_env_to_dict_empty_env_vars():
+def test_env_to_dict_empty_env_vars() -> None:
     env_vars: dict[str, str] = {}
 
     result = env_to_dict(env_vars)
@@ -282,7 +282,7 @@ def test_env_to_dict_empty_env_vars():
     assert result == expected
 
 
-def test_env_to_dict_no_matching_prefix():
+def test_env_to_dict_no_matching_prefix() -> None:
     env_vars = {"OTHER_KEY": "value"}
 
     result = env_to_dict(env_vars, prefix="DF_")

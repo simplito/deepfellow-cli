@@ -502,3 +502,69 @@ def test_is_interactive_returns_false_when_non_interactive_true():
     state.non_interactive = True
 
     assert is_interactive() is False
+
+
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_debug_prints_formatted_message_when_enabled_and_interactive(mock_interactive, prompter):
+    """debug() prints a tab-indented, emoji-prefixed message when state.debug is True and interactive."""
+    state.debug = True
+
+    with patch.object(prompter, "print") as mock_print:
+        prompter.debug("debug message")
+
+    assert mock_print.call_count == 1
+    assert "debug message" in mock_print.call_args.args[0]
+
+
+@patch(_IS_INTERACTIVE, return_value=False)
+def test_debug_prints_plain_message_when_enabled_and_non_interactive(mock_interactive, prompter):
+    """debug() prints the raw message when state.debug is True and non-interactive."""
+    state.debug = True
+
+    with patch.object(prompter, "print") as mock_print:
+        prompter.debug("debug message")
+
+    assert mock_print.call_count == 1
+    assert mock_print.call_args.args[0] == "debug message"
+
+
+def test_debug_does_not_print_when_disabled(prompter):
+    """debug() does nothing when state.debug is False."""
+    state.debug = False
+
+    with patch.object(prompter, "print") as mock_print:
+        prompter.debug("debug message")
+
+    assert mock_print.call_count == 0
+
+
+@patch("deepfellow.common.echo.Prompt.ask", return_value="7")
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_prompt_int_default_converted_to_string(mock_interactive, mock_ask, prompter):
+    """Integer defaults are converted to strings before being passed to Prompt.ask."""
+    prompter.prompt(
+        message="Enter number",
+        from_args=None,
+        original_default=None,
+        default=5,
+    )
+
+    call_kwargs = mock_ask.call_args.kwargs
+    assert call_kwargs.get("default") == "5"
+
+
+@patch("deepfellow.common.echo.Prompt.ask", return_value="bad")
+@patch(_IS_INTERACTIVE)
+def test_prompt_until_valid_reraises_when_not_interactive_on_retry_check(mock_interactive, mock_ask, prompter):
+    """If mode is reported non-interactive at the retry check, a validation error is re-raised, not retried."""
+    mock_interactive.side_effect = [True, False]
+    validation = MagicMock(side_effect=typer.BadParameter("invalid"))
+
+    with pytest.raises(typer.BadParameter):
+        prompter.prompt_until_valid(
+            message="Enter value",
+            validation=validation,
+            from_args=None,
+            original_default=None,
+            default="default_val",
+        )

@@ -7,13 +7,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
 from unittest import mock
 from unittest.mock import Mock
 
 import pytest
 import typer
 
-from deepfellow.common.install import assert_docker
+from deepfellow.common.install import assert_docker, ensure_directory
 
 
 @mock.patch("deepfellow.common.install.echo")
@@ -58,3 +59,91 @@ def test_assert_docker_unable_to_run(
 
     assert mock_echo.error.call_count == 1
     assert mock_echo.error.call_args == mock.call("Unable to run docker command.")
+
+
+@mock.patch("deepfellow.common.install.echo")
+@mock.patch("deepfellow.common.install.is_docker_installed")
+@mock.patch("deepfellow.common.install.is_user_allowed_to_use_docker")
+@mock.patch("deepfellow.common.install.is_user_in_docker_group")
+@mock.patch("deepfellow.common.install.is_docker_group_available")
+@mock.patch("deepfellow.common.install.getpass.getuser")
+def test_assert_docker_prompts_usermod_when_group_available(
+    mock_getuser: Mock,
+    mock_is_docker_group_available: Mock,
+    mock_is_user_in_docker_group: Mock,
+    mock_is_user_allowed_to_use_docker: Mock,
+    mock_is_docker_installed: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_is_user_allowed_to_use_docker.return_value = False
+    mock_is_user_in_docker_group.return_value = False
+    mock_is_docker_group_available.return_value = True
+    mock_getuser.return_value = "alice"
+
+    with pytest.raises(typer.Exit):
+        assert_docker()
+
+    assert mock_echo.info.call_count == 1
+    assert mock_echo.info.call_args == mock.call("Add user to the docker group. `usermod -aG docker alice`")
+
+
+@mock.patch("deepfellow.common.install.echo")
+def test_ensure_directory_creates_directory_when_missing(mock_echo: Mock, tmp_path: Path) -> None:
+    directory = tmp_path / "new_dir"
+
+    ensure_directory(directory)
+
+    assert directory.is_dir() is True
+    assert mock_echo.warning.call_count == 0
+    assert mock_echo.confirm.call_count == 0
+
+
+@mock.patch("deepfellow.common.install.echo")
+def test_ensure_directory_raises_when_existing_and_user_declines(mock_echo: Mock, tmp_path: Path) -> None:
+    mock_echo.confirm.return_value = False
+
+    with pytest.raises(typer.Exit):
+        ensure_directory(tmp_path)
+
+    assert mock_echo.warning.call_count == 1
+    assert mock_echo.warning.call_args == mock.call(f"Directory {tmp_path} already exists.")
+    assert mock_echo.confirm.call_count == 1
+    assert mock_echo.confirm.call_args == mock.call("Should I override existing installation?")
+
+
+@mock.patch("deepfellow.common.install.echo")
+def test_ensure_directory_overrides_when_existing_and_user_confirms(mock_echo: Mock, tmp_path: Path) -> None:
+    mock_echo.confirm.return_value = True
+
+    ensure_directory(tmp_path)
+
+    assert mock_echo.confirm.call_count == 1
+    assert tmp_path.is_dir() is True
+
+
+@mock.patch("deepfellow.common.install.echo")
+def test_ensure_directory_skips_confirmation_when_force_install(mock_echo: Mock, tmp_path: Path) -> None:
+    ensure_directory(tmp_path, force_install=True)
+
+    assert mock_echo.warning.call_count == 0
+    assert mock_echo.confirm.call_count == 0
+
+
+@mock.patch("deepfellow.common.install.reraise_if_debug")
+@mock.patch("pathlib.Path.mkdir")
+@mock.patch("deepfellow.common.install.echo")
+def test_ensure_directory_calls_reraise_if_debug_on_mkdir_failure(
+    mock_echo: Mock,
+    mock_mkdir: Mock,
+    mock_reraise_if_debug: Mock,
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "blocked"
+    mock_mkdir.side_effect = OSError("boom")
+
+    ensure_directory(directory)
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call(f"Unable to create directory {directory}.")
+    assert mock_reraise_if_debug.call_count == 1
+    assert mock_reraise_if_debug.call_args == mock.call(mock_mkdir.side_effect)
