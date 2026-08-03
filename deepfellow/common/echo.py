@@ -47,8 +47,19 @@ def get_return_value(
     default: Any = None,
     from_args: Any = None,
     original_default: Any = None,
+    force_provided: bool = False,
 ) -> str | None:
     """Determine if user action is required.
+
+    Args:
+        message: The prompt message, used only in error/info output.
+        default: Value read from configuration, or fallback from CLI argument.
+        from_args: Value provided via CLI arguments.
+        original_default: The original default value for comparison.
+        force_provided: If True, treat from_args as explicitly provided even if it equals
+            original_default. Needed when from_args carries a value merged in from a source
+            other than the bare CLI default (e.g. an install template) — value equality with
+            original_default can no longer be trusted to mean "not provided".
 
     Returns:
         A value if user will not be asked for answer or None otherwise
@@ -56,7 +67,7 @@ def get_return_value(
     Raises:
         typer.Exit if non-interactive mode and no default provided.
     """
-    has_user_provided_value = from_args is not None and from_args != original_default
+    has_user_provided_value = from_args is not None and (force_provided or from_args != original_default)
     return_value = from_args if has_user_provided_value else None
 
     if not is_interactive():
@@ -142,6 +153,7 @@ class Echo(Console):
         *,
         default: Any = None,
         password: bool = False,
+        force_provided: bool = False,
         **kwargs: Any,
     ) -> Any:
         """Prompt the user for value.
@@ -162,12 +174,14 @@ class Echo(Console):
             original_default: The original default value for comparison
             default: Value read from configuration, or fallback from CLI argument
             password: If True, mask the input and default value display
+            force_provided: If True, treat from_args as explicitly provided even if it equals
+                original_default (see get_return_value)
             **kwargs: Additional arguments passed to Prompt.ask
 
         Returns:
             The final value (from args, user input, or default)
         """
-        return_value = get_return_value(message, default, from_args, original_default)
+        return_value = get_return_value(message, default, from_args, original_default, force_provided)
         if return_value is not None:
             info = "(set automatically)" if password else f"(set automatically: {return_value})"
             echo.info(f"{message} {info}")
@@ -209,6 +223,7 @@ class Echo(Console):
         *,
         default: Any = None,
         password: bool = False,
+        force_provided: bool = False,
         **kwargs: Any,
     ) -> Any:
         """Prompt until input is valid.
@@ -224,6 +239,8 @@ class Echo(Console):
             original_default: The original default value for comparison
             default: Value read from configuration, or fallback from CLI argument
             password: If True, mask the input and default value display
+            force_provided: If True, treat from_args as explicitly provided even if it equals
+                original_default (see get_return_value)
             **kwargs: Additional arguments passed to Prompt.ask
 
         Returns:
@@ -238,6 +255,7 @@ class Echo(Console):
                     original_default=original_default,
                     default=default,
                     password=password,
+                    force_provided=force_provided,
                     **kwargs,
                 )
             except typer.BadParameter as exc:
@@ -255,6 +273,7 @@ class Echo(Console):
         default: Any = None,
         from_args: Any = None,
         original_default: Any = None,
+        force_provided: bool = False,
         **kwargs: Any,
     ) -> str:
         """Prompt the user to make a choice from a list of options.
@@ -265,12 +284,14 @@ class Echo(Console):
             default: Value read from configuration, or fallback from CLI argument
             from_args: Value provided via CLI arguments
             original_default: The original default value for comparison
+            force_provided: If True, treat from_args as explicitly provided even if it equals
+                original_default (see get_return_value)
             **kwargs: Additional arguments passed to questionary.select
 
         Returns:
             The final value (from args, user input, or default)
         """
-        return_value = get_return_value(message, default, from_args, original_default)
+        return_value = get_return_value(message, default, from_args, original_default, force_provided)
         if return_value is not None:
             echo.info(f"{message} (chosen automatically: {return_value})")
             return return_value

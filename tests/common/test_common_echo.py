@@ -203,6 +203,22 @@ def test_prompt_interactive_explicit_cli_value_skips_prompt(mock_interactive, mo
     assert result == "explicit_value"
 
 
+@patch("deepfellow.common.echo.Prompt.ask")
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_prompt_interactive_force_provided_skips_prompt_despite_matching_default(mock_interactive, mock_ask, prompter):
+    """force_provided=True treats from_args as explicit even when it equals original_default."""
+    result = prompter.prompt(
+        message="Enter value",
+        from_args="same",
+        original_default="same",
+        default="default_val",
+        force_provided=True,
+    )
+
+    assert mock_ask.call_count == 0
+    assert result == "same"
+
+
 @patch("deepfellow.common.echo.Prompt.ask", return_value="user_input")
 @patch(_IS_INTERACTIVE, return_value=True)
 def test_prompt_interactive_with_validation(mock_interactive, mock_ask, prompter):
@@ -334,6 +350,46 @@ def test_prompt_kwargs_passed_to_prompt_ask(mock_interactive, mock_ask, prompter
     assert call_kwargs.get("choices") == ["choice1", "choice2", "choice3"]
 
 
+@patch("deepfellow.common.echo.Prompt.ask")
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_prompt_until_valid_force_provided_skips_prompt_despite_matching_default(mock_interactive, mock_ask, prompter):
+    """force_provided is forwarded through prompt_until_valid into prompt()/get_return_value."""
+    validation = MagicMock(return_value="validated_value")
+
+    result = prompter.prompt_until_valid(
+        "Enter value",
+        validation,
+        from_args="same",
+        original_default="same",
+        default="default_val",
+        force_provided=True,
+    )
+
+    assert mock_ask.call_count == 0
+    assert validation.call_count == 0
+    assert result == "same"
+
+
+@mock.patch(_IS_INTERACTIVE)
+@mock.patch("deepfellow.common.echo.questionary")
+def test_choice_interactive_force_provided_skips_prompt_despite_matching_default(
+    mock_questionary: Mock, mock_is_interactive: Mock
+) -> None:
+    """force_provided=True treats from_args as explicit even when it equals original_default."""
+    mock_is_interactive.return_value = True
+
+    result = echo.choice(
+        "Select option",
+        choices=["option1", "option2"],
+        from_args="option1",
+        original_default="option1",
+        force_provided=True,
+    )
+
+    assert result == "option1"
+    assert mock_questionary.select.call_count == 0
+
+
 @mock.patch(_IS_INTERACTIVE)
 @mock.patch("deepfellow.common.echo.questionary")
 def test_choice_interactive(mock_questionary: Mock, mock_is_interactive: Mock) -> None:
@@ -384,6 +440,21 @@ def test_get_return_value_interactive_from_args_equals_original_default_returns_
 
 
 @patch(_IS_INTERACTIVE, return_value=True)
+def test_get_return_value_interactive_force_provided_skips_prompt_despite_matching_default(
+    mock_is_interactive: mock.Mock,
+):
+    assert (
+        get_return_value("Enter value", from_args="default", original_default="default", force_provided=True)
+        == "default"
+    )
+
+
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_get_return_value_interactive_force_provided_ignored_when_from_args_is_none(mock_is_interactive: mock.Mock):
+    assert get_return_value("Enter value", from_args=None, original_default="default", force_provided=True) is None
+
+
+@patch(_IS_INTERACTIVE, return_value=True)
 def test_get_return_value_interactive_from_args_none_returns_none(mock_is_interactive: mock.Mock):
     assert get_return_value("Enter value", from_args=None, original_default="default") is None
 
@@ -421,6 +492,18 @@ def test_get_return_value_non_interactive_from_args_equals_original_default_no_d
     mock_is_interactive: mock.Mock,
 ):
     assert get_return_value("Enter value", from_args="orig", original_default="orig") == "orig"
+
+
+@patch(_IS_INTERACTIVE, return_value=False)
+def test_get_return_value_non_interactive_force_provided_uses_from_args_over_default(
+    mock_is_interactive: mock.Mock,
+):
+    assert (
+        get_return_value(
+            "Enter value", default="stale-env-value", from_args="orig", original_default="orig", force_provided=True
+        )
+        == "orig"
+    )
 
 
 @patch(_IS_INTERACTIVE, return_value=False)
