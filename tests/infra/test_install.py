@@ -30,6 +30,7 @@ from deepfellow.common.exceptions import InstallError
 from deepfellow.common.state import state
 from deepfellow.infra.install import install as install_command
 from deepfellow.infra.utils.install import InstallConfig, InstallContext, apply, inspect, install, resolve
+from deepfellow.infra.utils.templates import BUILTIN_TEMPLATES
 
 
 @pytest.fixture
@@ -834,6 +835,60 @@ def test_install_calls_ensure_network(
 
     assert mock_ensure_network.call_count == 1
     assert mock_ensure_network.call_args == ((DF_INFRA_DOCKER_NETWORK,), {})
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.add_network_to_service")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.generate_password")
+@mock.patch("deepfellow.infra.utils.install.configure_uuid_key")
+@mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.utils.install.ensure_directory")
+@mock.patch("deepfellow.infra.utils.install.get_socket")
+@mock.patch("deepfellow.infra.utils.install.assert_docker")
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_install_accepts_builtin_workspace_template_config_without_crashing(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_get_socket: Mock,
+    mock_ensure_dir: Mock,
+    mock_read: Mock,
+    mock_configure_uuid: Mock,
+    mock_gen_password: Mock,
+    mock_env_set: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    directory: Path,
+    docker_config: Mock,
+) -> None:
+    """Regression test for BUILTIN_TEMPLATES["workspace"]["config"] (infra): every splatted value
+    (port, infra_name, infra_url, docker_network) must flow through install() into the saved env
+    file unchanged, not just reach the end of install() without raising."""
+    mock_echo.prompt.side_effect = lambda *args, **kwargs: kwargs.get("from_args")
+    mock_echo.prompt_until_valid.side_effect = lambda *args, **kwargs: kwargs.get("from_args")
+    mock_echo.confirm.return_value = False
+    mock_read.return_value = {}
+    template_config = BUILTIN_TEMPLATES["workspace"]["config"]
+
+    install(
+        directory=directory,
+        docker_config=docker_config,
+        force_install=True,
+        **template_config,
+    )
+
+    assert mock_save_env.call_count == 1
+    saved_env = mock_save_env.call_args[0][1]
+    assert saved_env["DF_NAME"] == template_config["infra_name"]
+    assert saved_env["DF_INFRA_URL"] == template_config["infra_url"]
+    assert saved_env["DF_INFRA_PORT"] == template_config["port"]
+    assert saved_env["DF_INFRA_DOCKER_SUBNET"] == template_config["docker_network"]
 
 
 @mock.patch("deepfellow.infra.utils.install.run")

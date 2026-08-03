@@ -49,6 +49,7 @@ from deepfellow.server.utils.install import (
     resolve,
 )
 from deepfellow.server.utils.install import inspect as inspect_util
+from deepfellow.server.utils.templates import BUILTIN_TEMPLATES
 
 MOCK_ECHO = mock.patch("deepfellow.server.utils.install.echo")
 MOCK_ASSERT_DOCKER = mock.patch("deepfellow.server.utils.install.assert_docker")
@@ -593,6 +594,39 @@ def test_install_defaults_resolve_to_real_values_when_arguments_omitted(
     assert vectordb_args[2] == int(bool(DEFAULT_VECTOR_DATABASE["provider"]["active"]))
     assert vectordb_args[3] == DEFAULT_VECTOR_DATABASE_TYPE
     assert not any(isinstance(value, OptionInfo) for value in vectordb_args)
+
+
+@MOCK_SAVE_COMPOSE_FILE
+@MOCK_RUN
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@MOCK_ENSURE_NETWORK
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_install_accepts_builtin_workspace_template_config_without_crashing(
+    mock_echo,
+    mock_assert_docker,
+    mock_ensure_network,
+    mock_configure_mongo,
+    mock_configure_infra,
+    mock_configure_vector_db,
+    mock_configure_otel,
+    mock_run,
+    mock_save_compose_file,
+    tmp_path,
+):
+    """Regression test for BUILTIN_TEMPLATES["workspace"]["config"]["vectordb_type"] once being a
+    plain string: install() calls vectordb_type.value, so splatting that config in must not crash."""
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+
+    install(directory=tmp_path, force_install=True, **BUILTIN_TEMPLATES["workspace"]["config"])
+
+    assert mock_configure_vector_db.call_count == 1
+    assert mock_configure_vector_db.call_args[0][3] == "milvus"
 
 
 def test_install_directory_defaults_to_df_server_directory():
