@@ -133,3 +133,6 @@ disable_error_code = ["var-annotated"]
 
 [tool.deptry]
 per_rule_ignores = {"DEP002" = ["types-pyyaml"]}
+
+[tool.coverage.report]
+fail_under = 100

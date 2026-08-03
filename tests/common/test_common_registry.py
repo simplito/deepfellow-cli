@@ -128,6 +128,27 @@ def test_get_newest_image_tag_falls_back_when_token_missing(mock_get: Mock) -> N
 
 
 @mock.patch("deepfellow.common.registry.httpx.get")
+def test_get_newest_image_tag_omits_service_param_when_missing_from_header(mock_get: Mock) -> None:
+    probe = Mock(spec=httpx.Response)
+    probe.status_code = 401
+    probe.headers = {"www-authenticate": 'Bearer realm="https://auth.example.com/token"'}
+    mock_get.side_effect = [
+        probe,
+        _make_token_response("tok"),
+        _make_tags_response(["0.25.0"]),
+    ]
+
+    result = get_newest_image_tag(HUB)
+
+    assert result == f"{HUB}:0.25.0"
+    assert mock_get.call_args_list[1] == mock.call(
+        "https://auth.example.com/token",
+        params={"scope": f"repository:{IMAGE_PATH}:pull"},
+        timeout=10,
+    )
+
+
+@mock.patch("deepfellow.common.registry.httpx.get")
 def test_get_newest_image_tag_falls_back_when_tags_request_raises(mock_get: Mock) -> None:
     tags_resp = Mock(spec=httpx.Response)
     tags_resp.raise_for_status.side_effect = httpx.HTTPStatusError("403", request=Mock(), response=Mock())

@@ -16,7 +16,7 @@ import pytest
 import typer
 
 from deepfellow.common.defaults import DF_INFRA_IMAGE, DF_INFRA_IMAGE_HUB, DOCKER_COMPOSE_CONFIG_FILENAME
-from deepfellow.infra.update import update
+from deepfellow.infra.update import _resolve_image, update
 
 
 @pytest.fixture
@@ -75,6 +75,29 @@ def test_update_calls_check_infra_directory(
 
     assert mock_check.call_count == 1
     assert mock_check.call_args == ((default_update_kwargs["directory"],), {})
+
+
+def test_resolve_image_returns_hub_image_when_tag_provided() -> None:
+    result: str = _resolve_image("custom-image", "0.15.0")
+
+    assert result == f"{DF_INFRA_IMAGE_HUB}:0.15.0"
+
+
+@mock.patch("deepfellow.infra.update.get_newest_image_tag")
+def test_resolve_image_returns_newest_when_default_image_and_no_tag(mock_get_newest_image_tag: Mock) -> None:
+    mock_get_newest_image_tag.return_value = f"{DF_INFRA_IMAGE_HUB}:0.16.0"
+
+    result: str = _resolve_image(DF_INFRA_IMAGE, None)
+
+    assert result == f"{DF_INFRA_IMAGE_HUB}:0.16.0"
+    assert mock_get_newest_image_tag.call_count == 1
+    assert mock_get_newest_image_tag.call_args == mock.call(DF_INFRA_IMAGE_HUB)
+
+
+def test_resolve_image_returns_image_when_custom_image_and_no_tag() -> None:
+    result: str = _resolve_image("custom-image", None)
+
+    assert result == "custom-image"
 
 
 @mock.patch("deepfellow.infra.update.check_infra_directory")

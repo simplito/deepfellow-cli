@@ -91,6 +91,23 @@ def test_resolve_cli_command_self_heal_creates_config_when_missing(tmp_path: Pat
     assert persisted["DF_UPDATE_COMMAND"] == "uv tool upgrade deepfellow-cli"
 
 
+@mock.patch("deepfellow.cli.utils.command_resolver.read_env_file")
+def test_resolve_cli_command_falls_back_when_config_file_removed_between_check_and_read(
+    mock_read_env_file: Mock, tmp_path: Path
+) -> None:
+    config_file = tmp_path / "config"
+    config_file.write_text("DF_UPDATE_COMMAND=uv tool upgrade deepfellow-cli\n")
+    state.cli_config_file = config_file
+    mock_read_env_file.side_effect = FileNotFoundError
+    detect = Mock(return_value=_UV_UPDATE_CMD)
+
+    cmd = resolve_cli_command("DF_UPDATE_COMMAND", detect)
+
+    assert cmd == _UV_UPDATE_CMD
+    assert mock_read_env_file.call_count == 1
+    assert detect.call_count == 1
+
+
 def test_resolve_cli_command_returns_none_when_detection_fails(tmp_path: Path) -> None:
     config_file = tmp_path / "config"
     state.cli_config_file = config_file

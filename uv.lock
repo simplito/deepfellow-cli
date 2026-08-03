@@ -260,12 +260,12 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "deptry", specifier = "~=0.25.1" },
+    { name = "deptry", specifier = ">=0.25.1" },
     { name = "mypy", specifier = ">=1.17.1" },
     { name = "pyright", specifier = ">=1.1.407" },
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-cov", specifier = ">=6.2.1" },
-    { name = "ruff", specifier = "~=0.15.16" },
+    { name = "ruff", specifier = ">=0.15.16" },
 ]
 
 [[package]]

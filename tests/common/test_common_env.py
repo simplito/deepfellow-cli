@@ -9,10 +9,14 @@
 
 """Tests for the env module."""
 
+from pathlib import Path
 from unittest import mock
 from unittest.mock import Mock
 
-from deepfellow.common.env import EnvMetadata, print_env_info
+import pytest
+import typer
+
+from deepfellow.common.env import EnvMetadata, env_get, env_set, get_envs_list, print_env_info
 
 
 def test_render_empty_value_shows_undefined():
@@ -164,3 +168,162 @@ def test_print_env_info_echo_called_once_regardless_of_mode(mock_echo: Mock):
     print_env_info("Header", metadata, {}, doc=False)
 
     assert mock_echo.info.call_count == 2
+
+
+@mock.patch("deepfellow.common.env.echo")
+def test_env_set_raises_when_file_missing_and_should_raise(mock_echo: Mock, tmp_path: Path):
+    env_file = tmp_path / ".env"
+
+    with pytest.raises(typer.Exit):
+        env_set(env_file, "DF_FOO", "bar")
+
+    assert mock_echo.error.call_count == 1
+
+
+def test_env_set_creates_file_when_missing_and_should_not_raise(tmp_path: Path):
+    env_file = tmp_path / ".env"
+
+    env_set(env_file, "DF_FOO", "bar", should_raise=False, quiet=True)
+
+    assert env_file.is_file()
+    assert "DF_FOO=bar" in env_file.read_text()
+
+
+@mock.patch("deepfellow.common.env.echo")
+def test_env_set_adds_df_prefix_when_missing(mock_echo: Mock, tmp_path: Path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+
+    env_set(env_file, "foo", "bar", quiet=True)
+
+    assert mock_echo.debug.call_count == 1
+    assert "DF_FOO=bar" in env_file.read_text()
+
+
+@mock.patch("deepfellow.common.env.echo")
+def test_env_set_does_not_add_df_prefix_when_already_present(mock_echo: Mock, tmp_path: Path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+
+    env_set(env_file, "DF_FOO", "bar", quiet=True)
+
+    assert mock_echo.debug.call_count == 0
+    assert "DF_FOO=bar" in env_file.read_text()
+
+
+def test_env_set_skips_df_prefix_when_disabled(tmp_path: Path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+
+    env_set(env_file, "foo", "bar", df_prefix=False, quiet=True)
+
+    assert "FOO=bar" in env_file.read_text()
+    assert "DF_FOO" not in env_file.read_text()
+
+
+def test_env_set_preserves_existing_values(tmp_path: Path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("DF_EXISTING=old\n")
+
+    env_set(env_file, "DF_FOO", "bar", quiet=True)
+
+    content = env_file.read_text()
+    assert "DF_EXISTING=old" in content
+    assert "DF_FOO=bar" in content
+
+
+@mock.patch("deepfellow.common.env.save_env_file")
+def test_env_set_forwards_quiet_and_kwargs_to_save_env_file(mock_save_env_file: Mock, tmp_path: Path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+
+    env_set(env_file, "DF_FOO", "bar", quiet=True, docker_note=False)
+
+    assert mock_save_env_file.call_count == 1
+    assert mock_save_env_file.call_args == mock.call(env_file, {"DF_FOO": "bar"}, quiet=True, docker_note=False)
+
+
+@mock.patch("deepfellow.common.env.echo")
+def test_env_get_raises_when_file_missing_and_should_raise(mock_echo: Mock, tmp_path: Path):
+    env_file = tmp_path / ".env"
+
+    with pytest.raises(typer.Exit):
+        env_get(env_file, "DF_FOO")
+
+    assert mock_echo.error.call_count == 1
+
+
+def test_env_get_returns_default_when_file_missing_and_should_not_raise(tmp_path: Path):
+    env_file = tmp_path / ".env"
+
+    result = env_get(env_file, "DF_FOO", should_raise=False, default="fallback")
+
+    assert result == "fallback"
+
+
+def test_env_get_returns_default_when_key_missing_and_file_exists(tmp_path: Path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("DF_OTHER=val\n")
+
+    result = env_get(env_file, "DF_FOO", default="fallback")
+
+    assert result == "fallback"
+
+
+@mock.patch("deepfellow.common.env.echo")
+def test_env_get_adds_df_prefix_when_missing(mock_echo: Mock, tmp_path: Path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("DF_FOO=bar\n")
+
+    result = env_get(env_file, "foo")
+
+    assert result == "bar"
+    assert mock_echo.debug.call_count == 1
+
+
+@mock.patch("deepfellow.common.env.echo")
+def test_env_get_does_not_add_df_prefix_when_already_present(mock_echo: Mock, tmp_path: Path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("DF_FOO=bar\n")
+
+    result = env_get(env_file, "DF_FOO")
+
+    assert result == "bar"
+    assert mock_echo.debug.call_count == 0
+
+
+def test_env_get_skips_df_prefix_when_disabled(tmp_path: Path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("FOO=bar\n")
+
+    result = env_get(env_file, "foo", df_prefix=False)
+
+    assert result == "bar"
+
+
+def test_env_get_returns_value_when_present(tmp_path: Path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("DF_FOO=bar\n")
+
+    result = env_get(env_file, "DF_FOO")
+
+    assert result == "bar"
+
+
+@mock.patch("deepfellow.common.env.echo")
+def test_get_envs_list_raises_when_file_missing(mock_echo: Mock, tmp_path: Path):
+    env_file = tmp_path / ".env"
+
+    with pytest.raises(typer.Exit):
+        get_envs_list(env_file)
+
+    assert mock_echo.error.call_count == 1
+
+
+def test_get_envs_list_returns_formatted_strings(tmp_path: Path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("DF_FOO=bar\nDF_BAZ=qux\n")
+
+    result = get_envs_list(env_file)
+
+    assert result == ["DF_FOO=bar", "DF_BAZ=qux"]

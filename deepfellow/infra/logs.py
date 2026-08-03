@@ -24,7 +24,7 @@ app = typer.Typer()
 def logs(
     directory: Path = directory_option(exists=True),
     follow: bool = typer.Option(False, "-f", "--follow", help="Follow log output"),
-    tail: int = typer.Option(20, "-n", "--tail", help="Number of lines to show from the end of the logs"),
+    tail: int | None = typer.Option(20, "-n", "--tail", help="Number of lines to show from the end of the logs"),
 ) -> None:
     """Show DeepFellow Infra logs."""
     echo.info("Showing DeepFellow Infra logs")
