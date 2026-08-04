@@ -177,6 +177,23 @@ def test_resolve_template_raises_install_error_when_config_has_unknown_key(tmp_p
         resolve_template(str(template_file))
 
 
+def test_resolve_template_unknown_top_level_key_masks_an_independent_config_key_error(tmp_path: Path) -> None:
+    # validate_template() (structural) runs inside load_yaml_template(), before resolve_template()
+    # even has a template["config"] to hand to run_validations()'s aggregated checks - so a
+    # top-level structural mistake is reported alone, not aggregated with an unrelated config-key
+    # mistake the way two run_validations steps would be. This pins that current, intentional
+    # behavior rather than leaving it to accidentally drift.
+    template_file = tmp_path / "custom.yaml"
+    template_file.write_text("config:\n  prot: 9000\npost_start_actions: []\nversion: 2\n")
+
+    with pytest.raises(InstallError) as exc_info:
+        resolve_template(str(template_file))
+
+    message = str(exc_info.value)
+    assert "unknown top-level key(s) ['version']" in message
+    assert "unknown config key(s)" not in message
+
+
 def test_resolve_template_coerces_a_quoted_port_string_to_int(tmp_path: Path) -> None:
     template_file = tmp_path / "custom.yaml"
     template_file.write_text('config:\n  port: "9000"\npost_start_actions: []\n')

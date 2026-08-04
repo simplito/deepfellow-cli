@@ -112,6 +112,34 @@ def test_validate_template_returns_the_template_when_well_formed() -> None:
             {"config": {}, "post_start_actions": [{"function": "a.b"}]},
             "Template 'source': post_start_actions[0].kwargs must be a mapping",
         ),
+        (
+            {"config": {}, "post_start_actions": [], "version": 2},
+            "Template 'source': unknown top-level key(s) ['version']; expected 'config' and 'post_start_actions'",
+        ),
+        (
+            {"config": {}, "post_start_actions": [{"function": "a.b", "kwargs": {}, "kwarg": "typo"}]},
+            "Template 'source': post_start_actions[0]: unknown key(s) ['kwarg']; expected 'function' and 'kwargs'",
+        ),
+        (
+            {"config": {}, "post_start_actions": [], 2: "x", "version": 1},
+            "Template 'source': unknown top-level key(s) [2, 'version']; expected 'config' and 'post_start_actions'",
+        ),
+        (
+            {
+                "config": {},
+                "post_start_actions": [
+                    {"function": "a.b", "kwargs": {}},
+                    {"function": "a.b", "kwargs": {}, 7: "y", "extra": "z"},
+                ],
+            },
+            "Template 'source': post_start_actions[1]: unknown key(s) [7, 'extra']; expected 'function' and 'kwargs'",
+        ),
+        # 'config' is entirely absent here too, but the unknown-top-level-key check runs first and
+        # masks the "'config' must be a mapping" error a missing config would otherwise raise.
+        (
+            {"post_start_actions": [], "version": 2},
+            "Template 'source': unknown top-level key(s) ['version']; expected 'config' and 'post_start_actions'",
+        ),
     ],
 )
 def test_validate_template_raises_install_error_for_malformed_input(loaded: object, message: str) -> None:

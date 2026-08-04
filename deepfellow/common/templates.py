@@ -53,11 +53,18 @@ def _validate_post_start_action(action: object, source: str, index: int) -> Post
         The validated entry, narrowed to PostStartAction.
 
     Raises:
-        InstallError: If the entry isn't a mapping, or its function/kwargs fields are missing or
-            of the wrong type.
+        InstallError: If the entry isn't a mapping, has any key other than function/kwargs, or its
+            function/kwargs fields are missing or of the wrong type.
     """
     if not isinstance(action, dict):
         raise InstallError(f"Template '{source}': post_start_actions[{index}] must be a mapping.")
+
+    unknown_keys = set(action) - {"function", "kwargs"}
+    if unknown_keys:
+        raise InstallError(
+            f"Template '{source}': post_start_actions[{index}]: unknown key(s) "
+            f"{sorted(unknown_keys, key=str)}; expected 'function' and 'kwargs'."
+        )
 
     function = action.get("function")
     if not isinstance(function, str):
@@ -82,10 +89,18 @@ def validate_template(loaded: object, source: str) -> InstallTemplate:
 
     Raises:
         InstallError: If `loaded` isn't a mapping with a mapping `config` (with all-string keys)
-            and a list `post_start_actions` of well-formed entries.
+            and a list `post_start_actions` of well-formed entries, or has any key other than
+            `config`/`post_start_actions`.
     """
     if not isinstance(loaded, dict):
         raise InstallError(f"Template '{source}' must be a mapping with 'config' and 'post_start_actions'.")
+
+    unknown_top_level_keys = set(loaded) - {"config", "post_start_actions"}
+    if unknown_top_level_keys:
+        raise InstallError(
+            f"Template '{source}': unknown top-level key(s) {sorted(unknown_top_level_keys, key=str)}; "
+            f"expected 'config' and 'post_start_actions'."
+        )
 
     config = loaded.get("config")
     if not isinstance(config, dict):
