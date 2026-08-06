@@ -14,7 +14,7 @@ import string
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import typer
 
@@ -45,33 +45,54 @@ from deepfellow.common.docker import (
 )
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
-from deepfellow.common.exceptions import translate_to_install_error
+from deepfellow.common.exceptions import DockerNetworkError, InstallError, translate_to_install_error
 from deepfellow.common.generate import generate_password
 from deepfellow.common.install import assert_docker, ensure_directory
 from deepfellow.common.registry import get_newest_image_tag
 from deepfellow.common.state import state
 from deepfellow.common.system import run
+from deepfellow.common.templates import InstallTemplate
 from deepfellow.common.validation import validate_df_name, validate_url
+from deepfellow.infra.utils.docker import start_infra
+from deepfellow.infra.utils.templates import dispatch_post_start_action, resolve_template
 
 
 @dataclass
 class InstallContext:
     """Read-only values gathered from the environment before any prompting."""
 
+    resolved_template: InstallTemplate | None
     directory: Path
     docker_socket: str
     newest_image_tag: str | None
     original_env_content: EnvDict  # {} if no prior .env
 
 
-def inspect(directory: Path, allow_rootful: bool, force_install: bool, image: str, local_image: bool) -> InstallContext:
-    """Docker check, directory creation, existing .env read-back.
+def inspect(
+    directory: Path,
+    allow_rootful: bool,
+    force_install: bool,
+    image: str,
+    local_image: bool,
+    template: str | None = None,
+) -> InstallContext:
+    """Resolve --template, then do a Docker check, directory creation, and existing .env read-back.
 
-    No prompts, no network/compose writes.
+    Resolves and validates `template` (via resolve_template()), if given, before touching Docker or
+    the filesystem, so a bad template fails fast without side effects. No prompts, no network/compose
+    writes.
 
     Returns:
         InstallContext: Read-only values needed by :func:`resolve`.
+
+    Raises:
+        InstallError: If `template` is not a known built-in name or a valid, readable YAML file
+            matching the expected schema. See resolve_template().
     """
+    resolved_template = None
+    if template is not None:
+        resolved_template = resolve_template(template)
+
     assert_docker()
     docker_socket = get_socket(allow_rootful=allow_rootful)
 
@@ -84,7 +105,7 @@ def inspect(directory: Path, allow_rootful: bool, force_install: bool, image: st
     # Prepare the starting point for .env
     original_env_content = read_env_file_to_dict(directory / ".env")
 
-    return InstallContext(directory, docker_socket, newest_image_tag, original_env_content)
+    return InstallContext(resolved_template, directory, docker_socket, newest_image_tag, original_env_content)
 
 
 @dataclass
@@ -114,6 +135,73 @@ class InstallConfig:
     df_connect_to_mesh_key: str | None
 
 
+# (template config key, CLI option's own original default, matching key in a prior install's .env)
+_MERGEABLE_FIELDS: tuple[tuple[str, Any, str], ...] = (
+    ("port", DF_INFRA_PORT, "df_infra_port"),
+    ("infra_name", DF_INFRA_NAME, "df_name"),
+    ("infra_url", DF_INFRA_URL, "df_infra_url"),
+    ("docker_network", DF_INFRA_DOCKER_NETWORK, "df_infra_docker_subnet"),
+)
+
+
+def _merge_template_config(
+    template_config: dict[str, Any],
+    original_env_content: EnvDict,
+    values: dict[str, Any],
+) -> tuple[dict[str, Any], set[str]]:
+    """Fill in CLI-level install values from a template's config, without overriding what should win.
+
+    Precedence, highest to lowest: an explicit CLI flag (the arg no longer equals its own original
+    default) always wins; a value already configured by a prior install (found in that install's
+    .env) is preserved next - a template must not silently discard existing configuration; only
+    then does the template's config value apply; the CLI option's hardcoded default is the fallback.
+
+    Args:
+        template_config: The resolved template's "config" mapping (empty if no template was given).
+        original_env_content: The prior install's .env content (empty if there wasn't one).
+        values: CLI-resolved values for the fields in `_MERGEABLE_FIELDS`, keyed by their template
+            config key, e.g. {"port": port, "infra_name": infra_name, ...}.
+
+    Returns:
+        The merged values (same keys as `values`), plus the subset of its keys that came from the
+        template. `resolve()` passes force_provided=True for infra_name/infra_url/docker_network's
+        prompt when the key is in this set, so it isn't re-asked; `port` has no prompt of its own,
+        so its merged value (already restored to a prior .env value when one blocked the template,
+        see above) is used as-is.
+
+    Raises:
+        InstallError: If a prior install's .env has a non-numeric port value.
+    """
+    merged = dict(values)
+    from_template: set[str] = set()
+
+    for key, own_default, env_key in _MERGEABLE_FIELDS:
+        if key not in template_config:
+            continue
+        if merged[key] != own_default:
+            continue  # an explicit CLI flag already wins
+
+        prior_value = original_env_content.get(env_key)
+        if prior_value:
+            # infra_name/infra_url/docker_network restore the prior value via their own prompt's
+            # `default=` in resolve(); port has no prompt of its own, so it must be restored here
+            # or the CLI's hardcoded default would silently overwrite it when .env is saved.
+            if key == "port":
+                try:
+                    merged[key] = int(str(prior_value))
+                except ValueError:
+                    raise InstallError(
+                        f"Existing .env has an invalid {env_key.upper()} value ({prior_value!r}); "
+                        "fix or remove it before retrying."
+                    ) from None
+            continue  # a prior install's value must not be silently discarded
+
+        merged[key] = template_config[key]
+        from_template.add(key)
+
+    return merged, from_template
+
+
 def resolve(
     context: InstallContext,
     *,
@@ -134,8 +222,13 @@ def resolve(
 ) -> InstallConfig:
     """Prompt the user for / apply CLI overrides to the remaining install values.
 
+    Before prompting, merges `context.resolved_template`'s config into port/infra_name/infra_url/
+    docker_network via `_merge_template_config()`: an explicit CLI flag always wins, a value already
+    configured by a prior install (found in `context.original_env_content`) is preserved next, and
+    only then does the template's config value apply. See `_merge_template_config()`.
+
     Args:
-        context: Read-only values gathered by :func:`inspect`.
+        context: Read-only values gathered by :func:`inspect`, including any resolved --template.
         port: Published port to serve the DeepFellow Infra from.
         image: DeepFellow Infra docker image, before newest-tag resolution.
         docker_config: Path to the docker config file.
@@ -156,12 +249,26 @@ def resolve(
     """
     original_env_content = context.original_env_content
 
+    template_config = context.resolved_template["config"] if context.resolved_template else {}
+    merged, from_template = _merge_template_config(
+        template_config,
+        original_env_content,
+        {"port": port, "infra_name": infra_name, "infra_url": infra_url, "docker_network": docker_network},
+    )
+    port, infra_name, infra_url, docker_network = (
+        merged["port"],
+        merged["infra_name"],
+        merged["infra_url"],
+        merged["docker_network"],
+    )
+
     df_name = echo.prompt(
         "Provide a DF_NAME for this Infra",
         validation=validate_df_name,
         from_args=infra_name,
         original_default=DF_INFRA_NAME,
-        default=original_env_content.get("df_infra_name", infra_name),
+        default=original_env_content.get("df_name", infra_name),
+        force_provided="infra_name" in from_template,
     )
 
     df_infra_url = echo.prompt_until_valid(
@@ -171,6 +278,7 @@ def resolve(
         from_args=infra_url,
         original_default=DF_INFRA_URL,
         default=original_env_content.get("df_infra_url", infra_url),
+        force_provided="infra_url" in from_template,
     )
 
     # Find out which docker network to use
@@ -179,6 +287,7 @@ def resolve(
         from_args=docker_network,
         original_default=DF_INFRA_DOCKER_NETWORK,
         default=original_env_content.get("df_infra_docker_subnet", docker_network),
+        force_provided="docker_network" in from_template,
     )
 
     flag_print_keys = echo.confirm("Is it safe to print API keys here?", from_args=allow_print_keys)
@@ -292,11 +401,17 @@ def resolve(
     )
 
 
-def apply(config: InstallConfig) -> None:
+def apply(config: InstallConfig, will_auto_start: bool = False) -> None:
     """Create the docker network, write the .env/compose files, and pull the image.
 
     Purely programmatic: no prompts, so it does not leave a half-configured
     installation behind if an earlier phase (:func:`resolve`) was interrupted.
+
+    Args:
+        config: The fully-resolved installation configuration.
+        will_auto_start: Whether the caller is about to start infra itself right after (a
+            template with post_start_actions) - changes the success message so it doesn't tell
+            the user to run `infra start` when that's about to happen automatically.
     """
     config_file = state.cli_config_file
     secrets_file = state.cli_secrets_file
@@ -363,11 +478,12 @@ def apply(config: InstallConfig) -> None:
     except DockerError as exc:
         echo.error(f"Failed to pull docker image(s): {exc}\nCheck registry access, credentials, and disk space.")
         raise typer.Exit(1) from exc
-    echo.success(
-        "DeepFellow Infra installed.\n"
-        "To start the docker image - `deepfellow infra start`.\n"
-        "For info about installation - `deepfellow infra info`."
+    start_hint = (
+        "Starting it now to run the template's post-start actions."
+        if will_auto_start
+        else "To start the docker image - `deepfellow infra start`."
     )
+    echo.success(f"DeepFellow Infra installed.\n{start_hint}\nFor info about installation - `deepfellow infra info`.")
 
 
 @translate_to_install_error
@@ -383,6 +499,7 @@ def install(
     infra_name: str = DF_INFRA_NAME,
     infra_url: str = DF_INFRA_URL,
     docker_network: str = DF_INFRA_DOCKER_NETWORK,
+    template: str | None = None,
     force_install: bool = False,
     allow_rootful: bool = False,
     allow_print_keys: bool | None = None,
@@ -400,6 +517,7 @@ def install(
         force_install=force_install,
         image=image,
         local_image=local_image,
+        template=template,
     )
 
     docker_config = docker_config or directory / "docker-config.json"
@@ -422,4 +540,40 @@ def install(
         keep_metrics=keep_metrics,
     )
 
-    apply(config)
+    post_start_actions = context.resolved_template["post_start_actions"] if context.resolved_template else []
+    apply(config, will_auto_start=bool(post_start_actions))
+
+    if post_start_actions:
+        try:
+            start_infra(directory)
+        except (DockerNetworkError, typer.Exit) as exc:
+            reason = str(exc) if isinstance(exc, DockerNetworkError) else "see console output above for details."
+            echo.error(f"Failed to start infra for template post-start actions: {reason}")
+            raise typer.Exit(1) from exc
+
+        # The CLI process runs outside Docker, so post-start actions must reach infra via
+        # localhost on the port actually resolved above - never a template-supplied "server",
+        # which could only ever guess at that port.
+        infra_localhost_url = f"http://localhost:{config.infra_port}"
+        total = len(post_start_actions)
+        for index, action in enumerate(post_start_actions, start=1):
+            template_server = action["kwargs"].get("server")
+            if template_server is not None and template_server != infra_localhost_url:
+                echo.warning(
+                    f"Post-start action {index}/{total} ('{action['function']}') set its own "
+                    f"'server' ({template_server!r}); overriding it with the actually-installed "
+                    f"infra's address ({infra_localhost_url!r})."
+                )
+            action["kwargs"]["server"] = infra_localhost_url
+            try:
+                dispatch_post_start_action(action)
+            except InstallError as exc:
+                # dispatch_post_start_action is decorated with @translate_to_install_error, which
+                # unconditionally converts any typer.Exit it raises into InstallError - so
+                # InstallError is the only failure mode reachable here, ever.
+                echo.error(
+                    f"Post-start action {index}/{total} ('{action['function']}') failed: {exc}\n"
+                    f"Infra is already installed and running; {index - 1} of {total} action(s) "
+                    "completed before this failure."
+                )
+                raise typer.Exit(1) from exc

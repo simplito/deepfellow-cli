@@ -9,12 +9,12 @@
 
 """Shared install-template infrastructure for `infra install --template`.
 
-Wiring note for whoever adds --template to infra install: when merging
-resolve_template(...)["config"] into the CLI args passed to echo.prompt/prompt_until_valid/choice,
-pass force_provided=True for any value that came from the template. Without it, a template value
-equal to that field's original_default (e.g. this module's own "workspace" template sets port to
-DF_INFRA_PORT) is indistinguishable from "nothing was provided" and the prompt fires anyway. See
-deepfellow.common.echo.get_return_value.
+Consumed by deepfellow.infra.utils.install: inspect() resolves --template via resolve_template()
+below, and resolve()'s _merge_template_config() merges the resolved config into the CLI-resolved
+values, passing force_provided=True to echo.prompt/prompt_until_valid for any field that came from
+the template. Without it, a template value equal to that field's original_default (e.g. this
+module's own "workspace" template sets port to DF_INFRA_PORT) would be indistinguishable from
+"nothing was provided" and the prompt would fire anyway. See deepfellow.common.echo.get_return_value.
 """
 
 import copy
@@ -65,13 +65,6 @@ CHAT_MODEL = "gemma4:e4b"
 EMBEDDING_MODEL = "mxbai-embed-large"
 FAST_MODEL = "qwen3.5:4b"
 
-# Host-side admin API URL: the CLI process itself runs outside Docker, so it must reach infra via
-# localhost, NOT config["infra_url"] below (the Docker-network hostname other containers use).
-# KNOWN LIMITATION: baked from the default DF_INFRA_PORT at import time, not the port actually
-# installed to. Once `infra install --port` is wired to templates, every post-start
-# action below will still target the default port unless this is rebuilt from the resolved port.
-INFRA_LOCALHOST_URL = f"http://localhost:{DF_INFRA_PORT}"
-
 # Keep in sync with whatever config keys wiring infra install --template to actually consume, and
 # the scalar type each key's install() parameter expects — this is a hand-maintained safety net
 # against YAML typos and quoting mismatches (e.g. port: "9000"), not derived from a signature.
@@ -91,26 +84,29 @@ BUILTIN_TEMPLATES: dict[str, InstallTemplate] = {
             "infra_url": DF_INFRA_URL,
             "docker_network": DF_INFRA_DOCKER_NETWORK,
         },
+        # None of these actions set "server": install() injects it after start, from the port it
+        # actually resolved (config.infra_port) - not from this module's DF_INFRA_PORT default. The
+        # CLI process runs outside Docker, so it must reach infra via localhost, not config["infra_url"]
+        # above (the Docker-network hostname other containers use).
         "post_start_actions": [
             {
                 "function": "infra.service.install",
                 "kwargs": {
                     "name": "ollama",
                     "spec": json.dumps(OLLAMA_SERVICE_SPEC),
-                    "server": INFRA_LOCALHOST_URL,
                 },
             },
             {
                 "function": "infra.model.install",
-                "kwargs": {"service_name": "ollama", "model_name": CHAT_MODEL, "server": INFRA_LOCALHOST_URL},
+                "kwargs": {"service_name": "ollama", "model_name": CHAT_MODEL},
             },
             {
                 "function": "infra.model.install",
-                "kwargs": {"service_name": "ollama", "model_name": EMBEDDING_MODEL, "server": INFRA_LOCALHOST_URL},
+                "kwargs": {"service_name": "ollama", "model_name": EMBEDDING_MODEL},
             },
             {
                 "function": "infra.model.install",
-                "kwargs": {"service_name": "ollama", "model_name": FAST_MODEL, "server": INFRA_LOCALHOST_URL},
+                "kwargs": {"service_name": "ollama", "model_name": FAST_MODEL},
             },
         ],
     }

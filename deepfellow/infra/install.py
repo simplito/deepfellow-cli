@@ -25,8 +25,14 @@ from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import InstallError, reraise_if_debug
 from deepfellow.infra.utils.install import install as install_util
 from deepfellow.infra.utils.options import directory_option
+from deepfellow.infra.utils.templates import BUILTIN_TEMPLATES
 
 app = typer.Typer()
+
+_TEMPLATE_HELP = (
+    "Built-in template name or path to a YAML template file.\n\n"
+    f"Built-in templates: ({', '.join(sorted(BUILTIN_TEMPLATES))})"
+)
 
 
 @app.command()
@@ -48,6 +54,7 @@ def install(
     docker_network: str = typer.Option(
         DF_INFRA_DOCKER_NETWORK, envvar="DF_INFRA_DOCKER_NETWORK", help="Docker network"
     ),
+    template: str | None = typer.Option(None, help=_TEMPLATE_HELP),
     force_install: bool = typer.Option(False, help="Force install"),
     allow_rootful: bool = typer.Option(False, help="Allow rootful Docker without asking user for permission"),
     allow_print_keys: bool | None = typer.Option(
@@ -86,6 +93,7 @@ def install(
             infra_name=infra_name,
             infra_url=infra_url,
             docker_network=docker_network,
+            template=template,
             force_install=force_install,
             allow_rootful=allow_rootful,
             allow_print_keys=allow_print_keys,

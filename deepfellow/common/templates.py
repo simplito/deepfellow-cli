@@ -7,14 +7,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared install-template building blocks for the planned infra/server `--template` infrastructure.
+"""Shared install-template building blocks for infra/server `--template` infrastructure.
 
-Once `infra install --template`/`server install --template` are wired up (DFCLI-11/DFCLI-12), each
-command will resolve its own independent template file and keep its own
-BUILTIN_TEMPLATES/POST_START_ACTION_REGISTRY — no shared cross-command schema. Until then, this
-module has no callers outside `deepfellow.infra.utils.templates`/`deepfellow.server.utils.templates`
-and their own tests. It holds only the domain-agnostic pieces: the TypedDict shapes, structural
-validation of a loaded template, and a registry-parameterized dispatch helper.
+`infra install --template` is wired up: `deepfellow.infra.utils.install` and
+`deepfellow.infra.utils.templates` both import from here (InstallTemplate, resolve/dispatch
+helpers, etc.). `server install --template` is not wired up yet - `deepfellow.server.utils.templates`
+only holds its own BUILTIN_TEMPLATES/POST_START_ACTION_REGISTRY, with no `--template` CLI option
+calling into it. Each command keeps its own independent template file and registry - no shared
+cross-command schema. This module holds only the domain-agnostic pieces: the TypedDict shapes,
+structural validation of a loaded template, and a registry-parameterized dispatch helper.
 """
 
 import inspect

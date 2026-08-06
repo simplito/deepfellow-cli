@@ -1,0 +1,26 @@
+config:
+  port: 8086
+  infra_name: infra
+  infra_url: http://infra:8086
+  docker_network: deepfellow-infra-net
+
+# No "server" kwarg on any action below: infra install injects it after start, from the port it
+# actually resolved - a template can't know that port ahead of time, so any "server" value set
+# here would be overridden anyway.
+post_start_actions:
+  - function: infra.service.install
+    kwargs:
+      name: ollama
+      spec: '{"hardware": "GPU", "keep_alive": "-1", "is_flash_attention": true, "context_length": 250000}'
+  - function: infra.model.install
+    kwargs:
+      service_name: ollama
+      model_name: gemma4:e4b
+  - function: infra.model.install
+    kwargs:
+      service_name: ollama
+      model_name: mxbai-embed-large
+  - function: infra.model.install
+    kwargs:
+      service_name: ollama
+      model_name: qwen3.5:4b
