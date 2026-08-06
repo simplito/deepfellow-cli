@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased]
+## [0.31.0] - 2026-08-06
 ### Added
 - `deepfellow infra install --template <name>` — supply install-time defaults (port, DF_NAME, DF_INFRA_URL, docker network) and post-install actions from a built-in name or a YAML file; explicit CLI flags and a prior install's `.env` values still take precedence over the template.
 - Internal shared infrastructure for upcoming `infra install --template`/`server install --template` support (built-in "workspace" templates, template resolution, post-start-action dispatch, and validation rejecting an unrecognized top-level or `post_start_actions` key instead of silently discarding it).
