@@ -19,7 +19,6 @@ import pytest
 from deepfellow.common.exceptions import InstallError
 from deepfellow.infra.utils.templates import (
     BUILTIN_TEMPLATES,
-    INFRA_LOCALHOST_URL,
     OLLAMA_SERVICE_SPEC,
     POST_START_ACTION_REGISTRY,
     dispatch_post_start_action,
@@ -62,7 +61,7 @@ def test_dispatch_post_start_action_installs_ollama_service_from_builtin_workspa
     call_kwargs = mock_install_with_progress.call_args[1]
     assert call_kwargs["data"] == {"spec": OLLAMA_SERVICE_SPEC}
     assert mock_resolve.call_count == 1
-    assert mock_resolve.call_args == mock.call(INFRA_LOCALHOST_URL)
+    assert mock_resolve.call_args == mock.call(None)
 
 
 @mock.patch("deepfellow.infra.utils.model_install.install_with_progress")
@@ -80,7 +79,7 @@ def test_dispatch_post_start_action_installs_chat_model_from_builtin_workspace_t
 
     assert mock_install_with_progress.call_count == 1
     assert mock_resolve.call_count == 1
-    assert mock_resolve.call_args == mock.call(INFRA_LOCALHOST_URL)
+    assert mock_resolve.call_args == mock.call(None)
 
 
 def test_builtin_workspace_ollama_spec_is_json_serialized_for_service_install() -> None:
@@ -89,11 +88,13 @@ def test_builtin_workspace_ollama_spec_is_json_serialized_for_service_install() 
     assert json.loads(action["kwargs"]["spec"]) == OLLAMA_SERVICE_SPEC
 
 
-def test_builtin_workspace_post_start_actions_all_pass_the_infra_localhost_server_url() -> None:
+def test_builtin_workspace_post_start_actions_leave_server_for_install_to_inject() -> None:
+    # install() fills in "server" from the port it actually resolved, after infra is started - not
+    # from this module, which has no way to know that port at template-definition time.
     actions = BUILTIN_TEMPLATES["workspace"]["post_start_actions"]
 
     assert len(actions) == 4
-    assert all(action["kwargs"]["server"] == INFRA_LOCALHOST_URL for action in actions)
+    assert all("server" not in action["kwargs"] for action in actions)
 
 
 def test_resolve_template_returns_builtin_template_when_value_matches_known_name() -> None:

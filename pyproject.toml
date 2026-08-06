@@ -35,6 +35,9 @@ exclude-newer = "1 week"
 [tool.setuptools.packages.find]
 include = ["deepfellow*"]
 
+[tool.setuptools.package-data]
+"deepfellow.infra.templates" = ["*.yaml"]
+
 [tool.ruff]
 exclude = [
     ".direnv",
