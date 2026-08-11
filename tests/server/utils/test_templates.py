@@ -154,6 +154,27 @@ def test_resolve_template_loads_yaml_file_when_value_is_a_path(tmp_path: Path) -
     }
 
 
+def test_resolve_template_expands_and_resolves_create_admin_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    template_file = tmp_path / "custom.yaml"
+    template_file.write_text(
+        "config: {}\n"
+        "post_start_actions:\n"
+        "  - function: server.create_admin\n"
+        "    kwargs:\n"
+        "      directory: ~/.deepfellow/server\n"
+        "      name: admin\n"
+        "      email: admin@example.com\n"
+        "      password: null\n"
+    )
+
+    result = resolve_template(str(template_file))
+
+    assert result["post_start_actions"][0]["kwargs"]["directory"] == tmp_path / ".deepfellow" / "server"
+
+
 @mock.patch.dict("deepfellow.server.utils.templates.POST_START_ACTION_REGISTRY", {"other.action": Mock()})
 def test_resolve_template_leaves_non_create_admin_actions_untouched(tmp_path: Path) -> None:
     template_file = tmp_path / "custom.yaml"

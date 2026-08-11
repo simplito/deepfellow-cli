@@ -28,15 +28,28 @@ from deepfellow.common.defaults import (
 )
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import InstallError, reraise_if_debug
-from deepfellow.common.validation import validate_url
+from deepfellow.common.validation import validate_email, validate_password, validate_url
 from deepfellow.server.utils.install import install as install_util
+from deepfellow.server.utils.install import mergeable_field_names
 from deepfellow.server.utils.options import directory_option, set_default_server_directory
+from deepfellow.server.utils.templates import BUILTIN_TEMPLATES
 
 app = typer.Typer()
+
+_TEMPLATE_HELP = (
+    "Built-in template name or path to a YAML template file.\n\n"
+    f"Built-in templates: ({', '.join(sorted(BUILTIN_TEMPLATES))})"
+)
+
+# get_parameter_source() returns typer's own vendored ParameterSource enum (typer._click.core),
+# not click.core's public one, so comparing by name is what actually works across typer versions
+# without reaching into that private module.
+_EXPLICIT_PARAMETER_SOURCE_NAMES = frozenset({"COMMANDLINE", "ENVIRONMENT"})
 
 
 @app.command()
 def install(
+    ctx: typer.Context,
     directory: Path = directory_option(help="Target directory for the DeepFellow Server installation."),
     port: int = typer.Option(
         DF_SERVER_PORT, envvar="DF_SERVER_PORT", help="Port to use to serve the DeepFellow Server from."
@@ -89,8 +102,23 @@ def install(
     ),
     force_install: bool = typer.Option(False, help="Force install"),
     dev: bool = typer.Option(False, "--dev", help="Expose internal service ports to host for development."),
+    template: str | None = typer.Option(None, help=_TEMPLATE_HELP),
+    admin_name: str | None = typer.Option(None, "--admin-name", help="Admin user's name."),
+    admin_email: str | None = typer.Option(None, "--admin-email", callback=validate_email, help="Admin user's email."),
+    admin_password: str | None = typer.Option(
+        None, "--admin-password", callback=validate_password, help="Admin user's password."
+    ),
 ) -> None:
     """Install DeepFellow Server with docker."""
+    # merged[key] != own_default can't tell an explicitly-passed flag from an unpassed one when the
+    # two happen to be equal (e.g. an explicit `--port 8000` where 8000 is also port's own default) -
+    # ctx.get_parameter_source() is the only way to know for sure, so it's computed here, once, from
+    # the live Click invocation, and handed to install_util() instead of being re-derived from values.
+    explicitly_provided = {
+        key
+        for key in mergeable_field_names()
+        if (source := ctx.get_parameter_source(key)) is not None and source.name in _EXPLICIT_PARAMETER_SOURCE_NAMES
+    }
     try:
         install_util(
             directory=directory,
@@ -116,8 +144,13 @@ def install(
             embedding_model=embedding_model,
             embedding_size=embedding_size,
             embedding_sparse=embedding_sparse,
+            template=template,
             force_install=force_install,
             dev=dev,
+            explicitly_provided=explicitly_provided,
+            admin_name=admin_name,
+            admin_email=admin_email,
+            admin_password=admin_password,
         )
         set_default_server_directory(directory, force=False)
     except (InstallError, OSError) as exc:

@@ -9,13 +9,15 @@
 
 """Shared install-template building blocks for infra/server `--template` infrastructure.
 
-`infra install --template` is wired up: `deepfellow.infra.utils.install` and
-`deepfellow.infra.utils.templates` both import from here (InstallTemplate, resolve/dispatch
-helpers, etc.). `server install --template` is not wired up yet - `deepfellow.server.utils.templates`
-only holds its own BUILTIN_TEMPLATES/POST_START_ACTION_REGISTRY, with no `--template` CLI option
-calling into it. Each command keeps its own independent template file and registry - no shared
-cross-command schema. This module holds only the domain-agnostic pieces: the TypedDict shapes,
-structural validation of a loaded template, and a registry-parameterized dispatch helper.
+Both `infra install --template` and `server install --template` are wired up:
+`deepfellow.infra.utils.install`/`deepfellow.infra.utils.templates` and
+`deepfellow.server.utils.install`/`deepfellow.server.utils.templates` each import `InstallTemplate`
+from here and call into their own `resolve_template`/`dispatch_post_start_action`, built on this
+module's validation/dispatch primitives (`load_yaml_template`, `run_validations`,
+`validate_action_*`, `coerce_config_types`, `dispatch_post_start_action`). Each command keeps its
+own independent template file and registry - no shared cross-command schema. This module holds only
+the domain-agnostic pieces: the TypedDict shapes, structural validation of a loaded template, and a
+registry-parameterized dispatch helper.
 """
 
 import inspect

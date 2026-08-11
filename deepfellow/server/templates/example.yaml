@@ -1,0 +1,39 @@
+# Example `server install --template` file.
+#
+# Structure validated by deepfellow.common.templates.validate_template and the extra
+# server-specific checks in deepfellow.server.utils.templates.resolve_template. Only two
+# top-level keys are allowed: `config` and `post_start_actions`.
+
+config:
+  # Port the server API listens on.
+  port: 8000
+
+  # URL the server container uses to reach infra (Docker-network hostname, not localhost).
+  infra_url: "http://infra:8086"
+
+  # Infra API key. Omit this key entirely if it's generated at infra install time and not
+  # known ahead of install (as the built-in "workspace" template does).
+  infra_api_key: "your-infra-api-key"
+
+  # Docker network shared with the infra stack.
+  docker_network: "deepfellow-infra-net"
+
+  # Vector DB backend: "milvus" or "qdrant".
+  vectordb_type: "milvus"
+  vectordb_url: "http://milvus:19530"
+  vectordb_database_name: "deepfellow"
+
+  # Embedding model used for the vector DB.
+  embedding_model: "mxbai-embed-large"
+  embedding_size: "1024"
+
+post_start_actions:
+  # Registered in deepfellow.server.utils.templates.POST_START_ACTION_REGISTRY; kwargs must
+  # bind to deepfellow.server.utils.users.create_admin(directory, name, email, password).
+  - function: server.create_admin
+    kwargs:
+      directory: "~/.deepfellow/server"
+      # Leave name/email/password null to be prompted for them interactively at install time.
+      name: null
+      email: null
+      password: null
