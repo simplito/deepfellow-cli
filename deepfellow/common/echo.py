@@ -183,6 +183,8 @@ class Echo(Console):
         """
         return_value = get_return_value(message, default, from_args, original_default, force_provided)
         if return_value is not None:
+            if validation is not None:
+                return_value = validation(return_value)
             info = "(set automatically)" if password else f"(set automatically: {return_value})"
             echo.info(f"{message} {info}")
             return return_value

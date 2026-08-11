@@ -9,12 +9,12 @@
 
 """Shared install-template infrastructure for `server install --template`.
 
-Wiring note for whoever adds --template to server install: when merging
-resolve_template(...)["config"] into the CLI args passed to echo.prompt/prompt_until_valid/choice,
-pass force_provided=True for any value that came from the template. Without it, a template value
-equal to that field's original_default (e.g. this module's own "workspace" template sets infra_url
-to DF_INFRA_URL and port to DF_SERVER_PORT) is indistinguishable from "nothing was provided" and the
-prompt fires anyway. See deepfellow.common.echo.get_return_value.
+`server install` merges resolve_template(...)["config"] into the CLI args passed to
+echo.prompt/prompt_until_valid/choice with force_provided=True for any value that came from the
+template. Without it, a template value equal to that field's original_default (e.g. this module's
+own "workspace" template sets infra_url to DF_INFRA_URL and port to DF_SERVER_PORT) is
+indistinguishable from "nothing was provided" and the prompt fires anyway. See
+deepfellow.common.echo.get_return_value.
 """
 
 import copy
@@ -65,11 +65,10 @@ def dispatch_post_start_action(action: PostStartAction) -> None:
 SERVER_EMBEDDING_MODEL = "mxbai-embed-large"
 SERVER_EMBEDDING_SIZE = "1024"
 
-# Keep in sync with whatever config keys a future --template flag on `server install` ends up
-# consuming, and the scalar type each key's install() parameter expects — this is a hand-maintained
-# safety net against YAML typos and quoting mismatches (e.g. port: "9000"), not derived from a
-# signature. infra_api_key is included even though the built-in template omits it (see comment
-# below).
+# Keep in sync with the config keys `server install --template` consumes, and the scalar type each
+# key's install() parameter expects — this is a hand-maintained safety net against YAML typos and
+# quoting mismatches (e.g. port: "9000"), not derived from a signature. infra_api_key is included
+# even though the built-in template omits it (see comment below).
 CONFIG_KEY_TYPES: dict[str, type] = {
     "port": int,
     "infra_url": str,
@@ -100,15 +99,14 @@ BUILTIN_TEMPLATES: dict[str, InstallTemplate] = {
         "post_start_actions": [
             {
                 "function": "server.create_admin",
-                # name/email/password deliberately None: create_admin() prompts for whichever are omitted.
-                # KNOWN LIMITATION: this means the workspace template cannot complete under
-                # --non-interactive until a future --template flag on `server install` adds
-                # --admin-* flags to pass through here.
-                # KNOWN LIMITATION: directory is baked to the default DF_SERVER_DIRECTORY, not the
-                # directory actually installed to. Once a future --template flag on `server install`
-                # wires this in and honors --directory overrides (tracked as DFCLI-12), this action
-                # will still target the default directory unless
-                # it's rebuilt from the resolved directory.
+                # name/email/password deliberately None: create_admin() prompts for whichever are
+                # omitted. Under --non-interactive there's no prompt to fall back on, so
+                # deepfellow.server.utils.install._validate_non_interactive_post_start_actions
+                # rejects this template before install rather than letting it fail after the server
+                # is already installed and started.
+                # directory is baked to the default DF_SERVER_DIRECTORY here, but `server install`
+                # overrides it at runtime with the directory actually installed to (see
+                # deepfellow.server.utils.install.install), so a --directory override is honored.
                 "kwargs": {"directory": DF_SERVER_DIRECTORY, "name": None, "email": None, "password": None},
             }
         ],
@@ -119,9 +117,10 @@ BUILTIN_TEMPLATES: dict[str, InstallTemplate] = {
 def _coerce_vectordb_type(config: dict[str, Any], source: str) -> None:
     """Normalize config["vectordb_type"] to a VectorDBTypeChoice, in place.
 
-    A YAML-sourced template can only ever produce a plain string here, so this coercion is needed
-    regardless of template source to hand a ready-to-consume value to whatever eventually splats
-    `config` into install_util(**config).
+    Called unconditionally for every template source, since a YAML-sourced template can only ever
+    produce a plain string here and needs coercing to hand a ready-to-consume value to whatever
+    eventually splats `config` into install_util(**config). For a built-in template, whose value
+    is already a VectorDBTypeChoice, the isinstance check below makes this a no-op.
 
     Args:
         config: The template's config dict to coerce, in place.
@@ -151,7 +150,13 @@ def _coerce_directory(post_start_actions: list[PostStartAction], source: str) ->
 
     A YAML-sourced template can only ever produce a plain string here, so this coercion is needed
     regardless of template source to hand a ready-to-consume value to create_admin(), which is
-    typed to take a Path.
+    typed to take a Path. The result is expanded with .expanduser() before being resolved, unlike
+    deepfellow.server.utils.options.default_directory_callback, which only calls .resolve() since
+    a typed --directory value already has any "~" expanded by the shell before it gets there — a
+    YAML template's string has no shell to do that for it. Without the extra .expanduser() here,
+    deepfellow.server.utils.install.install's override comparison would be tripped by a template
+    writing e.g. "~/.deepfellow/server" where the resolved install directory is an equivalent
+    absolute path.
 
     Args:
         post_start_actions: The template's post_start_actions to coerce, in place.
@@ -185,7 +190,7 @@ def _coerce_directory(post_start_actions: list[PostStartAction], source: str) ->
                 f"got {directory!r}."
             )
 
-        action["kwargs"]["directory"] = Path(directory)
+        action["kwargs"]["directory"] = Path(directory).expanduser().resolve()
 
 
 def resolve_template(value: str) -> InstallTemplate:

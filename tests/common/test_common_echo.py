@@ -89,8 +89,9 @@ def test_prompt_non_interactive_from_args_equals_original_no_default_uses_from_a
 
 
 @patch(_IS_INTERACTIVE, return_value=False)
-def test_prompt_non_interactive_explicit_cli_value_skips_validation(mock_interactive, prompter):
-    """Validation is NOT applied to explicit CLI values (already validated)."""
+def test_prompt_non_interactive_explicit_cli_value_is_validated(mock_interactive, prompter):
+    """An explicit CLI value is still validated, not accepted as-is (e.g. an invalid --template
+    value merged in via force_provided must not silently reach the .env)."""
     validation = MagicMock(return_value="validated_value")
 
     result = prompter.prompt(
@@ -100,13 +101,14 @@ def test_prompt_non_interactive_explicit_cli_value_skips_validation(mock_interac
         original_default="original",
     )
 
-    validation.assert_not_called()
-    assert result == "cli_value"
+    assert validation.call_count == 1
+    assert validation.call_args == mock.call("cli_value")
+    assert result == "validated_value"
 
 
 @patch(_IS_INTERACTIVE, return_value=False)
-def test_prompt_non_interactive_default_skips_validation(mock_interactive, prompter):
-    """Validation is NOT applied to default values (already validated)."""
+def test_prompt_non_interactive_default_is_validated(mock_interactive, prompter):
+    """A config-sourced default is still validated, not accepted as-is."""
     validation = MagicMock(return_value="validated_value")
 
     result = prompter.prompt(
@@ -117,8 +119,25 @@ def test_prompt_non_interactive_default_skips_validation(mock_interactive, promp
         default="config_default",
     )
 
-    validation.assert_not_called()
-    assert result == "config_default"
+    assert validation.call_count == 1
+    assert validation.call_args == mock.call("config_default")
+    assert result == "validated_value"
+
+
+@patch(_IS_INTERACTIVE, return_value=False)
+def test_prompt_non_interactive_force_provided_invalid_value_raises(mock_interactive, prompter):
+    """A force_provided value (e.g. merged in from a --template equal to its own original_default)
+    is still validated, not accepted as-is."""
+    validation = MagicMock(side_effect=typer.BadParameter("invalid"))
+
+    with pytest.raises(typer.BadParameter):
+        prompter.prompt(
+            message="Enter value",
+            validation=validation,
+            from_args="same",
+            original_default="same",
+            force_provided=True,
+        )
 
 
 @patch("deepfellow.common.echo.Prompt.ask", return_value="user_input")
@@ -141,8 +160,8 @@ def test_prompt_interactive_user_input_gets_validated(mock_interactive, mock_ask
 
 @patch("deepfellow.common.echo.Prompt.ask")
 @patch(_IS_INTERACTIVE, return_value=True)
-def test_prompt_interactive_explicit_cli_value_skips_validation(mock_interactive, mock_ask, prompter):
-    """Even in interactive mode, explicit CLI values skip validation."""
+def test_prompt_interactive_explicit_cli_value_skips_prompt_but_is_validated(mock_interactive, mock_ask, prompter):
+    """Even in interactive mode, an explicit CLI value skips the prompt but is still validated."""
     validation = MagicMock(return_value="validated_value")
 
     result = prompter.prompt(
@@ -154,8 +173,9 @@ def test_prompt_interactive_explicit_cli_value_skips_validation(mock_interactive
     )
 
     mock_ask.assert_not_called()
-    validation.assert_not_called()
-    assert result == "explicit_value"
+    assert validation.call_count == 1
+    assert validation.call_args == mock.call("explicit_value")
+    assert result == "validated_value"
 
 
 @patch("deepfellow.common.echo.Prompt.ask", return_value="user_input")
@@ -353,7 +373,8 @@ def test_prompt_kwargs_passed_to_prompt_ask(mock_interactive, mock_ask, prompter
 @patch("deepfellow.common.echo.Prompt.ask")
 @patch(_IS_INTERACTIVE, return_value=True)
 def test_prompt_until_valid_force_provided_skips_prompt_despite_matching_default(mock_interactive, mock_ask, prompter):
-    """force_provided is forwarded through prompt_until_valid into prompt()/get_return_value."""
+    """force_provided is forwarded through prompt_until_valid into prompt()/get_return_value, and the
+    force_provided value is still validated rather than accepted as-is."""
     validation = MagicMock(return_value="validated_value")
 
     result = prompter.prompt_until_valid(
@@ -366,8 +387,29 @@ def test_prompt_until_valid_force_provided_skips_prompt_despite_matching_default
     )
 
     assert mock_ask.call_count == 0
-    assert validation.call_count == 0
-    assert result == "same"
+    assert validation.call_count == 1
+    assert validation.call_args == mock.call("same")
+    assert result == "validated_value"
+
+
+@patch("deepfellow.common.echo.Prompt.ask", side_effect=["bad", "good"])
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_prompt_until_valid_interactive_retries_after_invalid_input(mock_interactive, mock_ask, prompter):
+    """After a freshly-typed value fails validation, the user is re-prompted rather than reusing
+    the failed value - a force_provided value that fails validation must not get stuck retrying
+    forever with the same input (see get_return_value's from_args-cleared-to-None retry)."""
+    validation = MagicMock(side_effect=[typer.BadParameter("invalid"), "good"])
+
+    result = prompter.prompt_until_valid(
+        "Enter value",
+        validation,
+        from_args=None,
+        original_default=None,
+        default="default_val",
+    )
+
+    assert mock_ask.call_count == 2
+    assert result == "good"
 
 
 @mock.patch(_IS_INTERACTIVE)

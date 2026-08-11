@@ -75,6 +75,8 @@ def create_admin(directory: Path, name: str | None, email: str | None, password:
 
     if response and "Admin created" in response:
         echo.success("Admin account created.")
+    else:
+        echo.warning("Admin creation script finished without confirming success; verify the admin account manually.")
 
 
 def reset_password(directory: Path, email: str | None, password: str | None) -> None:
