@@ -21,6 +21,7 @@ from deepfellow.common.defaults import (
     DF_MONGO_DB,
     DF_MONGO_PORT,
     DF_MONGO_URL,
+    DF_NEO4J_URI,
     DF_SERVER_IMAGE,
     DF_SERVER_PORT,
     MILVUS_DATABASE,
@@ -87,6 +88,10 @@ def install(
     embedding_sparse: bool = typer.Option(
         False, "--embedding-sparse", help="Use sparse embeddings (deepfellow-bge-m3, size 1024)."
     ),
+    neo4j_active: bool = typer.Option(False, help="Enable the Knowledge Graph (Neo4j) instance."),
+    neo4j_url: str = typer.Option(DF_NEO4J_URI, help="The connection URI for the Neo4j instance"),
+    neo4j_username: str = typer.Option("", help="Username for Neo4j authentication"),
+    neo4j_password: str = typer.Option("", help="Password for Neo4j authentication"),
     force_install: bool = typer.Option(False, help="Force install"),
     dev: bool = typer.Option(False, "--dev", help="Expose internal service ports to host for development."),
 ) -> None:
@@ -116,6 +121,10 @@ def install(
             embedding_model=embedding_model,
             embedding_size=embedding_size,
             embedding_sparse=embedding_sparse,
+            neo4j_active=neo4j_active,
+            neo4j_url=neo4j_url,
+            neo4j_username=neo4j_username,
+            neo4j_password=neo4j_password,
             force_install=force_install,
             dev=dev,
         )

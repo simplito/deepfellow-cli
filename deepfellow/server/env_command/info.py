@@ -80,6 +80,19 @@ ENV_METADATA: dict[str, EnvMetadata] = {
     "DF_VECTOR_DATABASE__EMBEDDING__SIZE": EnvMetadata(
         description="Embedding vector size/dimensions.",
     ),
+    "DF_GRAPHITI__ENABLED": EnvMetadata(
+        description="Enable or disable the Knowledge Graph (Neo4j) integration.",
+    ),
+    "DF_GRAPHITI__NEO4J_URI": EnvMetadata(
+        description="Bolt connection URI for the Neo4j instance.",
+    ),
+    "DF_GRAPHITI__NEO4J_USER": EnvMetadata(
+        description="Neo4j username.",
+    ),
+    "DF_GRAPHITI__NEO4J_PASSWORD": EnvMetadata(
+        description="Neo4j password.",
+        sensitive=True,
+    ),
 }
 
 

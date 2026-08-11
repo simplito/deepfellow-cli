@@ -288,6 +288,35 @@ DOCKER_COMPOSE_MONGO_DB = {
     }
 }
 
+DF_NEO4J_URI = "bolt://neo4j:7687"
+
+DOCKER_COMPOSE_SERVER_NEO4J_ENVS = [
+    "DF_GRAPHITI__ENABLED=${DF_GRAPHITI__ENABLED}",
+    "DF_GRAPHITI__NEO4J_URI=${DF_GRAPHITI__NEO4J_URI}",
+    "DF_GRAPHITI__NEO4J_USER=${DF_GRAPHITI__NEO4J_USER}",
+    "DF_GRAPHITI__NEO4J_PASSWORD=${DF_GRAPHITI__NEO4J_PASSWORD}",
+]
+
+DOCKER_COMPOSE_NEO4J = {
+    "neo4j": {
+        "container_name": "neo4j",
+        "image": "neo4j:5.26.2",
+        "restart": "always",
+        "expose": ["7474", "7687"],
+        "volumes": ["neo4j_data:/data"],
+        "environment": [
+            "NEO4J_AUTH=${DF_GRAPHITI__NEO4J_USER}/${DF_GRAPHITI__NEO4J_PASSWORD}",
+        ],
+        "healthcheck": {
+            "test": ["CMD-SHELL", "wget -O /dev/null -q http://localhost:7474 || exit 1"],
+            "interval": "10s",
+            "timeout": "5s",
+            "retries": 5,
+            "start_period": "5s",
+        },
+    }
+}
+
 DEFAULT_OTEL_URL = "http://otel-collector:4317"
 
 DOCKER_COMPOSE_OTEL_COLLECTOR = {

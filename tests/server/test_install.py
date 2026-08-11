@@ -28,17 +28,19 @@ from deepfellow.common.defaults import (
     DF_MONGO_DB,
     DF_MONGO_PORT,
     DF_MONGO_URL,
+    DF_NEO4J_URI,
     DF_SERVER_DIRECTORY,
     DF_SERVER_IMAGE,
     DF_SERVER_PORT,
     DF_SERVER_STORAGE_DIRECTORY,
     DOCKER_COMPOSE_CONFIG_FILENAME,
+    DOCKER_COMPOSE_NEO4J,
     VectorDBTypeChoice,
 )
 from deepfellow.common.docker import DockerError
 from deepfellow.common.exceptions import InstallError
 from deepfellow.server.install import install as install_command
-from deepfellow.server.utils.configure import OtelConfig
+from deepfellow.server.utils.configure import Neo4jConfig, OtelConfig
 from deepfellow.server.utils.install import (
     InstallConfig,
     InstallContext,
@@ -91,6 +93,10 @@ def install_kwargs(directory: Path) -> dict[str, Any]:
         "embedding_model": "",
         "embedding_size": "",
         "embedding_sparse": False,
+        "neo4j_active": False,
+        "neo4j_url": DF_NEO4J_URI,
+        "neo4j_username": "",
+        "neo4j_password": "",
         "force_install": True,
         "dev": False,
     }
@@ -734,6 +740,7 @@ def install_config(tmp_path: Path) -> InstallConfig:
         is_custom_vector_db_server=False,
         vectordb_type="",
         otel=OtelConfig(envs={}, docker_compose={}),
+        neo4j=Neo4jConfig(envs={}, docker_compose={}),
         local_image=False,
         dev=False,
     )
@@ -1056,6 +1063,78 @@ def test_apply_does_not_append_otel_tracing_envs_when_only_one_var_present(
     environment = compose_dict["services"]["server"]["environment"]
     assert "DF_OTEL_EXPORTER_OTLP_ENDPOINT=${DF_OTEL_EXPORTER_OTLP_ENDPOINT}" not in environment
     assert "DF_OTEL_TRACING_ENABLED=${DF_OTEL_TRACING_ENABLED}" not in environment
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+def test_apply_adds_default_neo4j_service_when_docker_compose_present(
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    install_config.neo4j = Neo4jConfig(
+        envs={
+            "DF_GRAPHITI__ENABLED": "true",
+            "DF_GRAPHITI__NEO4J_URI": DF_NEO4J_URI,
+            "DF_GRAPHITI__NEO4J_USER": "neo4j",
+            "DF_GRAPHITI__NEO4J_PASSWORD": "neo4j-pass",
+        },
+        docker_compose=DOCKER_COMPOSE_NEO4J,
+    )
+
+    apply(install_config)
+
+    compose_dict = mock_save_compose.call_args[0][0]
+    assert "neo4j" in compose_dict["services"]
+    assert "neo4j_data" in compose_dict["volumes"]
+    assert compose_dict["services"]["server"]["depends_on"]["neo4j"] == {"condition": "service_healthy"}
+    environment = compose_dict["services"]["server"]["environment"]
+    assert "DF_GRAPHITI__ENABLED=${DF_GRAPHITI__ENABLED}" in environment
+    assert "DF_GRAPHITI__NEO4J_URI=${DF_GRAPHITI__NEO4J_URI}" in environment
+    assert "DF_GRAPHITI__NEO4J_USER=${DF_GRAPHITI__NEO4J_USER}" in environment
+    assert "DF_GRAPHITI__NEO4J_PASSWORD=${DF_GRAPHITI__NEO4J_PASSWORD}" in environment
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+def test_apply_does_not_add_neo4j_service_when_custom(
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    install_config.neo4j = Neo4jConfig(
+        envs={
+            "DF_GRAPHITI__ENABLED": "true",
+            "DF_GRAPHITI__NEO4J_URI": "bolt://custom-neo4j:7687",
+            "DF_GRAPHITI__NEO4J_USER": "custom-user",
+            "DF_GRAPHITI__NEO4J_PASSWORD": "custom-pass",
+        },
+        docker_compose={},
+    )
+
+    apply(install_config)
+
+    compose_dict = mock_save_compose.call_args[0][0]
+    assert "neo4j" not in compose_dict["services"]
+    assert "neo4j_data" not in compose_dict["volumes"]
+    environment = compose_dict["services"]["server"]["environment"]
+    assert "DF_GRAPHITI__ENABLED=${DF_GRAPHITI__ENABLED}" in environment
 
 
 @mock.patch("deepfellow.server.utils.install.run")

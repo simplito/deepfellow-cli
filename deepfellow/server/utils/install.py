@@ -30,6 +30,7 @@ from deepfellow.common.defaults import (
     DF_MONGO_DB,
     DF_MONGO_PORT,
     DF_MONGO_URL,
+    DF_NEO4J_URI,
     DF_SERVER_DIRECTORY,
     DF_SERVER_IMAGE,
     DF_SERVER_IMAGE_HUB,
@@ -40,6 +41,7 @@ from deepfellow.common.defaults import (
     DOCKER_COMPOSE_MONGO_DB,
     DOCKER_COMPOSE_QDRANT,
     DOCKER_COMPOSE_SERVER,
+    DOCKER_COMPOSE_SERVER_NEO4J_ENVS,
     DOCKER_COMPOSE_SERVER_VECTOR_DB_ENVS,
     DOCKER_COMPOSE_SERVER_VECTOR_DB_MILVUS_ENVS,
     MILVUS_DATABASE,
@@ -58,9 +60,11 @@ from deepfellow.common.install import assert_docker, ensure_directory
 from deepfellow.common.registry import get_newest_image_tag
 from deepfellow.common.system import run
 from deepfellow.server.utils.configure import (
+    Neo4jConfig,
     OtelConfig,
     configure_infra,
     configure_mongo,
+    configure_neo4j,
     configure_otel,
     configure_vector_db,
 )
@@ -153,6 +157,7 @@ class InstallConfig:
     is_custom_vector_db_server: bool
     vectordb_type: str
     otel: OtelConfig
+    neo4j: Neo4jConfig
     local_image: bool
     dev: bool
 
@@ -181,6 +186,10 @@ def resolve(
     embedding_model: str,
     embedding_size: str,
     embedding_sparse: bool,
+    neo4j_active: bool,
+    neo4j_url: str,
+    neo4j_username: str,
+    neo4j_password: str,
     local_image: bool,
     dev: bool,
 ) -> InstallConfig:
@@ -209,6 +218,10 @@ def resolve(
         embedding_model: Requested embedding model.
         embedding_size: Requested embedding size.
         embedding_sparse: Whether to use sparse embeddings.
+        neo4j_active: Whether the Knowledge Graph's Neo4j instance should be configured.
+        neo4j_url: Requested Neo4j connection URI.
+        neo4j_username: Requested Neo4j username.
+        neo4j_password: Requested Neo4j password.
         local_image: Whether a locally built docker image is used.
         dev: Whether to expose internal service ports to the host.
 
@@ -282,6 +295,8 @@ def resolve(
 
     otel = configure_otel(directory, otel_url, original_env_content, otel_local)
 
+    neo4j = configure_neo4j(neo4j_active, neo4j_url, neo4j_username, neo4j_password, original_env_content)
+
     return InstallConfig(
         directory=directory,
         port=port,
@@ -299,6 +314,7 @@ def resolve(
         is_custom_vector_db_server=is_custom_vector_db_server,
         vectordb_type=vectordb_type_str,
         otel=otel,
+        neo4j=neo4j,
         local_image=local_image,
         dev=dev,
     )
@@ -328,6 +344,7 @@ def apply(config: InstallConfig) -> None:  # noqa: C901
             **config.infra_env,
             **config.vectordb_envs,
             **config.otel.envs,
+            **config.neo4j.envs,
         },
     )
 
@@ -369,6 +386,14 @@ def apply(config: InstallConfig) -> None:  # noqa: C901
     if config.otel.docker_compose:
         services.update(deepcopy(config.otel.docker_compose))
         depends_on["otel-collector"] = {"condition": "service_started"}
+
+    if config.neo4j.docker_compose:
+        services.update(deepcopy(config.neo4j.docker_compose))
+        volumes["neo4j_data"] = None
+        depends_on["neo4j"] = {"condition": "service_healthy"}
+
+    if config.neo4j.envs.get("DF_GRAPHITI__ENABLED") == "true":
+        server_docker_envs.extend(DOCKER_COMPOSE_SERVER_NEO4J_ENVS)
 
     if config.otel.envs.get("DF_OTEL_TRACING_ENABLED") == "true" and config.otel.envs.get(
         "DF_OTEL_EXPORTER_OTLP_ENDPOINT"
@@ -452,6 +477,10 @@ def install(
     embedding_model: str = DEFAULT_VECTOR_DATABASE["embedding"]["model"],
     embedding_size: str = DEFAULT_VECTOR_DATABASE["embedding"]["size"],
     embedding_sparse: bool = False,
+    neo4j_active: bool = False,
+    neo4j_url: str = DF_NEO4J_URI,
+    neo4j_username: str = "",
+    neo4j_password: str = "",
     force_install: bool = False,
     dev: bool = False,
 ) -> None:
@@ -487,6 +516,10 @@ def install(
         embedding_model=embedding_model,
         embedding_size=embedding_size,
         embedding_sparse=embedding_sparse,
+        neo4j_active=neo4j_active,
+        neo4j_url=neo4j_url,
+        neo4j_username=neo4j_username,
+        neo4j_password=neo4j_password,
         local_image=local_image,
         dev=dev,
     )

@@ -26,6 +26,8 @@ from deepfellow.common.defaults import (
     DF_MONGO_DB,
     DF_MONGO_PORT,
     DF_MONGO_URL,
+    DF_NEO4J_URI,
+    DOCKER_COMPOSE_NEO4J,
     DOCKER_COMPOSE_OTEL_COLLECTOR,
     MILVUS_DATABASE,
     MONGO_DB_INIT_SH,
@@ -495,4 +497,81 @@ def configure_otel(
     return OtelConfig(
         envs=envs,
         docker_compose=docker_compose,
+    )
+
+
+@dataclass
+class Neo4jConfig:
+    envs: dict[str, Any]
+    docker_compose: dict[str, Any]
+
+
+def should_use_neo4j(neo4j_active: bool) -> bool:
+    """Check if server should configure the Knowledge Graph's Neo4j instance."""
+    if not neo4j_active:
+        return False
+    return echo.confirm("Do you want to enable the Knowledge Graph (Neo4j) feature?", default=neo4j_active)
+
+
+def is_custom_neo4j(neo4j_url: str) -> bool:
+    """Check if user wants to connect an existing Neo4j instance instead of a local one."""
+    if neo4j_url != DF_NEO4J_URI:
+        return True
+    return not echo.confirm("Install a local Neo4j for DeepFellow Server?", default=True)
+
+
+def configure_neo4j(
+    neo4j_active: bool,
+    neo4j_url: str,
+    neo4j_username: str,
+    neo4j_password: str,
+    original_env: dict[str, Any] | None = None,
+) -> Neo4jConfig:
+    """Collect info about the Knowledge Graph's Neo4j instance."""
+    original_env = original_env or {}
+
+    if not should_use_neo4j(neo4j_active):
+        return Neo4jConfig(envs={"DF_GRAPHITI__ENABLED": "false"}, docker_compose={})
+
+    if not is_custom_neo4j(neo4j_url):
+        neo4j_username = neo4j_username or str(original_env.get("df_graphiti__neo4j_user") or "neo4j")
+        neo4j_password = neo4j_password or str(original_env.get("df_graphiti__neo4j_password") or generate_password(12))
+        echo.info("A default Neo4j setup is created.")
+        return Neo4jConfig(
+            envs={
+                "DF_GRAPHITI__ENABLED": "true",
+                "DF_GRAPHITI__NEO4J_URI": DF_NEO4J_URI,
+                "DF_GRAPHITI__NEO4J_USER": neo4j_username,
+                "DF_GRAPHITI__NEO4J_PASSWORD": neo4j_password,
+            },
+            docker_compose=DOCKER_COMPOSE_NEO4J,
+        )
+
+    return Neo4jConfig(
+        envs={
+            "DF_GRAPHITI__ENABLED": "true",
+            "DF_GRAPHITI__NEO4J_URI": echo.prompt_until_valid(
+                "Provide Neo4j instance URI",
+                validate_url,
+                from_args=neo4j_url,
+                original_default=DF_NEO4J_URI,
+                default=original_env.get("df_graphiti__neo4j_uri", neo4j_url),
+            ),
+            "DF_GRAPHITI__NEO4J_USER": echo.prompt_until_valid(
+                "Provide Neo4j username",
+                validate_truthy,
+                from_args=neo4j_username,
+                original_default="",
+                default=original_env.get("df_graphiti__neo4j_user", ""),
+            ),
+            "DF_GRAPHITI__NEO4J_PASSWORD": echo.prompt_until_valid(
+                "Provide Neo4j password",
+                validate_truthy,
+                from_args=neo4j_password,
+                original_default="",
+                default=original_env.get("df_graphiti__neo4j_password", ""),
+                password=True,
+            ),
+        },
+        docker_compose={},
     )
