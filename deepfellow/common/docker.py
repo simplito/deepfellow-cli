@@ -9,7 +9,9 @@
 
 """Docker helper methods."""
 
+import json
 import os
+from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 
@@ -259,6 +261,78 @@ def is_service_running(service: str, cwd: Path) -> bool:
     # NAME            IMAGE                                               ...
 
     return result is not None and len(result.splitlines()) > 1
+
+
+def volume_exists(name: str) -> bool:
+    """Check if a Docker volume with the given name exists.
+
+    False means "not detected", not "definitely absent" - a failed inspect (daemon down,
+    permissions, wrong context) is reported the same way as a missing volume.
+
+    https://docs.docker.com/reference/cli/docker/volume/inspect/
+    """
+    try:
+        run(["docker", "volume", "inspect", name], capture_output=True, raises=DockerError)
+    except DockerError as e:
+        echo.debug(e)
+        return False
+
+    return True
+
+
+def remove_volume(name: str) -> None:
+    """Remove a Docker volume by name.
+
+    https://docs.docker.com/reference/cli/docker/volume/rm/
+
+    Raises:
+        DockerError: If the removal fails.
+    """
+    try:
+        run(["docker", "volume", "rm", name], capture_output=True, raises=DockerError)
+    except DockerError as e:
+        echo.debug(e)
+        raise
+
+
+def resolve_compose_volume_name(directory: Path, volume_key: str) -> str | None:
+    """Resolve the real, project-scoped Docker volume name Compose would assign to a volume key.
+
+    Docker Compose prefixes an unqualified volume name with its project name (by default the
+    sanitized basename of ``directory``, unless overridden), so the volume's real name isn't
+    knowable just from the key used in a compose file. This works even before a compose file has
+    been written to ``directory``, by piping a minimal synthetic one into ``docker compose
+    config`` via stdin and letting Compose resolve the project name from ``directory`` itself. A
+    volume declared but not referenced by any service is dropped entirely from the resolved
+    config (no ``volumes`` key at all), so a dummy service has to mount it for Compose to resolve
+    and report its name; the service is never started, only used to make ``config`` include it.
+    """
+    synthetic_compose = yaml.dump(
+        {
+            "services": {"_probe": {"image": "busybox", "volumes": [f"{volume_key}:/data"]}},
+            "volumes": {volume_key: {}},
+        }
+    )
+    try:
+        result = run(
+            ["docker", "compose", "-f", "-", "config", "--format", "json"],
+            cwd=directory,
+            input=synthetic_compose,
+            capture_output=True,
+            raises=DockerError,
+        )
+    except DockerError as e:
+        echo.debug(e)
+        return None
+
+    if not result:
+        return None
+    try:
+        volume = (json.loads(result).get("volumes") or {}).get(volume_key) or {}
+    except (AttributeError, JSONDecodeError) as e:
+        echo.debug(e)
+        return None
+    return volume.get("name") if volume else None
 
 
 def get_docker_network(directory: Path) -> str:
