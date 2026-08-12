@@ -40,6 +40,7 @@ from deepfellow.common.defaults import (
     DF_SERVER_STORAGE_DIRECTORY,
     DOCKER_COMPOSE_CONFIG_FILENAME,
     DOCKER_COMPOSE_NEO4J,
+    MILVUS_DATABASE_URL,
     VectorDBTypeChoice,
 )
 from deepfellow.common.docker import DockerError
@@ -47,7 +48,7 @@ from deepfellow.common.exceptions import DockerNetworkError, InstallError
 from deepfellow.common.state import state
 from deepfellow.server.install import app
 from deepfellow.server.install import install as install_command
-from deepfellow.server.utils.configure import Neo4jConfig, OtelConfig
+from deepfellow.server.utils.configure import Neo4jConfig, OtelConfig, configure_infra, configure_vector_db
 from deepfellow.server.utils.install import (
     _MERGEABLE_FIELDS,
     InstallConfig,

@@ -155,6 +155,7 @@ def install(
             neo4j_password=neo4j_password,
             force_install=force_install,
             dev=dev,
+            template=template,
             explicitly_provided=explicitly_provided,
             admin_name=admin_name,
             admin_email=admin_email,
