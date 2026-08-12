@@ -139,6 +139,17 @@ def test_create_admin_generic_error_shows_generic_message(mock_run: mock.Mock, m
     assert mock_echo.error.call_args == mock.call("Unable to create an admin.")
 
 
+@mock.patch("deepfellow.server.utils.users.echo")
+@mock.patch("deepfellow.server.utils.users.run")
+def test_create_admin_missing_success_marker_shows_warning(mock_run: mock.Mock, mock_echo: mock.Mock):
+    mock_run.return_value = "some unexpected output"
+
+    create_admin(Path(), "name", "admin@example.com", "somepassword")
+
+    assert mock_echo.success.call_count == 0
+    assert mock_echo.warning.call_count == 1
+
+
 @mock.patch("deepfellow.common.echo.Prompt.ask")
 @mock.patch("deepfellow.server.utils.users.validate_email")
 @mock.patch("deepfellow.server.utils.users.run")

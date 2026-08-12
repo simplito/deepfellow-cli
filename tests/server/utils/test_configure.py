@@ -16,8 +16,10 @@ import pytest
 import typer
 
 from deepfellow.common.defaults import (
+    ALLOWED_VECTOR_DB_TYPES,
     DEFAULT_OTEL_URL,
     DEFAULT_VECTOR_DATABASE,
+    DEFAULT_VECTOR_DATABASE_TYPE,
     DF_INFRA_URL,
     DF_MONGO_DB,
     DF_MONGO_URL,
@@ -30,7 +32,7 @@ from deepfellow.common.defaults import (
     SPARSE_EMBEDDING_MODEL,
     SPARSE_EMBEDDING_SIZE,
 )
-from deepfellow.common.validation import validate_truthy
+from deepfellow.common.validation import validate_truthy, validate_url
 from deepfellow.server.utils.configure import (
     configure_embedding,
     configure_infra,
@@ -135,12 +137,14 @@ def test_configure_embedding_reconfigure_dense_prompts_default_from_existing_env
         from_args="",
         original_default=DEFAULT_VECTOR_DATABASE["embedding"]["model"],
         default="custom-model",
+        force_provided=False,
     )
     assert size_call == mock.call(
         "Provide the embedding size",
         from_args="",
         original_default=DEFAULT_VECTOR_DATABASE["embedding"]["size"],
         default="768",
+        force_provided=False,
     )
 
 
@@ -304,8 +308,7 @@ def test_configure_otel_flag_off_still_uses_prompt_flow(mock_echo, mock_load, mo
 
 @mock.patch("deepfellow.server.utils.configure.echo")
 def test_configure_infra_returns_url_and_api_key(mock_echo):
-    mock_echo.prompt.return_value = "http://infra:8086"
-    mock_echo.prompt_until_valid.return_value = "secret-key"
+    mock_echo.prompt_until_valid.side_effect = ["http://infra:8086", "secret-key"]
 
     result = configure_infra("secret-key", "http://infra:8086", None)
 
@@ -313,15 +316,55 @@ def test_configure_infra_returns_url_and_api_key(mock_echo):
 
 
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_infra_rejects_empty_api_key(mock_echo):
-    """echo.prompt_until_valid can return an unvalidated empty string when the value comes
-    from a non-interactive default rather than a freshly-typed interactive one (it only
-    validates interactive input) - configure_infra must not let that empty value through."""
-    mock_echo.prompt.return_value = DF_INFRA_URL
-    mock_echo.prompt_until_valid.return_value = ""
+def test_configure_infra_force_provided_url_reaches_prompt_until_valid(mock_echo):
+    """force_provided_url must reach echo.prompt_until_valid's own force_provided kwarg, so a
+    --template config value equal to infra_url's own original_default (DF_INFRA_URL) is not
+    mistaken for "nothing was provided" and re-prompted for."""
+    mock_echo.prompt_until_valid.side_effect = [DF_INFRA_URL, "secret-key"]
 
-    with pytest.raises(typer.BadParameter):
-        configure_infra(None, DF_INFRA_URL, None)
+    configure_infra("secret-key", DF_INFRA_URL, None, force_provided_url=True)
+
+    assert mock_echo.prompt_until_valid.call_args_list[0] == mock.call(
+        "Provide DeepFellow Infra URL",
+        validate_url,
+        error_message="Invalid DeepFellow Infra URL. Please try again.",
+        from_args=DF_INFRA_URL,
+        original_default=DF_INFRA_URL,
+        default=DF_INFRA_URL,
+        force_provided=True,
+    )
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_infra_force_provided_url_defaults_to_false(mock_echo):
+    """Without an explicit force_provided_url, configure_infra must not force it - the flag's
+    absence must not accidentally suppress the prompt for a value that was never provided."""
+    mock_echo.prompt_until_valid.side_effect = [DF_INFRA_URL, "secret-key"]
+
+    configure_infra("secret-key", DF_INFRA_URL, None)
+
+    assert mock_echo.prompt_until_valid.call_args_list[0].kwargs["force_provided"] is False
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_infra_force_provided_api_key_reaches_prompt_until_valid(mock_echo):
+    """force_provided_api_key must reach echo.prompt_until_valid's own force_provided kwarg - the
+    built-in "workspace" template deliberately omits infra_api_key (see
+    deepfellow.server.utils.templates.BUILTIN_TEMPLATES), but a custom YAML template could still
+    supply one equal to its own original_default (None), which needs the same handling."""
+    mock_echo.prompt_until_valid.side_effect = [DF_INFRA_URL, "secret-key"]
+
+    configure_infra("secret-key", DF_INFRA_URL, None, force_provided_api_key=True)
+
+    assert mock_echo.prompt_until_valid.call_args_list[1] == mock.call(
+        "Provide Deepfellow Infra API KEY",
+        validation=validate_truthy,
+        from_args="secret-key",
+        original_default=None,
+        default="",
+        password=True,
+        force_provided=True,
+    )
 
 
 @mock.patch("deepfellow.server.utils.configure.echo")
@@ -380,6 +423,22 @@ def test_configure_milvus_specific_fields_explicit_username_not_overridden_by_en
         original_default="",
         default="stale-env-password",
         password=True,
+    )
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_milvus_specific_fields_force_provided_database_name_reaches_prompt(mock_echo: mock.MagicMock):
+    mock_echo.prompt_until_valid.side_effect = ["deepfellow-db", "generated-user", "generated-password"]
+
+    configure_milvus_specific_fields({}, "deepfellow", "", "", force_provided_database_name=True)
+
+    assert mock_echo.prompt_until_valid.call_args_list[0] == mock.call(
+        "Provide Milvus provider database name",
+        validate_truthy,
+        from_args="deepfellow",
+        original_default=MILVUS_DATABASE["provider"]["db"],
+        default="deepfellow",
+        force_provided=True,
     )
 
 
@@ -546,6 +605,73 @@ def test_configure_vector_db_custom_qdrant_prompts_for_url(mock_echo, mock_shoul
     assert env["DF_VECTOR_DATABASE__PROVIDER__TYPE"] == "qdrant"
 
 
+@mock.patch("deepfellow.server.utils.configure.is_custom_vectordb", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.should_use_vector_db", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_vector_db_force_provided_url_reaches_prompt_until_valid(
+    mock_echo, mock_should_use_vector_db, mock_is_custom
+):
+    """force_provided_url must reach echo.prompt_until_valid's own force_provided kwarg for the
+    vector database's own URL, so a --template config value equal to vectordb_url's own
+    original_default is not mistaken for "nothing was provided" and re-prompted for."""
+    mock_echo.choice.return_value = "qdrant"
+    default_url = QDRANT_DATABASE["provider"]["url"]
+    mock_echo.prompt_until_valid.return_value = default_url
+
+    configure_vector_db(
+        "http://infra:8086",
+        {},
+        1,
+        "qdrant",
+        default_url,
+        "",
+        "",
+        "",
+        "",
+        "",
+        True,
+        "qdrant",
+        force_provided_url=True,
+    )
+
+    assert mock_echo.prompt_until_valid.call_args == mock.call(
+        "Provide Qdrant instance URL",
+        validate_url,
+        default=default_url,
+        from_args=default_url,
+        original_default=default_url,
+        force_provided=True,
+    )
+
+
+@mock.patch("deepfellow.server.utils.configure.is_custom_vectordb", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.should_use_vector_db", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_vector_db_force_provided_url_defaults_to_false(mock_echo, mock_should_use_vector_db, mock_is_custom):
+    """Without an explicit force_provided_url, configure_vector_db must not force it - the flag's
+    absence must not accidentally suppress the prompt for a value that was never provided."""
+    mock_echo.choice.return_value = "qdrant"
+    default_url = QDRANT_DATABASE["provider"]["url"]
+    mock_echo.prompt_until_valid.return_value = default_url
+
+    configure_vector_db(
+        "http://infra:8086",
+        {},
+        1,
+        "qdrant",
+        default_url,
+        "",
+        "",
+        "",
+        "",
+        "",
+        True,
+        "qdrant",
+    )
+
+    assert mock_echo.prompt_until_valid.call_args.kwargs["force_provided"] is False
+
+
 @mock.patch("deepfellow.server.utils.configure.configure_milvus_specific_fields")
 @mock.patch("deepfellow.server.utils.configure.is_custom_vectordb", return_value=True)
 @mock.patch("deepfellow.server.utils.configure.should_use_vector_db", return_value=True)
@@ -667,16 +793,145 @@ def test_configure_vector_db_managed_generates_only_missing_username(
     assert "DF_VECTOR_DATABASE__PROVIDER__PASSWORD" not in env
 
 
+@mock.patch("deepfellow.server.utils.configure.is_custom_vectordb", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.should_use_vector_db", return_value=True)
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_infra_retries_after_invalid_url(mock_echo):
-    mock_echo.prompt.side_effect = [typer.BadParameter("bad url"), "http://infra:8086"]
-    mock_echo.prompt_until_valid.return_value = "secret-key"
+def test_configure_vector_db_force_provided_type_reaches_choice_call(
+    mock_echo: mock.MagicMock, mock_should_use_vector_db: mock.MagicMock, mock_is_custom: mock.MagicMock
+):
+    mock_echo.choice.side_effect = ["sparse", "qdrant"]
 
-    result = configure_infra("secret-key", "not-a-url", None)
+    configure_vector_db(
+        "http://infra:8086",
+        {},
+        1,
+        "qdrant",
+        "http://qdrant:6333",
+        "",
+        "",
+        "",
+        "",
+        "",
+        False,
+        "qdrant",
+        force_provided_type=True,
+    )
 
-    assert result == {"DF_INFRA__URL": "http://infra:8086", "DF_INFRA__API_KEY": "secret-key"}
-    assert mock_echo.prompt.call_count == 2
-    assert mock_echo.error.call_count == 1
+    assert mock_echo.choice.call_args_list[1] == mock.call(
+        "Choose the type of the vector database",
+        from_args="qdrant",
+        original_default=DEFAULT_VECTOR_DATABASE_TYPE,
+        choices=ALLOWED_VECTOR_DB_TYPES,
+        default="qdrant",
+        force_provided=True,
+    )
+
+
+@mock.patch("deepfellow.server.utils.configure.is_custom_vectordb", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.should_use_vector_db", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_vector_db_managed_force_provided_embedding_reaches_prompt(
+    mock_echo: mock.MagicMock, mock_should_use_vector_db: mock.MagicMock, mock_is_custom: mock.MagicMock
+):
+    mock_echo.choice.side_effect = ["dense", "qdrant"]
+    mock_echo.prompt.side_effect = ["my-model", "512"]
+
+    configure_vector_db(
+        "http://infra:8086",
+        {},
+        1,
+        "qdrant",
+        "http://qdrant:6333",
+        "",
+        "",
+        "",
+        "my-model",
+        "512",
+        False,
+        "qdrant",
+        force_provided_model=True,
+        force_provided_size=True,
+    )
+
+    model_call, size_call = mock_echo.prompt.call_args_list
+    assert model_call == mock.call(
+        "Provide the model for embedding",
+        from_args="my-model",
+        original_default=DEFAULT_VECTOR_DATABASE["embedding"]["model"],
+        default="my-model",
+        force_provided=True,
+    )
+    assert size_call == mock.call(
+        "Provide the embedding size",
+        from_args="512",
+        original_default=DEFAULT_VECTOR_DATABASE["embedding"]["size"],
+        default="512",
+        force_provided=True,
+    )
+
+
+@mock.patch("deepfellow.server.utils.configure.is_custom_vectordb", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.should_use_vector_db", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_vector_db_custom_force_provided_embedding_reaches_prompt(
+    mock_echo: mock.MagicMock, mock_should_use_vector_db: mock.MagicMock, mock_is_custom: mock.MagicMock
+):
+    mock_echo.choice.side_effect = ["dense", "qdrant"]
+    mock_echo.prompt_until_valid.return_value = "http://custom-qdrant:6333"
+    mock_echo.prompt.side_effect = ["my-model", "512"]
+
+    configure_vector_db(
+        "http://infra:8086",
+        {},
+        1,
+        "qdrant",
+        "http://custom-qdrant:6333",
+        "",
+        "",
+        "",
+        "my-model",
+        "512",
+        False,
+        "qdrant",
+        force_provided_model=True,
+        force_provided_size=True,
+    )
+
+    model_call, size_call = mock_echo.prompt.call_args_list
+    assert model_call == mock.call(
+        "Provide the model for embedding",
+        from_args="my-model",
+        original_default=DEFAULT_VECTOR_DATABASE["embedding"]["model"],
+        default="my-model",
+        force_provided=True,
+    )
+    assert size_call == mock.call(
+        "Provide the embedding size",
+        from_args="512",
+        original_default=DEFAULT_VECTOR_DATABASE["embedding"]["size"],
+        default="512",
+        force_provided=True,
+    )
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_infra_url_uses_prompt_until_valid_with_validate_url(mock_echo):
+    """Retrying on an invalid URL is echo.prompt_until_valid's own responsibility (see
+    tests/common/test_common_echo.py) - configure_infra only needs to wire validate_url and a
+    custom error_message into it, not implement retry itself."""
+    mock_echo.prompt_until_valid.side_effect = ["http://infra:8086", "secret-key"]
+
+    configure_infra("secret-key", "not-a-url", None)
+
+    assert mock_echo.prompt_until_valid.call_args_list[0] == mock.call(
+        "Provide DeepFellow Infra URL",
+        validate_url,
+        error_message="Invalid DeepFellow Infra URL. Please try again.",
+        from_args="not-a-url",
+        original_default=DF_INFRA_URL,
+        default="not-a-url",
+        force_provided=False,
+    )
 
 
 @mock.patch("deepfellow.server.utils.configure.echo")

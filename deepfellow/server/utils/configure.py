@@ -14,8 +14,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import typer
-
 from deepfellow.common.config import dict_to_env
 from deepfellow.common.defaults import (
     ALLOWED_VECTOR_DB_TYPES,
@@ -93,6 +91,8 @@ def configure_milvus_specific_fields(
     vectordb_database_name: str,
     vectordb_username: str | None,
     vectordb_password: str | None,
+    *,
+    force_provided_database_name: bool = False,
 ) -> dict[str, str]:
     """Configure fields specific for milvus.
 
@@ -104,6 +104,17 @@ def configure_milvus_specific_fields(
     (as a previous version did) makes it always differ from ``original_default`` and defeats
     the detection, so the ``.env`` value would never be used even when nothing was passed on
     the CLI.
+
+    Args:
+        original_provider: The prior install's vector DB provider settings, if any.
+        vectordb_database_name: Requested Milvus database name.
+        vectordb_username: Requested Milvus username.
+        vectordb_password: Requested Milvus password.
+        force_provided_database_name: Treat vectordb_database_name as explicitly provided even
+            if it equals its own original_default - needed when it was merged in from a
+            --template config value equal to that default. See
+            deepfellow.common.echo.get_return_value. Username/password have no --template config
+            key of their own, so they need no equivalent flag.
     """
     default_username = original_provider.get("user") or generate_password(8)
     default_password = original_provider.get("password") or generate_password(12)
@@ -115,6 +126,7 @@ def configure_milvus_specific_fields(
             from_args=vectordb_database_name,
             original_default=MILVUS_DATABASE["provider"]["db"],
             default=original_provider.get("db", vectordb_database_name),
+            force_provided=force_provided_database_name,
         ),
         "user": echo.prompt_until_valid(
             "Provide Milvus provider user",
@@ -154,8 +166,23 @@ def _build_embedding_config(
     original_env: dict[str, Any],
     embedding_model: str,
     embedding_size: str,
+    *,
+    force_provided_model: bool = False,
+    force_provided_size: bool = False,
 ) -> dict[str, str | int]:
-    """Build embedding config dict, prompting for model/size when dense."""
+    """Build embedding config dict, prompting for model/size when dense.
+
+    Args:
+        embedding_type: "dense" or "sparse", as chosen by _choose_embedding_type.
+        infra_url: DeepFellow Infra URL, used as the embedding endpoint.
+        original_env: The prior install's .env content, if any.
+        embedding_model: Requested embedding model (dense only).
+        embedding_size: Requested embedding size (dense only).
+        force_provided_model: Treat embedding_model as explicitly provided even if it equals its
+            own original_default - needed when it was merged in from a --template config value
+            equal to that default. See deepfellow.common.echo.get_return_value.
+        force_provided_size: Same as force_provided_model, for embedding_size.
+    """
     if embedding_type == "sparse":
         echo.info(f"Using {SPARSE_EMBEDDING_MODEL} for sparse embeddings")
         return {
@@ -174,12 +201,14 @@ def _build_embedding_config(
             from_args=embedding_model,
             original_default=DEFAULT_VECTOR_DATABASE["embedding"]["model"],
             default=existing_model,
+            force_provided=force_provided_model,
         ),
         "size": echo.prompt(
             "Provide the embedding size",
             from_args=embedding_size,
             original_default=DEFAULT_VECTOR_DATABASE["embedding"]["size"],
             default=original_embedding.get("size", embedding_size),
+            force_provided=force_provided_size,
         ),
     }
 
@@ -190,10 +219,21 @@ def configure_embedding(
     embedding_model: str,
     embedding_size: str,
     embedding_sparse: bool = False,
+    *,
+    force_provided_model: bool = False,
+    force_provided_size: bool = False,
 ) -> dict[str, str | int]:
     """Configure embedding fields."""
     embedding_type = _choose_embedding_type(original_env, embedding_model, embedding_sparse)
-    return _build_embedding_config(embedding_type, infra_url, original_env, embedding_model, embedding_size)
+    return _build_embedding_config(
+        embedding_type,
+        infra_url,
+        original_env,
+        embedding_model,
+        embedding_size,
+        force_provided_model=force_provided_model,
+        force_provided_size=force_provided_size,
+    )
 
 
 def configure_vector_db(
@@ -209,8 +249,39 @@ def configure_vector_db(
     embedding_size: str,
     embedding_sparse: bool,
     default_vectordb_type: str,
+    *,
+    force_provided_type: bool = False,
+    force_provided_url: bool = False,
+    force_provided_database_name: bool = False,
+    force_provided_model: bool = False,
+    force_provided_size: bool = False,
 ) -> tuple[bool, dict[str, str]]:
-    """Collect info about vector db."""
+    """Collect info about vector db.
+
+    Args:
+        infra_url: DeepFellow Infra URL, used as the embedding endpoint.
+        original_env_content: The prior install's .env content, if any.
+        vectordb_active: Whether a vector database should be configured.
+        vectordb_type: Requested vector database type.
+        vectordb_url: Requested vector database connection URL.
+        vectordb_database_name: Requested vector database database/collection name.
+        vectordb_username: Requested vector database username.
+        vectordb_password: Requested vector database password.
+        embedding_model: Requested embedding model.
+        embedding_size: Requested embedding size.
+        embedding_sparse: Whether to use sparse embeddings.
+        default_vectordb_type: The type to show as the choice prompt's default (usually the prior
+            install's type, falling back to vectordb_type's own CLI value).
+        force_provided_type: Treat vectordb_type as explicitly provided even if it equals its own
+            original_default - needed when it was merged in from a --template config value equal
+            to that default. See deepfellow.common.echo.get_return_value.
+        force_provided_url: Same as force_provided_type, for vectordb_url.
+        force_provided_database_name: Same as force_provided_type, for vectordb_database_name.
+        force_provided_model: Same as force_provided_type, for embedding_model.
+        force_provided_size: Same as force_provided_type, for embedding_size. vectordb_username/
+            vectordb_password have no --template config key of their own, so they need no
+            equivalent flag.
+    """
     if not should_use_vector_db(vectordb_active):
         return False, dict_to_env(
             {"provider": {"active": 0}, "embedding": {"active": 0}}, parent_key="DF_VECTOR_DATABASE"
@@ -229,6 +300,7 @@ def configure_vector_db(
         original_default=DEFAULT_VECTOR_DATABASE_TYPE,
         choices=ALLOWED_VECTOR_DB_TYPES,
         default=default_vectordb_type,
+        force_provided=force_provided_type,
     )
 
     # Change default url if user changed the type of vector db
@@ -244,7 +316,13 @@ def configure_vector_db(
         echo.info(f"DeepFellow will manage a {vectordb_type.capitalize()} instance.")
         vector_database = deepcopy(VECTOR_DATABASES[vectordb_type])
         vector_database["embedding"] = _build_embedding_config(
-            embedding_type, infra_url, original_env, embedding_model, embedding_size
+            embedding_type,
+            infra_url,
+            original_env,
+            embedding_model,
+            embedding_size,
+            force_provided_model=force_provided_model,
+            force_provided_size=force_provided_size,
         )
         # generate random login and password if not provided
         if not vectordb_username:
@@ -270,6 +348,7 @@ def configure_vector_db(
             default=original_provider.get("url", vectordb_url),
             from_args=vectordb_url,
             original_default=VECTOR_DATABASES[vectordb_type]["provider"]["url"],
+            force_provided=force_provided_url,
         ),
     }
 
@@ -279,51 +358,69 @@ def configure_vector_db(
             vectordb_database_name,
             vectordb_username,
             vectordb_password,
+            force_provided_database_name=force_provided_database_name,
         )
 
     # Ask model/size after URL and credentials
-    embedding = _build_embedding_config(embedding_type, infra_url, original_env, embedding_model, embedding_size)
+    embedding = _build_embedding_config(
+        embedding_type,
+        infra_url,
+        original_env,
+        embedding_model,
+        embedding_size,
+        force_provided_model=force_provided_model,
+        force_provided_size=force_provided_size,
+    )
 
     return True, dict_to_env({"provider": provider, "embedding": embedding}, parent_key="DF_VECTOR_DATABASE")
 
 
 def configure_infra(
-    infra_api_key: str | None, infra_url: str, original_env: dict[str, Any] | None = None
+    infra_api_key: str | None,
+    infra_url: str,
+    original_env: dict[str, Any] | None = None,
+    *,
+    force_provided_url: bool = False,
+    force_provided_api_key: bool = False,
 ) -> dict[str, Any]:
     """Configure single infra.
 
+    Args:
+        infra_api_key: Requested DeepFellow Infra API key.
+        infra_url: Requested DeepFellow Infra URL.
+        original_env: The prior install's .env content, if any.
+        force_provided_url: Treat infra_url as explicitly provided even if it equals its own
+            original_default - needed when infra_url was merged in from a --template config
+            value equal to that default, which would otherwise be indistinguishable from
+            "nothing was provided" and prompt anyway. See deepfellow.common.echo.get_return_value.
+        force_provided_api_key: Same as force_provided_url, for infra_api_key.
+
     Raises:
-        typer.BadParameter: If the resolved API key is empty. ``echo.prompt_until_valid``
-            only validates a freshly-typed interactive value, not a value taken as-is from
-            ``infra_api_key``/config defaults, so the result is re-checked here explicitly.
+        typer.BadParameter: If the resolved URL fails ``validate_url``, or the resolved API key
+            is empty (in non-interactive mode; interactively, ``echo.prompt_until_valid`` retries
+            instead).
     """
     infra = {}
     original_env = original_env or {}
 
-    correct = False
-    while not correct:
-        try:
-            infra["DF_INFRA__URL"] = echo.prompt(
-                "Provide DeepFellow Infra URL",
-                from_args=infra_url,
-                original_default=DF_INFRA_URL,
-                default=(original_env or {}).get("df_infra", {}).get("url", infra_url),
-                validation=validate_url,
-            )
-            correct = True
-        except typer.BadParameter:
-            echo.error("Invalid DeepFellow Infra URL. Please try again.")
-            correct = False
+    infra["DF_INFRA__URL"] = echo.prompt_until_valid(
+        "Provide DeepFellow Infra URL",
+        validate_url,
+        error_message="Invalid DeepFellow Infra URL. Please try again.",
+        from_args=infra_url,
+        original_default=DF_INFRA_URL,
+        default=(original_env or {}).get("df_infra", {}).get("url", infra_url),
+        force_provided=force_provided_url,
+    )
 
-    infra["DF_INFRA__API_KEY"] = validate_truthy(
-        echo.prompt_until_valid(
-            "Provide Deepfellow Infra API KEY",
-            validation=validate_truthy,
-            from_args=infra_api_key,
-            original_default=None,
-            default=original_env.get("df_infra", {}).get("api_key") or "",
-            password=True,
-        )
+    infra["DF_INFRA__API_KEY"] = echo.prompt_until_valid(
+        "Provide Deepfellow Infra API KEY",
+        validation=validate_truthy,
+        from_args=infra_api_key,
+        original_default=None,
+        default=original_env.get("df_infra", {}).get("api_key") or "",
+        password=True,
+        force_provided=force_provided_api_key,
     )
     return infra
 
