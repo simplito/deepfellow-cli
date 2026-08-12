@@ -36,7 +36,10 @@ from deepfellow.common.docker import (
     parse_docker_compose_ps,
     parse_docker_compose_usage,
     print_docker_status,
+    remove_volume,
+    resolve_compose_volume_name,
     save_compose_file,
+    volume_exists,
 )
 from deepfellow.common.exceptions import DockerNetworkError, DockerSocketNotFoundError
 
@@ -598,6 +601,144 @@ def test_get_docker_network_returns_empty_string_when_missing(tmp_path: Path) ->
     result = get_docker_network(tmp_path)
 
     assert result == ""
+
+
+@mock.patch("deepfellow.common.docker.run")
+def test_volume_exists_returns_true_on_success(mock_run: Mock) -> None:
+    result = volume_exists("server_mongo")
+
+    assert result is True
+    assert mock_run.call_count == 1
+    assert mock_run.call_args == mock.call(
+        ["docker", "volume", "inspect", "server_mongo"], capture_output=True, raises=DockerError
+    )
+
+
+@mock.patch("deepfellow.common.docker.echo")
+@mock.patch("deepfellow.common.docker.run")
+def test_volume_exists_returns_false_on_docker_error(mock_run: Mock, mock_echo: Mock) -> None:
+    error = DockerError("No such volume: server_mongo")
+    mock_run.side_effect = error
+
+    result = volume_exists("server_mongo")
+
+    assert result is False
+    assert mock_echo.debug.call_count == 1
+    assert mock_echo.debug.call_args == mock.call(error)
+    assert mock_echo.error.call_count == 0
+
+
+@mock.patch("deepfellow.common.docker.run")
+def test_remove_volume_calls_docker_volume_rm(mock_run: Mock) -> None:
+    remove_volume("server_mongo")
+
+    assert mock_run.call_count == 1
+    assert mock_run.call_args == mock.call(
+        ["docker", "volume", "rm", "server_mongo"], capture_output=True, raises=DockerError
+    )
+
+
+@mock.patch("deepfellow.common.docker.echo")
+@mock.patch("deepfellow.common.docker.run")
+def test_remove_volume_raises_docker_error_on_failure(mock_run: Mock, mock_echo: Mock) -> None:
+    error = DockerError("volume in use")
+    mock_run.side_effect = error
+
+    with pytest.raises(DockerError) as exc_info:
+        remove_volume("server_mongo")
+
+    assert exc_info.value is error
+    assert mock_echo.debug.call_count == 1
+    assert mock_echo.debug.call_args == mock.call(error)
+
+
+@mock.patch("deepfellow.common.docker.run")
+def test_resolve_compose_volume_name_returns_resolved_name(mock_run: Mock, tmp_path: Path) -> None:
+    mock_run.return_value = '{"volumes": {"mongo": {"name": "server_mongo"}}}'
+
+    result = resolve_compose_volume_name(tmp_path, "mongo")
+
+    assert result == "server_mongo"
+    assert mock_run.call_count == 1
+    call_args = mock_run.call_args
+    assert call_args.args == (["docker", "compose", "-f", "-", "config", "--format", "json"],)
+    assert call_args.kwargs["cwd"] == tmp_path
+    assert call_args.kwargs["capture_output"] is True
+    assert call_args.kwargs["raises"] is DockerError
+
+    # Assert the two invariants that actually matter (rather than the exact serialized YAML,
+    # which is an implementation detail): the volume key is declared, and some service mounts
+    # it - Compose drops a volume from its resolved output entirely if no service references it
+    # (see commit 8203fd1), so the second invariant is what the synthetic compose file exists to
+    # guarantee.
+    synthetic_compose = yaml.safe_load(call_args.kwargs["input"])
+    assert "mongo" in synthetic_compose.get("volumes", {})
+    assert any(
+        any(mount.startswith("mongo:") for mount in service.get("volumes", []))
+        for service in synthetic_compose.get("services", {}).values()
+    )
+
+
+@mock.patch("deepfellow.common.docker.run")
+def test_resolve_compose_volume_name_returns_none_when_key_absent(mock_run: Mock, tmp_path: Path) -> None:
+    mock_run.return_value = '{"volumes": {"other": {"name": "server_other"}}}'
+
+    result = resolve_compose_volume_name(tmp_path, "mongo")
+
+    assert result is None
+
+
+@mock.patch("deepfellow.common.docker.run")
+def test_resolve_compose_volume_name_returns_none_on_empty_result(mock_run: Mock, tmp_path: Path) -> None:
+    mock_run.return_value = ""
+
+    result = resolve_compose_volume_name(tmp_path, "mongo")
+
+    assert result is None
+
+
+@mock.patch("deepfellow.common.docker.echo")
+@mock.patch("deepfellow.common.docker.run")
+def test_resolve_compose_volume_name_returns_none_on_docker_error(
+    mock_run: Mock, mock_echo: Mock, tmp_path: Path
+) -> None:
+    error = DockerError("docker: command not found")
+    mock_run.side_effect = error
+
+    result = resolve_compose_volume_name(tmp_path, "mongo")
+
+    assert result is None
+    assert mock_echo.debug.call_count == 1
+    assert mock_echo.debug.call_args == mock.call(error)
+    assert mock_echo.error.call_count == 0
+
+
+@mock.patch("deepfellow.common.docker.echo")
+@mock.patch("deepfellow.common.docker.run")
+def test_resolve_compose_volume_name_returns_none_on_malformed_json(
+    mock_run: Mock, mock_echo: Mock, tmp_path: Path
+) -> None:
+    mock_run.return_value = "not valid json"
+
+    result = resolve_compose_volume_name(tmp_path, "mongo")
+
+    assert result is None
+    assert mock_echo.debug.call_count == 1
+    assert mock_echo.error.call_count == 0
+
+
+@mock.patch("deepfellow.common.docker.echo")
+@mock.patch("deepfellow.common.docker.run")
+def test_resolve_compose_volume_name_returns_none_when_volumes_key_is_null(
+    mock_run: Mock, mock_echo: Mock, tmp_path: Path
+) -> None:
+    mock_run.return_value = '{"volumes": null}'
+
+    result = resolve_compose_volume_name(tmp_path, "mongo")
+
+    assert result is None
+    assert mock_echo.debug.call_count == 0
+    assert mock_echo.error.call_count == 0
 
 
 @mock.patch("deepfellow.common.docker.run")

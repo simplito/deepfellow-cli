@@ -60,6 +60,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `server install` no longer crashes with an unhandled `OSError` if creating the storage/plugins bind-mount directories fails (e.g. permission denied); it now shows a clear error message instead.
 - `deepfellow suite install` no longer crashes with a raw traceback when a step fails; failures now exit cleanly with a readable error message, matching `infra install`/`server install`.
 - `just check`'s `mypy`/`ruff` recipes now scan the same paths (`deepfellow/ tests/`) as the GitLab CI pipeline, so type and lint errors introduced only under `tests/` are caught locally instead of surfacing as CI-only failures.
+- `deepfellow server start`/`restart`/`update`/`env set` (and `suite install`) now detect a MongoDB authentication failure caused by a stale `mongo` Docker volume from a previous install (e.g. after `server uninstall` followed by a fresh `server install`) and print a specific remediation hint, instead of the generic "container server is unhealthy" message.
+- `deepfellow server install`, when no matching MongoDB admin credentials are found in `.env` (fresh or missing directory), now detects a pre-existing `mongo` Docker volume from an earlier install and asks whether to remove it before generating new credentials, instead of silently installing credentials that are guaranteed to mismatch it and crash-loop; declining aborts the install without touching the volume. `--yes` skips the prompt and removes the volume automatically.
 
 ## [0.8.0] - 2026-06-19
 

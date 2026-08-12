@@ -30,8 +30,11 @@ from deepfellow.common.defaults import (
     SPARSE_EMBEDDING_MODEL,
     SPARSE_EMBEDDING_SIZE,
 )
+from deepfellow.common.docker import DockerError
+from deepfellow.common.state import state
 from deepfellow.common.validation import validate_truthy, validate_url
 from deepfellow.server.utils.configure import (
+    _resolve_mongo_volume_conflict,
     configure_embedding,
     configure_infra,
     configure_milvus_specific_fields,
@@ -950,8 +953,11 @@ def test_configure_mongo_custom_prompts_all_fields(mock_echo, tmp_directory: Pat
     assert not (tmp_directory / "init-mongo.sh").exists()
 
 
+@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value=None)
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_mongo_default_generates_missing_credentials_and_writes_init_script(mock_echo, tmp_directory: Path):
+def test_configure_mongo_default_generates_missing_credentials_and_writes_init_script(
+    mock_echo, mock_resolve_volume, tmp_directory: Path
+):
     result = configure_mongo(tmp_directory, False, "", "")
 
     assert result["DF_MONGO_URL"] == DF_MONGO_URL
@@ -967,16 +973,23 @@ def test_configure_mongo_default_generates_missing_credentials_and_writes_init_s
     assert mock_echo.info.call_count == 1
 
 
+@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value=None)
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_mongo_default_preserves_provided_user_and_password(mock_echo, tmp_directory: Path):
+def test_configure_mongo_default_preserves_provided_user_and_password(
+    mock_echo, mock_resolve_volume, tmp_directory: Path
+):
     result = configure_mongo(tmp_directory, False, "given-user", "given-password")
 
     assert result["DF_MONGO_USER"] == "given-user"
     assert result["DF_MONGO_PASSWORD"] == "given-password"
 
 
+@mock.patch("deepfellow.server.utils.configure.volume_exists")
+@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name")
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_mongo_default_reuses_existing_admin_credentials(mock_echo, tmp_directory: Path):
+def test_configure_mongo_default_reuses_existing_admin_credentials(
+    mock_echo, mock_resolve_volume, mock_volume_exists, tmp_directory: Path
+):
     original_env = {
         "df_mongo_initdb_root_username": "existing-admin",
         "df_mongo_initdb_root_password": "existing-admin-password",
@@ -986,12 +999,213 @@ def test_configure_mongo_default_reuses_existing_admin_credentials(mock_echo, tm
 
     assert result["DF_MONGO_INITDB_ROOT_USERNAME"] == "existing-admin"
     assert result["DF_MONGO_INITDB_ROOT_PASSWORD"] == "existing-admin-password"
+    # A reconfigure with usable existing credentials must never even attempt volume detection -
+    # if it did (e.g. the guard condition regressed to run unconditionally), this pins that as a
+    # failure instead of silently passing via a swallowed DockerError from real, unmocked docker
+    # calls (the exact class of gap manual end-to-end testing caught elsewhere in this PR).
+    assert mock_resolve_volume.call_count == 0
+    assert mock_volume_exists.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value=None)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_mongo_default_treats_blank_env_admin_creds_as_missing(
+    mock_echo, mock_resolve_volume, tmp_directory: Path
+):
+    original_env = {
+        "df_mongo_initdb_root_username": "",
+        "df_mongo_initdb_root_password": "",
+    }
+
+    result = configure_mongo(tmp_directory, False, "", "", original_env=original_env)
+
+    assert mock_resolve_volume.call_count == 1
+    assert result["DF_MONGO_INITDB_ROOT_USERNAME"]
+    assert result["DF_MONGO_INITDB_ROOT_PASSWORD"]
 
 
 @mock.patch.object(Path, "write_text", side_effect=OSError("Permission denied"))
+@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value=None)
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_mongo_default_raises_on_write_error(mock_echo, mock_write_text, tmp_directory: Path):
+def test_configure_mongo_default_raises_on_write_error(
+    mock_echo, mock_resolve_volume, mock_write_text, tmp_directory: Path
+):
     with pytest.raises(typer.Exit):
         configure_mongo(tmp_directory, False, "", "")
 
     assert mock_echo.error.call_count == 1
+
+
+@mock.patch("deepfellow.server.utils.configure.volume_exists", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name")
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_resolve_mongo_volume_conflict_noop_when_volume_name_unresolved(
+    mock_echo, mock_resolve_volume, mock_volume_exists, tmp_directory: Path
+):
+    mock_resolve_volume.return_value = None
+
+    _resolve_mongo_volume_conflict(tmp_directory)
+
+    assert mock_volume_exists.call_count == 0
+    assert mock_echo.warning.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.volume_exists", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value="server_mongo")
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_resolve_mongo_volume_conflict_noop_when_volume_does_not_exist(
+    mock_echo, mock_resolve_volume, mock_volume_exists, tmp_directory: Path
+):
+    _resolve_mongo_volume_conflict(tmp_directory)
+
+    assert mock_volume_exists.call_count == 1
+    assert mock_volume_exists.call_args == mock.call("server_mongo")
+    assert mock_echo.warning.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.remove_volume")
+@mock.patch("deepfellow.server.utils.configure.volume_exists", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value="server_mongo")
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_resolve_mongo_volume_conflict_removes_volume_when_user_confirms(
+    mock_echo, mock_resolve_volume, mock_volume_exists, mock_remove_volume, tmp_directory: Path
+):
+    mock_echo.confirm.return_value = True
+
+    _resolve_mongo_volume_conflict(tmp_directory)
+
+    assert mock_echo.warning.call_count == 1
+    assert "server_mongo" in mock_echo.warning.call_args.args[0]
+    assert mock_echo.confirm.call_count == 1
+    # default=False is load-bearing: it's what makes a plain --non-interactive run abort instead
+    # of silently deleting the volume (echo.confirm returns the default without prompting there).
+    assert mock_echo.confirm.call_args == mock.call(
+        "Remove the existing volume 'server_mongo' now so new credentials will work?", default=False
+    )
+    assert mock_remove_volume.call_count == 1
+    assert mock_remove_volume.call_args == mock.call("server_mongo")
+    assert mock_echo.error.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.remove_volume")
+@mock.patch("deepfellow.server.utils.configure.volume_exists", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value="server_mongo")
+def test_resolve_mongo_volume_conflict_aborts_without_prompting_when_non_interactive(
+    mock_resolve_volume, mock_volume_exists, mock_remove_volume, tmp_directory: Path
+):
+    # Deliberately does not mock echo: exercises the real echo.confirm, which under
+    # --non-interactive returns its default (False) without ever prompting. This is the actual
+    # safety property _resolve_mongo_volume_conflict's docstring claims - a --non-interactive run
+    # aborts rather than silently deleting the volume - proven here without mocking the choice.
+    state.non_interactive = True
+
+    with pytest.raises(typer.Exit):
+        _resolve_mongo_volume_conflict(tmp_directory)
+
+    assert mock_remove_volume.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.remove_volume")
+@mock.patch("deepfellow.server.utils.configure.volume_exists", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value="server_mongo")
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_resolve_mongo_volume_conflict_raises_when_user_declines_without_removing(
+    mock_echo, mock_resolve_volume, mock_volume_exists, mock_remove_volume, tmp_directory: Path
+):
+    mock_echo.confirm.return_value = False
+
+    with pytest.raises(typer.Exit):
+        _resolve_mongo_volume_conflict(tmp_directory)
+
+    assert mock_remove_volume.call_count == 0
+    assert mock_echo.error.call_count == 1
+
+
+@mock.patch("deepfellow.server.utils.configure.remove_volume")
+@mock.patch("deepfellow.server.utils.configure.volume_exists", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value="server_mongo")
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_resolve_mongo_volume_conflict_removes_volume_without_asking_when_yes_flag_set(
+    mock_echo, mock_resolve_volume, mock_volume_exists, mock_remove_volume, tmp_directory: Path
+):
+    state.yes = True
+
+    _resolve_mongo_volume_conflict(tmp_directory)
+
+    assert mock_echo.confirm.call_count == 0
+    assert mock_remove_volume.call_count == 1
+    assert mock_remove_volume.call_args == mock.call("server_mongo")
+    assert mock_echo.error.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.remove_volume", side_effect=DockerError("volume in use"))
+@mock.patch("deepfellow.server.utils.configure.volume_exists", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value="server_mongo")
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_resolve_mongo_volume_conflict_raises_when_removal_fails(
+    mock_echo, mock_resolve_volume, mock_volume_exists, mock_remove_volume, tmp_directory: Path
+):
+    mock_echo.confirm.return_value = True
+
+    with pytest.raises(typer.Exit):
+        _resolve_mongo_volume_conflict(tmp_directory)
+
+    assert mock_echo.error.call_count == 1
+    assert "server_mongo" in mock_echo.error.call_args.args[0]
+
+
+@mock.patch("deepfellow.server.utils.configure.volume_exists", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value="server_mongo")
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_resolve_mongo_volume_conflict_reraises_original_error_in_debug_mode(
+    mock_echo, mock_resolve_volume, mock_volume_exists, tmp_directory: Path
+):
+    state.debug = True
+    mock_echo.confirm.return_value = True
+    removal_error = DockerError("volume in use")
+
+    with (
+        mock.patch("deepfellow.server.utils.configure.remove_volume", side_effect=removal_error),
+        pytest.raises(DockerError) as exc_info,
+    ):
+        _resolve_mongo_volume_conflict(tmp_directory)
+
+    assert exc_info.value is removal_error
+
+
+@mock.patch("deepfellow.server.utils.configure.remove_volume")
+@mock.patch("deepfellow.server.utils.configure.volume_exists", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value="server_mongo")
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_mongo_default_raises_when_volume_exists_and_user_declines(
+    mock_echo, mock_resolve_volume, mock_volume_exists, mock_remove_volume, tmp_directory: Path
+):
+    mock_echo.confirm.return_value = False
+
+    with pytest.raises(typer.Exit):
+        configure_mongo(tmp_directory, False, "", "")
+
+    assert mock_remove_volume.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.remove_volume")
+@mock.patch("deepfellow.server.utils.configure.volume_exists", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value="server_mongo")
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_mongo_default_removes_volume_and_completes_when_user_confirms(
+    mock_echo, mock_resolve_volume, mock_volume_exists, mock_remove_volume, tmp_directory: Path
+):
+    mock_echo.confirm.return_value = True
+
+    result = configure_mongo(tmp_directory, False, "", "")
+
+    assert mock_remove_volume.call_count == 1
+    assert mock_remove_volume.call_args == mock.call("server_mongo")
+    assert result["DF_MONGO_URL"] == DF_MONGO_URL
+    assert result["DF_MONGO_DB"] == DF_MONGO_DB
+    assert result["DF_MONGO_USER"]
+    assert result["DF_MONGO_PASSWORD"]
+    assert result["DF_MONGO_INITDB_ROOT_USERNAME"]
+    assert result["DF_MONGO_INITDB_ROOT_PASSWORD"]
+    init_script = tmp_directory / "init-mongo.sh"
+    assert init_script.read_text() == MONGO_DB_INIT_SH
