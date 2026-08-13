@@ -32,11 +32,8 @@ from deepfellow.common.defaults import (
     SPARSE_EMBEDDING_MODEL,
     SPARSE_EMBEDDING_SIZE,
 )
-from deepfellow.common.docker import DockerError
-from deepfellow.common.state import state
 from deepfellow.common.validation import validate_truthy, validate_url
 from deepfellow.server.utils.configure import (
-    _resolve_mongo_volume_conflict,
     configure_embedding,
     configure_infra,
     configure_milvus_specific_fields,
