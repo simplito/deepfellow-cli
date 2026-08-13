@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import typer
+
 from deepfellow.common.config import dict_to_env
 from deepfellow.common.defaults import (
     ALLOWED_VECTOR_DB_TYPES,
@@ -36,10 +38,18 @@ from deepfellow.common.defaults import (
     SPARSE_EMBEDDING_SIZE,
     VECTOR_DATABASES,
 )
-from deepfellow.common.docker import load_compose_file, save_compose_file
+from deepfellow.common.docker import (
+    DockerError,
+    load_compose_file,
+    remove_volume,
+    resolve_compose_volume_name,
+    save_compose_file,
+    volume_exists,
+)
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
 from deepfellow.common.generate import generate_password
+from deepfellow.common.state import state
 from deepfellow.common.validation import validate_connection_string, validate_truthy, validate_url, validate_username
 
 
@@ -425,6 +435,46 @@ def configure_infra(
     return infra
 
 
+def _resolve_mongo_volume_conflict(directory: Path) -> None:
+    """Let the user choose how to handle a stale Mongo volume before generating new credentials.
+
+    MongoDB only applies MONGO_INITDB_ROOT_* on first init of an empty data directory. If the
+    'mongo' Docker volume survived from an earlier install (e.g. after 'server uninstall', which
+    removes .env but not volumes) while .env itself was lost, the fresh credentials configure_mongo()
+    is about to generate would guarantee a runtime authentication failure, and there is no
+    secondary store to recover the old ones from. Offer the choice explicitly instead of picking
+    for the user: wipe the volume so the new credentials will work, or abort so they can
+    investigate or restore the original .env first. A plain --non-interactive run still aborts by
+    default (echo.confirm can't prompt, so it takes default=False) - only an explicit --yes
+    authorizes removing the volume without asking, the same escape hatch prune() and the sudo rm
+    retry already use for other destructive actions.
+    """
+    volume_name = resolve_compose_volume_name(directory, "mongo")
+    if volume_name is None or not volume_exists(volume_name):
+        return
+
+    echo.warning(
+        f"A MongoDB data volume ('{volume_name}') from a previous install already exists, but no "
+        "matching credentials were found in .env. Generating new credentials without removing "
+        "this volume is guaranteed to cause a MongoDB authentication failure at startup."
+    )
+    if not (
+        state.yes
+        or echo.confirm(f"Remove the existing volume '{volume_name}' now so new credentials will work?", default=False)
+    ):
+        echo.error(
+            f"Installation aborted. Restore the original .env, or remove '{volume_name}' yourself "
+            "and re-run, before trying again."
+        )
+        raise typer.Exit(1)
+
+    try:
+        remove_volume(volume_name)
+    except DockerError as exc:
+        echo.error(f"Failed to remove stale MongoDB volume '{volume_name}': {exc}")
+        reraise_if_debug(exc)
+
+
 def configure_mongo(
     directory: Path,
     custom: bool,
@@ -474,9 +524,16 @@ def configure_mongo(
             password=True,
         )
     else:
-        # generate admin user and password, preserving existing values on reconfigure
-        mongo_admin_user = original_env.get("df_mongo_initdb_root_username") or generate_password(12)
-        mongo_admin_password = original_env.get("df_mongo_initdb_root_password") or generate_password(24)
+        # Preserve existing admin credentials on reconfigure; on a fresh install with none to
+        # preserve, check first for a stale Mongo volume that would reject freshly generated ones
+        # (may prompt to remove it, or abort - see _resolve_mongo_volume_conflict).
+        existing_admin_user = original_env.get("df_mongo_initdb_root_username")
+        existing_admin_password = original_env.get("df_mongo_initdb_root_password")
+        if not existing_admin_user or not existing_admin_password:
+            _resolve_mongo_volume_conflict(directory)
+
+        mongo_admin_user = existing_admin_user or generate_password(12)
+        mongo_admin_password = existing_admin_password or generate_password(24)
         mongo_config |= {
             "DF_MONGO_INITDB_ROOT_USERNAME": mongo_admin_user,
             "DF_MONGO_INITDB_ROOT_PASSWORD": mongo_admin_password,

@@ -32,8 +32,11 @@ from deepfellow.common.defaults import (
     SPARSE_EMBEDDING_MODEL,
     SPARSE_EMBEDDING_SIZE,
 )
+from deepfellow.common.docker import DockerError
+from deepfellow.common.state import state
 from deepfellow.common.validation import validate_truthy, validate_url
 from deepfellow.server.utils.configure import (
+    _resolve_mongo_volume_conflict,
     configure_embedding,
     configure_infra,
     configure_milvus_specific_fields,
@@ -955,8 +958,11 @@ def test_configure_mongo_custom_prompts_all_fields(mock_echo, tmp_directory: Pat
     assert not (tmp_directory / "init-mongo.sh").exists()
 
 
+@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value=None)
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_mongo_default_generates_missing_credentials_and_writes_init_script(mock_echo, tmp_directory: Path):
+def test_configure_mongo_default_generates_missing_credentials_and_writes_init_script(
+    mock_echo, mock_resolve_volume, tmp_directory: Path
+):
     result = configure_mongo(tmp_directory, False, "", "")
 
     assert result["DF_MONGO_URL"] == DF_MONGO_URL
@@ -972,16 +978,23 @@ def test_configure_mongo_default_generates_missing_credentials_and_writes_init_s
     assert mock_echo.info.call_count == 1
 
 
+@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value=None)
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_mongo_default_preserves_provided_user_and_password(mock_echo, tmp_directory: Path):
+def test_configure_mongo_default_preserves_provided_user_and_password(
+    mock_echo, mock_resolve_volume, tmp_directory: Path
+):
     result = configure_mongo(tmp_directory, False, "given-user", "given-password")
 
     assert result["DF_MONGO_USER"] == "given-user"
     assert result["DF_MONGO_PASSWORD"] == "given-password"
 
 
+@mock.patch("deepfellow.server.utils.configure.volume_exists")
+@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name")
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_mongo_default_reuses_existing_admin_credentials(mock_echo, tmp_directory: Path):
+def test_configure_mongo_default_reuses_existing_admin_credentials(
+    mock_echo, mock_resolve_volume, mock_volume_exists, tmp_directory: Path
+):
     original_env = {
         "df_mongo_initdb_root_username": "existing-admin",
         "df_mongo_initdb_root_password": "existing-admin-password",
@@ -991,11 +1004,37 @@ def test_configure_mongo_default_reuses_existing_admin_credentials(mock_echo, tm
 
     assert result["DF_MONGO_INITDB_ROOT_USERNAME"] == "existing-admin"
     assert result["DF_MONGO_INITDB_ROOT_PASSWORD"] == "existing-admin-password"
+    # A reconfigure with usable existing credentials must never even attempt volume detection -
+    # if it did (e.g. the guard condition regressed to run unconditionally), this pins that as a
+    # failure instead of silently passing via a swallowed DockerError from real, unmocked docker
+    # calls (the exact class of gap manual end-to-end testing caught elsewhere in this PR).
+    assert mock_resolve_volume.call_count == 0
+    assert mock_volume_exists.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value=None)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_mongo_default_treats_blank_env_admin_creds_as_missing(
+    mock_echo, mock_resolve_volume, tmp_directory: Path
+):
+    original_env = {
+        "df_mongo_initdb_root_username": "",
+        "df_mongo_initdb_root_password": "",
+    }
+
+    result = configure_mongo(tmp_directory, False, "", "", original_env=original_env)
+
+    assert mock_resolve_volume.call_count == 1
+    assert result["DF_MONGO_INITDB_ROOT_USERNAME"]
+    assert result["DF_MONGO_INITDB_ROOT_PASSWORD"]
 
 
 @mock.patch.object(Path, "write_text", side_effect=OSError("Permission denied"))
+@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value=None)
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_mongo_default_raises_on_write_error(mock_echo, mock_write_text, tmp_directory: Path):
+def test_configure_mongo_default_raises_on_write_error(
+    mock_echo, mock_resolve_volume, mock_write_text, tmp_directory: Path
+):
     with pytest.raises(typer.Exit):
         configure_mongo(tmp_directory, False, "", "")
 
