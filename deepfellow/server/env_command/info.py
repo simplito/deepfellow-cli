@@ -81,7 +81,8 @@ ENV_METADATA: dict[str, EnvMetadata] = {
         description="Embedding vector size/dimensions.",
     ),
     "DF_GRAPHITI__ENABLED": EnvMetadata(
-        description="Enable or disable the Knowledge Graph (Neo4j) integration.",
+        description="Enable or disable the Knowledge Graph (Neo4j) integration on first boot; "
+        "afterward it's dynamic config, editable via the Server's admin config API without a restart.",
     ),
     "DF_GRAPHITI__NEO4J_URI": EnvMetadata(
         description="Bolt connection URI for the Neo4j instance.",
