@@ -54,15 +54,16 @@ def get(
     item_name = item_name or "Item"
     try:
         response = httpx.get(url, headers=headers | {"Authorization": f"Bearer {token}"})
-        if response.status_code in (404, 422):  # 422 might happen if user provides non UUID id
+        if response.status_code in (400, 404, 422):
             echo.error(f"{item_name} not found.")
             raise typer.Exit(1)
 
         if response.status_code == 403:
             try:
                 data = response.json()
-                message = data["detail"]
-            except JSONDecodeError:
+                error = data.get("error") or {}
+                message = error.get("message") or data.get("detail")
+            except (JSONDecodeError, AttributeError):
                 message = response.text
 
             echo.error(f"Unable to get {item_name}. {message}.")
@@ -87,15 +88,16 @@ def delete(url: str, token: str, headers: dict[str, str] | None = None, item_nam
     try:
         response = httpx.delete(url, headers=headers | {"Authorization": f"Bearer {token}"})
 
-        if response.status_code in (404, 422):  # 422 might happen if user provides non UUID id
+        if response.status_code in (400, 404, 422):
             echo.error(f"{item_name} not found.")
             raise typer.Exit(1)
 
         if response.status_code == 403:
             try:
                 data = response.json()
-                message = data["detail"]
-            except JSONDecodeError:
+                error = data.get("error") or {}
+                message = error.get("message") or data.get("detail")
+            except (JSONDecodeError, AttributeError):
                 message = response.text
 
             echo.error(f"Unable to delete the {item_name}. {message}.")
@@ -133,8 +135,9 @@ def post(
         if response.status_code in (400, 401, 403):
             try:
                 response_data = response.json()
-                message = response_data["detail"]
-            except JSONDecodeError:
+                error = response_data.get("error") or {}
+                message = error.get("message") or response_data.get("detail")
+            except (JSONDecodeError, AttributeError):
                 message = response.text
 
             echo.error(f"Unable to create {item_name}. {message}.")
@@ -177,8 +180,9 @@ def make_request(
         if response.status_code in (400, 401, 403):
             try:
                 response_data = response.json()
-                message = response_data["detail"]
-            except JSONDecodeError:
+                error = response_data.get("error") or {}
+                message = error.get("message") or response_data.get("detail")
+            except (JSONDecodeError, AttributeError):
                 message = response.text
 
             echo.error(f"{err_msg} {message}")

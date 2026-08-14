@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+### Fixed
+- CLI no longer crashes with a raw `KeyError` traceback instead of a readable error message when the DeepFellow Server reports an error in its newer `{"error": {"message": ...}}` format.
+
 ## [0.31.0] - 2026-08-06
 ### Added
 - `deepfellow server install` gains a `--template <name-or-path>` option — a built-in `workspace` template or a YAML file supplying config defaults (port, infra connection, vector DB, embedding) and post-install actions (creating the admin user). Follows the same precedence as `infra install --template`: an explicit CLI flag wins, then a prior install's `.env`, then the template. When the template has post-install actions, the server is automatically started to run them, so it's left running afterward (unlike a plain `server install` with no template).

@@ -141,7 +141,7 @@ def test_get_returns_json_on_success(mock_get: mock.Mock):
     assert mock_get.call_args == mock.call(URL, headers={"Authorization": f"Bearer {TOKEN}"})
 
 
-@pytest.mark.parametrize("status_code", [404, 422])
+@pytest.mark.parametrize("status_code", [400, 404, 422])
 @mock.patch("deepfellow.common.rest.echo.error")
 @mock.patch("deepfellow.common.rest.httpx.get")
 def test_get_not_found_status_raises_exit(mock_get: mock.Mock, mock_error: mock.Mock, status_code: int):
@@ -155,8 +155,30 @@ def test_get_not_found_status_raises_exit(mock_get: mock.Mock, mock_error: mock.
 
 @mock.patch("deepfellow.common.rest.echo.error")
 @mock.patch("deepfellow.common.rest.httpx.get")
+def test_get_forbidden_with_json_error_message_raises_exit(mock_get: mock.Mock, mock_error: mock.Mock):
+    mock_get.return_value = _mock_response(403, json_data={"error": {"message": "no access"}})
+
+    with pytest.raises(typer.Exit):
+        get(URL, TOKEN, item_name="Widget")
+
+    assert mock_error.call_args == mock.call("Unable to get Widget. no access.")
+
+
+@mock.patch("deepfellow.common.rest.echo.error")
+@mock.patch("deepfellow.common.rest.httpx.get")
 def test_get_forbidden_with_json_detail_raises_exit(mock_get: mock.Mock, mock_error: mock.Mock):
     mock_get.return_value = _mock_response(403, json_data={"detail": "no access"})
+
+    with pytest.raises(typer.Exit):
+        get(URL, TOKEN, item_name="Widget")
+
+    assert mock_error.call_args == mock.call("Unable to get Widget. no access.")
+
+
+@mock.patch("deepfellow.common.rest.echo.error")
+@mock.patch("deepfellow.common.rest.httpx.get")
+def test_get_forbidden_with_null_error_falls_back_to_detail(mock_get: mock.Mock, mock_error: mock.Mock):
+    mock_get.return_value = _mock_response(403, json_data={"error": None, "detail": "no access"})
 
     with pytest.raises(typer.Exit):
         get(URL, TOKEN, item_name="Widget")
@@ -208,7 +230,7 @@ def test_delete_succeeds_without_return_value(mock_delete: mock.Mock):
     assert mock_delete.call_args == mock.call(URL, headers={"Authorization": f"Bearer {TOKEN}"})
 
 
-@pytest.mark.parametrize("status_code", [404, 422])
+@pytest.mark.parametrize("status_code", [400, 404, 422])
 @mock.patch("deepfellow.common.rest.echo.error")
 @mock.patch("deepfellow.common.rest.httpx.delete")
 def test_delete_not_found_status_raises_exit(mock_delete: mock.Mock, mock_error: mock.Mock, status_code: int):
@@ -218,6 +240,17 @@ def test_delete_not_found_status_raises_exit(mock_delete: mock.Mock, mock_error:
         delete(URL, TOKEN, item_name="Widget")
 
     assert mock_error.call_args == mock.call("Widget not found.")
+
+
+@mock.patch("deepfellow.common.rest.echo.error")
+@mock.patch("deepfellow.common.rest.httpx.delete")
+def test_delete_forbidden_with_json_error_message_raises_exit(mock_delete: mock.Mock, mock_error: mock.Mock):
+    mock_delete.return_value = _mock_response(403, json_data={"error": {"message": "no access"}})
+
+    with pytest.raises(typer.Exit):
+        delete(URL, TOKEN, item_name="Widget")
+
+    assert mock_error.call_args == mock.call("Unable to delete the Widget. no access.")
 
 
 @mock.patch("deepfellow.common.rest.echo.error")
@@ -272,7 +305,19 @@ def test_post_returns_json_on_success(mock_post: mock.Mock):
 @pytest.mark.parametrize("status_code", [400, 401, 403])
 @mock.patch("deepfellow.common.rest.echo.error")
 @mock.patch("deepfellow.common.rest.httpx.post")
-def test_post_client_error_status_raises_exit(mock_post: mock.Mock, mock_error: mock.Mock, status_code: int):
+def test_post_client_error_message_status_raises_exit(mock_post: mock.Mock, mock_error: mock.Mock, status_code: int):
+    mock_post.return_value = _mock_response(status_code, json_data={"error": {"message": "bad request"}})
+
+    with pytest.raises(typer.Exit):
+        post(URL, TOKEN, item_name="Widget")
+
+    assert mock_error.call_args == mock.call("Unable to create Widget. bad request.")
+
+
+@pytest.mark.parametrize("status_code", [400, 401, 403])
+@mock.patch("deepfellow.common.rest.echo.error")
+@mock.patch("deepfellow.common.rest.httpx.post")
+def test_post_client_error_detail_status_raises_exit(mock_post: mock.Mock, mock_error: mock.Mock, status_code: int):
     mock_post.return_value = _mock_response(status_code, json_data={"detail": "bad request"})
 
     with pytest.raises(typer.Exit):
@@ -335,7 +380,23 @@ def test_make_request_returns_json_on_success(mock_request: mock.Mock):
 @pytest.mark.parametrize("status_code", [400, 401, 403])
 @mock.patch("deepfellow.common.rest.echo.error")
 @mock.patch("deepfellow.common.rest.httpx.request")
-def test_make_request_client_error_status_raises_exit(mock_request: mock.Mock, mock_error: mock.Mock, status_code: int):
+def test_make_request_client_error_message_status_raises_exit(
+    mock_request: mock.Mock, mock_error: mock.Mock, status_code: int
+):
+    mock_request.return_value = _mock_response(status_code, json_data={"error": {"message": "bad request"}})
+
+    with pytest.raises(typer.Exit):
+        make_request("PATCH", URL, TOKEN, err_msg="Unable to update Widget.")
+
+    assert mock_error.call_args == mock.call("Unable to update Widget. bad request")
+
+
+@pytest.mark.parametrize("status_code", [400, 401, 403])
+@mock.patch("deepfellow.common.rest.echo.error")
+@mock.patch("deepfellow.common.rest.httpx.request")
+def test_make_request_client_error_detail_status_raises_exit(
+    mock_request: mock.Mock, mock_error: mock.Mock, status_code: int
+):
     mock_request.return_value = _mock_response(status_code, json_data={"detail": "bad request"})
 
     with pytest.raises(typer.Exit):
