@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 ### Fixed
 - CLI no longer crashes with a raw `KeyError` traceback instead of a readable error message when the DeepFellow Server reports an error in its newer `{"error": {"message": ...}}` format.
+- `deepfellow infra install`/`server install` in `--non-interactive` mode now explains how to proceed (pass `--force-install` or remove the directory manually) when the target directory already exists, instead of aborting with no guidance.
 
 ## [0.31.0] - 2026-08-06
 ### Added

@@ -122,6 +122,24 @@ def test_ensure_directory_overrides_when_existing_and_user_confirms(mock_echo: M
 
 
 @mock.patch("deepfellow.common.install.echo")
+@mock.patch("deepfellow.common.install.is_interactive")
+def test_ensure_directory_shows_guidance_when_non_interactive_and_existing(
+    mock_is_interactive: Mock, mock_echo: Mock, tmp_path: Path
+) -> None:
+    mock_is_interactive.return_value = False
+    mock_echo.confirm.return_value = False
+
+    with pytest.raises(typer.Exit):
+        ensure_directory(tmp_path)
+
+    assert mock_echo.info.call_count == 1
+    assert mock_echo.info.call_args == mock.call(
+        "Non-interactive mode is ON. To overwrite the existing installation, pass "
+        f"--force-install, or remove the directory manually: rm -rf {tmp_path}"
+    )
+
+
+@mock.patch("deepfellow.common.install.echo")
 def test_ensure_directory_skips_confirmation_when_force_install(mock_echo: Mock, tmp_path: Path) -> None:
     ensure_directory(tmp_path, force_install=True)
 
