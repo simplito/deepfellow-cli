@@ -20,7 +20,7 @@ from deepfellow.common.docker import (
     is_user_allowed_to_use_docker,
     is_user_in_docker_group,
 )
-from deepfellow.common.echo import echo
+from deepfellow.common.echo import echo, is_interactive
 from deepfellow.common.exceptions import reraise_if_debug
 
 
@@ -38,6 +38,11 @@ def ensure_directory(
 
     if directory.is_dir() and not force_install:
         echo.warning(warning_message)
+        if not is_interactive():
+            echo.info(
+                "Non-interactive mode is ON. To overwrite the existing installation, pass "
+                f"--force-install, or remove the directory manually: rm -rf {directory}"
+            )
         if not echo.confirm(confirm_message):
             raise typer.Exit(1)
 
