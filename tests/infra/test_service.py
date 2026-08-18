@@ -158,13 +158,42 @@ def test_install_exits_with_detail_when_finish_status_error(
     name: str,
 ) -> None:
     mock_get.return_value = {"spec": {"fields": []}}
-    mock_install_with_progress.return_value = {"type": "finish", "status": "error", "detail": "disk full"}
+    mock_install_with_progress.return_value = {"type": "finish", "status": "error", "details": "disk full"}
 
     with pytest.raises(typer.Exit):
         install(name=name, spec=None)
 
     assert mock_echo.error.call_count == 1
     assert mock_echo.error.call_args == mock.call("Unable to install service. disk full")
+    assert mock_echo.success.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.connection.env_set")
+@mock.patch("deepfellow.infra.utils.service_install.echo")
+@mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
+@mock.patch("deepfellow.infra.utils.service_install.get")
+@mock.patch(
+    "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
+def test_install_skips_when_service_already_installed(
+    mock_resolve: Mock,
+    mock_get: Mock,
+    mock_install_with_progress: Mock,
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    name: str,
+) -> None:
+    mock_get.return_value = {"spec": {"fields": []}}
+    response = Mock(
+        json=Mock(return_value={"error": {"message": f"Service {name} on default instance already installed"}})
+    )
+    mock_install_with_progress.side_effect = httpx.HTTPStatusError("TEST", request=Mock(), response=response)
+
+    install(name=name, spec=None)
+
+    assert mock_echo.info.call_count == 1
+    assert mock_echo.info.call_args == mock.call(f"Service '{name}' is already installed; skipping.")
+    assert mock_echo.error.call_count == 0
     assert mock_echo.success.call_count == 0
 
 
