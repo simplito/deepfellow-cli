@@ -59,9 +59,13 @@ from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get
 from deepfellow.common.exceptions import DockerNetworkError, InstallError, reraise_if_debug, translate_to_install_error
 from deepfellow.common.generate import generate_password
-from deepfellow.common.install import assert_docker, ensure_directory
+from deepfellow.common.install import (
+    assert_docker,
+    ensure_directory,
+    resolve_admin_kwargs,
+    validate_non_interactive_admin_values,
+)
 from deepfellow.common.registry import get_newest_image_tag
-from deepfellow.common.state import state
 from deepfellow.common.system import run
 from deepfellow.common.templates import InstallTemplate
 from deepfellow.server.utils.configure import (
@@ -154,20 +158,11 @@ def _validate_non_interactive_post_start_actions(
         InstallError: If --non-interactive is set and a server.create_admin action is missing
             name, email, or password.
     """
-    if not state.non_interactive:
-        return
-
     for action in resolved_template["post_start_actions"]:
         if action["function"] != "server.create_admin":
             continue
-        effective = _resolve_admin_kwargs(action["kwargs"], admin_name, admin_email, admin_password)
-        missing = [key for key in ("name", "email", "password") if not effective[key]]
-        if missing:
-            raise InstallError(
-                f"Template's 'server.create_admin' post-start action is missing {', '.join(missing)}; "
-                "--non-interactive has no prompt to fall back on. Pass --admin-name/--admin-email/"
-                "--admin-password"
-            )
+        effective = resolve_admin_kwargs(action["kwargs"], admin_name, admin_email, admin_password)
+        validate_non_interactive_admin_values(effective, "Template's 'server.create_admin' post-start action")
 
 
 def inspect(
@@ -255,20 +250,6 @@ def _get_nested_env_value(original_env_content: EnvDict, path: tuple[str, ...]) 
             return None
         node = node.get(segment)
     return node
-
-
-def _resolve_admin_kwargs(
-    action_kwargs: dict[str, Any],
-    admin_name: str | None,
-    admin_email: str | None,
-    admin_password: str | None,
-) -> dict[str, str | None]:
-    """Merge --admin-name/--admin-email/--admin-password over a server.create_admin action's kwargs."""
-    return {
-        "name": admin_name if admin_name else action_kwargs.get("name"),
-        "email": admin_email if admin_email else action_kwargs.get("email"),
-        "password": admin_password if admin_password else action_kwargs.get("password"),
-    }
 
 
 def _resolve_port(port: int, original_env_content: EnvDict, explicitly_provided: Collection[str]) -> int:
@@ -873,9 +854,7 @@ def install(
                         f"server's directory ({config.directory})."
                     )
                 action["kwargs"]["directory"] = config.directory
-                action["kwargs"].update(
-                    _resolve_admin_kwargs(action["kwargs"], admin_name, admin_email, admin_password)
-                )
+                action["kwargs"].update(resolve_admin_kwargs(action["kwargs"], admin_name, admin_email, admin_password))
             try:
                 dispatch_post_start_action(action)
             except InstallError as exc:

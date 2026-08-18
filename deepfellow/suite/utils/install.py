@@ -25,6 +25,7 @@ from deepfellow.common.defaults import (
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get
 from deepfellow.common.exceptions import InstallError, translate_to_install_error
+from deepfellow.common.install import resolve_admin_kwargs, validate_non_interactive_admin_values
 from deepfellow.common.state import state
 from deepfellow.common.validation import PASSWORD_REQUIREMENTS, validate_email, validate_password, validate_truthy
 from deepfellow.infra.utils.docker import start_infra
@@ -106,20 +107,27 @@ def install(
         admin_password: Admin user's password. Prompted interactively if not given.
 
     Raises:
-        InstallError: If any step fails.
+        InstallError: If any step fails, or if --non-interactive is set and an admin name, email,
+            or password is missing.
     """
+    # No action_kwargs source here (unlike server install's create_admin post-start action) - {} makes
+    # the CLI flags the only source, which is what suite install has ever supported.
+    effective = resolve_admin_kwargs({}, admin_name, admin_email, admin_password)
+    validate_non_interactive_admin_values(effective, "suite install")
     infra_url = f"http://localhost:{DF_INFRA_PORT}"
     server_url = f"http://localhost:{DF_SERVER_PORT}"
 
     # Resolved once, up front: create-admin and login must use the exact same credentials, so the
     # admin created in step 9 can actually log in during step 10 (create_admin() prompts internally
     # but never returns what it prompted for).
-    name = admin_name or echo.prompt_until_valid("Provide admin name", validate_truthy)
-    email = admin_email or echo.prompt_until_valid("Provide admin email", validate_email)
+    name = effective["name"] or echo.prompt_until_valid("Provide admin name", validate_truthy)
+    email = effective["email"] or echo.prompt_until_valid("Provide admin email", validate_email)
 
-    if not admin_password:
+    if not effective["password"]:
         echo.info(PASSWORD_REQUIREMENTS)
-    password = admin_password or echo.prompt_until_valid("Provide admin password", validate_password, password=True)
+    password = effective["password"] or echo.prompt_until_valid(
+        "Provide admin password", validate_password, password=True
+    )
 
     _run_step(1, "infra install", infra_install)
     _run_step(2, "infra start", lambda: _start_infra())

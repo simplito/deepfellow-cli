@@ -14,6 +14,7 @@ import pytest
 import typer
 
 from deepfellow.common.exceptions import InstallError
+from deepfellow.common.state import state
 from deepfellow.server.utils.workspace import Workspace
 from deepfellow.suite.utils.install import install
 
@@ -148,13 +149,86 @@ def test_install_stops_when_infra_api_key_missing_does_not_call_server_install(
 
 
 @mock.patch("deepfellow.suite.utils.install.echo")
-def test_install_non_interactive_missing_credentials_fails(mock_echo: Mock) -> None:
+def test_install_prompt_failure_is_translated_to_install_error(mock_echo: Mock) -> None:
     mock_echo.prompt_until_valid.side_effect = typer.Exit(1)
 
     with pytest.raises(InstallError):
         install(admin_name=None, admin_email=None, admin_password=None)
 
     assert mock_echo.prompt_until_valid.call_count == 1
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+@mock.patch("deepfellow.suite.utils.install.infra_install")
+def test_install_non_interactive_reports_all_missing_admin_values(mock_infra_install: Mock, mock_echo: Mock) -> None:
+    state.non_interactive = True
+
+    with pytest.raises(InstallError) as exc_info:
+        install(admin_name=None, admin_email=None, admin_password=None)
+
+    assert str(exc_info.value) == (
+        "suite install is missing name, email, password; --non-interactive has no prompt to fall "
+        "back on. Pass --admin-name/--admin-email/--admin-password"
+    )
+    assert mock_infra_install.call_count == 0
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+@mock.patch("deepfellow.suite.utils.install.infra_install")
+def test_install_non_interactive_reports_only_missing_admin_values(mock_infra_install: Mock, mock_echo: Mock) -> None:
+    state.non_interactive = True
+
+    with pytest.raises(InstallError) as exc_info:
+        install(admin_name="Admin", admin_email=None, admin_password=None)
+
+    assert str(exc_info.value) == (
+        "suite install is missing email, password; --non-interactive has no prompt to fall back on. "
+        "Pass --admin-name/--admin-email/--admin-password"
+    )
+    assert mock_infra_install.call_count == 0
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+@mock.patch("deepfellow.suite.utils.install.env_get")
+@mock.patch("deepfellow.suite.utils.install.create_workspace")
+@mock.patch("deepfellow.suite.utils.install.get_token_from_login")
+@mock.patch("deepfellow.suite.utils.install.create_admin")
+@mock.patch("deepfellow.suite.utils.install.start_server")
+@mock.patch("deepfellow.suite.utils.install.check_server_directory")
+@mock.patch("deepfellow.suite.utils.install.set_default_server_directory")
+@mock.patch("deepfellow.suite.utils.install.server_install")
+@mock.patch("deepfellow.suite.utils.install.infra_model_install")
+@mock.patch("deepfellow.suite.utils.install.infra_service_install")
+@mock.patch("deepfellow.suite.utils.install.start_infra")
+@mock.patch("deepfellow.suite.utils.install.check_infra_directory")
+@mock.patch("deepfellow.suite.utils.install.infra_install")
+def test_install_non_interactive_with_all_admin_values_proceeds(
+    mock_infra_install: Mock,
+    mock_check_infra_directory: Mock,
+    mock_start_infra: Mock,
+    mock_infra_service_install: Mock,
+    mock_infra_model_install: Mock,
+    mock_server_install: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_check_server_directory: Mock,
+    mock_start_server: Mock,
+    mock_create_admin: Mock,
+    mock_get_token_from_login: Mock,
+    mock_create_workspace: Mock,
+    mock_env_get: Mock,
+    mock_echo: Mock,
+) -> None:
+    state.non_interactive = True
+    mock_env_get.return_value = "infra-api-key"
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = Workspace(organization=Mock(), project=Mock(), api_key=Mock())
+
+    install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
+
+    assert mock_infra_install.call_count == 1
+    assert mock_server_install.call_count == 1
+    assert mock_create_admin.call_count == 1
+    assert mock_echo.prompt_until_valid.call_count == 0
 
 
 @mock.patch("deepfellow.suite.utils.install.echo")

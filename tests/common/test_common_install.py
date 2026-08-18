@@ -14,7 +14,14 @@ from unittest.mock import Mock
 import pytest
 import typer
 
-from deepfellow.common.install import assert_docker, ensure_directory
+from deepfellow.common.exceptions import InstallError
+from deepfellow.common.install import (
+    assert_docker,
+    ensure_directory,
+    resolve_admin_kwargs,
+    validate_non_interactive_admin_values,
+)
+from deepfellow.common.state import state
 
 
 @mock.patch("deepfellow.common.install.echo")
@@ -165,3 +172,70 @@ def test_ensure_directory_calls_reraise_if_debug_on_mkdir_failure(
     assert mock_echo.error.call_args == mock.call(f"Unable to create directory {directory}.")
     assert mock_reraise_if_debug.call_count == 1
     assert mock_reraise_if_debug.call_args == mock.call(mock_mkdir.side_effect)
+
+
+def test_resolve_admin_kwargs_cli_value_wins_over_action_kwargs() -> None:
+    action_kwargs = {"name": "Action Name", "email": "action@example.com", "password": "action-pass"}
+
+    effective = resolve_admin_kwargs(action_kwargs, "CLI Name", "cli@example.com", "cli-pass")
+
+    assert effective == {"name": "CLI Name", "email": "cli@example.com", "password": "cli-pass"}
+
+
+@pytest.mark.parametrize(("admin_name", "admin_email", "admin_password"), [(None, "", None), ("", None, "")])
+def test_resolve_admin_kwargs_falls_back_to_action_kwargs_when_cli_value_falsy(
+    admin_name: str | None, admin_email: str | None, admin_password: str | None
+) -> None:
+    action_kwargs = {"name": "Action Name", "email": "action@example.com", "password": "action-pass"}
+
+    effective = resolve_admin_kwargs(action_kwargs, admin_name, admin_email, admin_password)
+
+    assert effective == {"name": "Action Name", "email": "action@example.com", "password": "action-pass"}
+
+
+def test_resolve_admin_kwargs_both_missing_yields_none() -> None:
+    effective = resolve_admin_kwargs({}, None, None, None)
+
+    assert effective == {"name": None, "email": None, "password": None}
+
+
+def test_validate_non_interactive_admin_values_is_noop_when_not_non_interactive() -> None:
+    state.non_interactive = False
+
+    validate_non_interactive_admin_values({"name": None, "email": None, "password": None}, "suite install")
+
+
+def test_validate_non_interactive_admin_values_raises_naming_missing_keys() -> None:
+    state.non_interactive = True
+
+    with pytest.raises(InstallError) as exc_info:
+        validate_non_interactive_admin_values(
+            {"name": None, "email": "admin@example.com", "password": None}, "suite install"
+        )
+
+    assert str(exc_info.value) == (
+        "suite install is missing name, password; --non-interactive has no prompt to fall back on. "
+        "Pass --admin-name/--admin-email/--admin-password"
+    )
+
+
+def test_validate_non_interactive_admin_values_raises_naming_single_missing_key() -> None:
+    state.non_interactive = True
+
+    with pytest.raises(InstallError) as exc_info:
+        validate_non_interactive_admin_values(
+            {"name": "Admin", "email": "admin@example.com", "password": None}, "suite install"
+        )
+
+    assert str(exc_info.value) == (
+        "suite install is missing password; --non-interactive has no prompt to fall back on. "
+        "Pass --admin-name/--admin-email/--admin-password"
+    )
+
+
+def test_validate_non_interactive_admin_values_is_noop_when_nothing_missing() -> None:
+    state.non_interactive = True
+
+    validate_non_interactive_admin_values(
+        {"name": "Admin", "email": "admin@example.com", "password": "pass"}, "suite install"
+    )
