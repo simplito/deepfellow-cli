@@ -7,10 +7,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Server and infra install util."""
+"""Shared install utilities used by infra, server, and suite install."""
 
 import getpass
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -21,7 +22,7 @@ from deepfellow.common.docker import (
     is_user_in_docker_group,
 )
 from deepfellow.common.echo import echo, is_interactive
-from deepfellow.common.exceptions import reraise_if_debug
+from deepfellow.common.exceptions import InstallError, reraise_if_debug
 
 
 def ensure_directory(
@@ -68,3 +69,40 @@ def assert_docker() -> None:
 
         echo.info("Try running with sudo command.")
         raise typer.Exit(1)
+
+
+def resolve_admin_kwargs(
+    action_kwargs: dict[str, Any],
+    admin_name: str | None,
+    admin_email: str | None,
+    admin_password: str | None,
+) -> dict[str, str | None]:
+    """Merge --admin-name/--admin-email/--admin-password over another source's own kwargs."""
+    return {
+        "name": admin_name if admin_name else action_kwargs.get("name"),
+        "email": admin_email if admin_email else action_kwargs.get("email"),
+        "password": admin_password if admin_password else action_kwargs.get("password"),
+    }
+
+
+def validate_non_interactive_admin_values(effective: dict[str, str | None], context: str) -> None:
+    """Fail fast if --non-interactive can't fall back to a prompt for a missing admin value.
+
+    Args:
+        effective: The resolved {"name": ..., "email": ..., "password": ...} to check, as
+            returned by resolve_admin_kwargs().
+        context: Human-readable subject for the error message, e.g. "suite install" or
+            "Template's 'server.create_admin' post-start action".
+
+    Raises:
+        InstallError: If --non-interactive is set and any of name/email/password is missing.
+    """
+    if is_interactive():
+        return
+
+    missing = [key for key in ("name", "email", "password") if not effective.get(key)]
+    if missing:
+        raise InstallError(
+            f"{context} is missing {', '.join(missing)}; --non-interactive has no prompt to fall "
+            "back on. Pass --admin-name/--admin-email/--admin-password"
+        )
