@@ -12,6 +12,7 @@
 import typer
 
 from deepfellow.common.echo import echo
+from deepfellow.common.exceptions import InfraInstallSkippedError
 from deepfellow.infra.utils.connection import call_infra, resolve_infra_connection
 from deepfellow.infra.utils.progress import install_with_progress
 
@@ -26,15 +27,20 @@ def install(
 
     url = f"{server}/admin/services/{service_name}/models/_?model_id={model_name}"
 
-    data = call_infra(
-        lambda: install_with_progress(url, api_key, data={"spec": {}}),
-        "Unable to install model.",
-        server=server,
-        api_key=api_key,
-    )
+    try:
+        data = call_infra(
+            lambda: install_with_progress(url, api_key, data={"spec": {}}),
+            "Unable to install model.",
+            server=server,
+            api_key=api_key,
+            skip_if_message_contains="already installed",
+        )
+    except InfraInstallSkippedError:
+        echo.info(f"Model '{model_name}' is already installed; skipping.")
+        return
 
     if data.get("status", "").lower() != "ok":
-        message = data.get("detail") or data.get("error")
+        message = data.get("details") or data.get("error")
         echo.error(f"Unable to install model.{f' {message}' if message else ''}")
         raise typer.Exit(1)
 

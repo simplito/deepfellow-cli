@@ -28,6 +28,10 @@ class DockerNetworkError(Exception):
     """Raised if getting a list of networks fails."""
 
 
+class InfraInstallSkippedError(Exception):
+    """Raise if error message contains "already installed" string."""
+
+
 class InstallError(Exception):
     """Raised by an install() core function to signal a validation or setup failure.
 

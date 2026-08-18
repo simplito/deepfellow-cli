@@ -95,7 +95,7 @@ def test_install_exits_with_detail_when_finish_status_error(
     mock_echo: Mock,
     mock_env_set: Mock,
 ) -> None:
-    mock_install_with_progress.return_value = {"type": "finish", "status": "error", "detail": "out of memory"}
+    mock_install_with_progress.return_value = {"type": "finish", "status": "error", "details": "out of memory"}
 
     with pytest.raises(typer.Exit):
         install(server="http://infra:8086", service_name="ollama", model_name="llama-3.1-8B")
@@ -103,6 +103,55 @@ def test_install_exits_with_detail_when_finish_status_error(
     assert mock_echo.error.call_count == 1
     assert mock_echo.error.call_args == mock.call("Unable to install model. out of memory")
     assert mock_echo.success.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.connection.env_set")
+@mock.patch("deepfellow.infra.utils.model_install.echo")
+@mock.patch("deepfellow.infra.utils.model_install.install_with_progress")
+@mock.patch(
+    "deepfellow.infra.utils.model_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
+def test_install_skips_when_model_already_installed(
+    mock_resolve: Mock,
+    mock_install_with_progress: Mock,
+    mock_echo: Mock,
+    mock_env_set: Mock,
+) -> None:
+    response = Mock(json=Mock(return_value={"error": {"message": "Model llama-3.1-8B on ollama already installed"}}))
+    mock_install_with_progress.side_effect = httpx.HTTPStatusError("TEST", request=Mock(), response=response)
+
+    install(server=None, service_name="ollama", model_name="llama-3.1-8B")
+
+    assert mock_echo.info.call_count == 1
+    assert mock_echo.info.call_args == mock.call("Model 'llama-3.1-8B' is already installed; skipping.")
+    assert mock_echo.error.call_count == 0
+    assert mock_echo.success.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.connection.env_set")
+@mock.patch("deepfellow.infra.utils.model_install.echo")
+@mock.patch("deepfellow.infra.utils.model_install.install_with_progress")
+@mock.patch(
+    "deepfellow.infra.utils.model_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
+def test_install_reports_success_when_infra_reports_model_already_installed_as_ok(
+    mock_resolve: Mock,
+    mock_install_with_progress: Mock,
+    mock_echo: Mock,
+    mock_env_set: Mock,
+) -> None:
+    # The Infra API itself treats a duplicate model install as a no-op success (status "OK"), never
+    # an error - so no CLI-side skip is needed here, unlike service install.
+    mock_install_with_progress.return_value = {
+        "status": "OK",
+        "details": "Already installed or being installed right now.",
+    }
+
+    install(server=None, service_name="ollama", model_name="llama-3.1-8B")
+
+    assert mock_echo.success.call_count == 1
+    assert mock_echo.success.call_args == mock.call("Model llama-3.1-8B installed.")
+    assert mock_echo.error.call_count == 0
 
 
 @mock.patch("deepfellow.infra.model.install.install_util")

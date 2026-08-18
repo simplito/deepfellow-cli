@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 ### Fixed
+- `deepfellow infra service install` no longer aborts when the target service is already installed on the Infra instance — the Infra API's `{"error": {"message": "... already installed"}}` response is now parsed into a readable message (previously fell back to printing the raw JSON body) and treated as a no-op, printing an informational message and exiting successfully instead of failing. This also makes `infra install --template`'s `post_start_actions` idempotent: a step targeting an already-installed service is skipped instead of aborting the whole install after 0 of N actions complete. (`infra model install` already reports success for a duplicate model in every case — Infra itself never returns an error for it.)
+- `deepfellow infra service install` / `deepfellow infra model install` now show the actual failure reason (e.g. a Docker container name conflict) instead of a bare `Unable to install service.`/`Unable to install model.` for errors raised mid-stream — the streamed install's SSE `finish` event reports its error under the `details` key, but the CLI was reading `detail` (singular), so the message was always dropped.
 - CLI no longer crashes with a raw `KeyError` traceback instead of a readable error message when the DeepFellow Server reports an error in its newer `{"error": {"message": ...}}` format.
 - `deepfellow infra install`/`server install` in `--non-interactive` mode now explains how to proceed (pass `--force-install` or remove the directory manually) when the target directory already exists, instead of aborting with no guidance.
 

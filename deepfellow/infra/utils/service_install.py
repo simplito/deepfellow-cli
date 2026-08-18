@@ -15,6 +15,7 @@ from typing import Any, cast
 import typer
 
 from deepfellow.common.echo import echo, is_interactive
+from deepfellow.common.exceptions import InfraInstallSkippedError
 from deepfellow.common.rest import get
 from deepfellow.infra.utils.connection import call_infra, resolve_infra_connection
 from deepfellow.infra.utils.progress import install_with_progress
@@ -203,16 +204,21 @@ def install(
 
     spec_res = _resolve_spec(parsed_spec, server, api_key, name, set_values, service_api_key, prompt_all=prompt_all)
 
-    data = call_infra(
-        lambda: install_with_progress(url, api_key, data={"spec": spec_res}),
-        "Unable to install service",
-        server=server,
-        api_key=api_key,
-        quiet=parsed_spec is None,
-    )
+    try:
+        data = call_infra(
+            lambda: install_with_progress(url, api_key, data={"spec": spec_res}),
+            "Unable to install service",
+            server=server,
+            api_key=api_key,
+            quiet=parsed_spec is None,
+            skip_if_message_contains="already installed",
+        )
+    except InfraInstallSkippedError:
+        echo.info(f"Service '{name}' is already installed; skipping.")
+        return
 
     if data.get("status", "").lower() != "ok":
-        message = data.get("detail") or data.get("error")
+        message = data.get("details") or data.get("error")
         echo.error(f"Unable to install service.{f' {message}' if message else ''}")
         raise typer.Exit(1)
 

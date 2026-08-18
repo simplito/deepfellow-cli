@@ -19,6 +19,7 @@ import typer
 from deepfellow.common.config import read_env_file
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
+from deepfellow.common.exceptions import InfraInstallSkippedError
 from deepfellow.common.state import state
 from deepfellow.common.validation import validate_url
 
@@ -78,6 +79,7 @@ def call_infra(
     server: str | None = None,
     api_key: str | None = None,
     quiet: bool = False,
+    skip_if_message_contains: str | None = None,
 ) -> dict[str, Any]:
     """Call the Infra API, translating transport errors into user-facing messages.
 
@@ -92,9 +94,15 @@ def call_infra(
             a previously working local config.
         api_key: See `server`.
         quiet: Forwarded to `persist_infra_connection` — see there.
+        skip_if_message_contains: When the error message extracted from an ``httpx.HTTPStatusError``
+            response contains this substring, raise ``InfraInstallSkippedError`` instead of echoing an
+            error and exiting — lets the caller treat it as a no-op.
 
     Returns:
         The parsed JSON response.
+
+    Raises:
+        InfraInstallSkippedError: if the extracted error message matches `skip_if_message_contains`.
     """
     try:
         result = request()
@@ -102,7 +110,10 @@ def call_infra(
         echo.error("No connection with DeepFellow Infra. Is it up? (deepfellow infra start)")
         raise typer.Exit(1) from exc
     except httpx.HTTPStatusError as exc:
-        echo.error(_error_message(exc.response, default_error_msg))
+        message = _error_message(exc.response, default_error_msg)
+        if skip_if_message_contains and skip_if_message_contains in message:
+            raise InfraInstallSkippedError(message) from exc
+        echo.error(message)
         raise typer.Exit(1) from exc
     except httpx.HTTPError as exc:
         echo.error(default_error_msg)
@@ -117,8 +128,8 @@ def call_infra(
 def _error_message(response: httpx.Response, default_error_msg: str) -> str:
     """Extract a user-facing message from an error response.
 
-    Prefers the FastAPI ``{"detail": ...}`` field, falling back to the raw
-    response body and finally to ``default_error_msg``.
+    Prefers the ``{"error": {"message": ...}}`` field, falling back to the FastAPI
+    ``{"detail": ...}`` field, then the raw response body, and finally to ``default_error_msg``.
 
     Args:
         response: The error response carried by the ``httpx.HTTPStatusError``.
@@ -129,10 +140,11 @@ def _error_message(response: httpx.Response, default_error_msg: str) -> str:
     """
     try:
         body = response.json()
-    except JSONDecodeError:
-        body = None
+        error = body.get("error") or {}
+        message = error.get("message") if isinstance(error.get("message"), str) else None
+        if message is None and isinstance(body.get("detail"), str):
+            message = body.get("detail")
+    except (JSONDecodeError, AttributeError):
+        message = response.text
 
-    if isinstance(body, dict) and isinstance(body.get("detail"), str):
-        return body["detail"]
-
-    return response.text or default_error_msg
+    return message or default_error_msg
