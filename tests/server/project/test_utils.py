@@ -11,7 +11,14 @@ from typing import Any
 from unittest import mock
 from unittest.mock import Mock
 
-from deepfellow.server.project.utils import Project, archive_project, create_project, get_project, list_projects
+from deepfellow.server.project.utils import (
+    Project,
+    archive_project,
+    create_project,
+    get_project,
+    list_projects,
+    update_project,
+)
 
 
 def project_data() -> dict[str, Any]:
@@ -110,6 +117,28 @@ def test_create_project_returns_project(mock_post: Mock):
         item_name="Project",
         headers={"OpenAI-Organization": "org-id"},
         data={"name": "Project Name"},
+    )
+
+
+@mock.patch("deepfellow.server.project.utils.post")
+def test_update_project_returns_updated_project(mock_post: Mock):
+    data = project_data()
+    data["models"] = ["model-a", "model-b"]
+    mock_post.return_value = data
+
+    result: Project = update_project(
+        "https://server", "token", "org-id", "project-id", {"models": ["model-a", "model-b"]}
+    )
+
+    assert isinstance(result, Project)
+    assert result.models == ["model-a", "model-b"]
+    assert mock_post.call_count == 1
+    assert mock_post.call_args == mock.call(
+        "https://server/v1/organization/projects/project-id",
+        "token",
+        item_name="Project",
+        headers={"OpenAI-Organization": "org-id"},
+        data={"models": ["model-a", "model-b"]},
     )
 
 

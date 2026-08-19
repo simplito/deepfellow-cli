@@ -32,8 +32,9 @@ def install(
     Runs, in one non-interactive-friendly pass: infra install (via the built-in `workspace`
     template, which also starts infra and installs the ollama service plus chat/embedding/fast
     models), server install (via the built-in `workspace` template, which also starts server and
-    creates the admin user), login, and one call to the server's atomic workspace-creation endpoint
-    (organization "Workspace", project "Default", API key "app").
+    creates the admin user), login, one call to the server's atomic workspace-creation endpoint
+    (organization "Workspace", project "Default", API key "app"), and a follow-up call granting the
+    created project access to the three models just installed.
 
     `suite install` itself exposes no `--template` option — it always uses each command's built-in
     `workspace` template. This is a one-shot command: it does not track progress and cannot resume
