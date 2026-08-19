@@ -81,6 +81,20 @@ def create_project(server: str | None, token: str, organization_id: str, data: d
     return Project(**project)
 
 
+def update_project(
+    server: str | None, token: str, organization_id: str, project_id: str, data: dict[str, Any]
+) -> Project:
+    """Update project."""
+    project = post(
+        f"{server}/v1/organization/projects/{project_id}",
+        token,
+        item_name="Project",
+        headers={"OpenAI-Organization": organization_id},
+        data=data,
+    )
+    return Project(**project)
+
+
 def archive_project(server: str | None, token: str, organization_id: str, project_id: str) -> Project:
     """Create project."""
     data = post(

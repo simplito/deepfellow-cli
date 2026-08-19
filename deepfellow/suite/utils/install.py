@@ -26,6 +26,8 @@ from deepfellow.common.install import resolve_admin_kwargs, validate_non_interac
 from deepfellow.common.state import state
 from deepfellow.common.validation import PASSWORD_REQUIREMENTS, validate_email, validate_password, validate_truthy
 from deepfellow.infra.utils.install import install as infra_install
+from deepfellow.infra.utils.templates import CHAT_MODEL, EMBEDDING_MODEL, FAST_MODEL
+from deepfellow.server.project.utils import update_project
 from deepfellow.server.utils.install import install as server_install
 from deepfellow.server.utils.login import get_token_from_login
 from deepfellow.server.utils.options import set_default_server_directory
@@ -35,7 +37,7 @@ WORKSPACE_ORGANIZATION_NAME = "Workspace"
 WORKSPACE_PROJECT_NAME = "Default"
 WORKSPACE_API_KEY_NAME = "app"
 
-TOTAL_STEPS = 4
+TOTAL_STEPS = 5
 
 
 def _run_step(step: int, name: str, func: Callable[[], Any]) -> Any:
@@ -74,7 +76,8 @@ def install(
     Runs, in order: infra install (via the built-in `workspace` template, which also starts infra
     and installs the ollama service plus chat/embedding/fast models), server install (via the
     built-in `workspace` template, which also starts server and creates the admin user), server
-    login, and one call to the server's atomic workspace-creation endpoint. `suite install` itself
+    login, one call to the server's atomic workspace-creation endpoint, and a follow-up call
+    granting the created project access to the three models just installed. `suite install` itself
     exposes no `--template` option - it always uses each command's built-in `workspace` template.
 
     This is a one-shot command: it does not track progress and cannot resume after a partial failure.
@@ -122,6 +125,18 @@ def install(
         "workspace creation",
         lambda: create_workspace(
             server_url, token, WORKSPACE_ORGANIZATION_NAME, WORKSPACE_PROJECT_NAME, WORKSPACE_API_KEY_NAME
+        ),
+    )
+
+    _run_step(
+        5,
+        "grant model access",
+        lambda: update_project(
+            server_url,
+            token,
+            workspace.organization.id,
+            workspace.project.id,
+            {"models": [CHAT_MODEL, EMBEDDING_MODEL, FAST_MODEL]},
         ),
     )
 

@@ -21,6 +21,7 @@ from deepfellow.suite.utils.install import install
 
 @mock.patch("deepfellow.suite.utils.install.echo")
 @mock.patch("deepfellow.suite.utils.install.env_get")
+@mock.patch("deepfellow.suite.utils.install.update_project")
 @mock.patch("deepfellow.suite.utils.install.create_workspace")
 @mock.patch("deepfellow.suite.utils.install.get_token_from_login")
 @mock.patch("deepfellow.suite.utils.install.set_default_server_directory")
@@ -32,12 +33,14 @@ def test_install_success_calls_all_steps_in_order(
     mock_set_default_server_directory: Mock,
     mock_get_token_from_login: Mock,
     mock_create_workspace: Mock,
+    mock_update_project: Mock,
     mock_env_get: Mock,
     mock_echo: Mock,
 ) -> None:
     mock_env_get.return_value = "infra-api-key"
     mock_get_token_from_login.return_value = "token"
-    mock_create_workspace.return_value = Workspace(organization=Mock(), project=Mock(), api_key=Mock())
+    workspace = Workspace(organization=Mock(), project=Mock(), api_key=Mock())
+    mock_create_workspace.return_value = workspace
 
     install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
 
@@ -59,6 +62,12 @@ def test_install_success_calls_all_steps_in_order(
     assert mock_get_token_from_login.call_args.kwargs["password"] == "Sup3r$ecret!"
     assert mock_create_workspace.call_count == 1
     assert mock_create_workspace.call_args.args[2:] == ("Workspace", "Default", "app")
+    assert mock_update_project.call_count == 1
+    assert mock_update_project.call_args.args[2:] == (
+        workspace.organization.id,
+        workspace.project.id,
+        {"models": ["gemma4:e4b", "mxbai-embed-large", "qwen3.5:4b"]},
+    )
 
 
 @mock.patch("deepfellow.suite.utils.install.echo")
@@ -164,6 +173,7 @@ def test_install_non_interactive_reports_only_missing_admin_values(mock_infra_in
 
 @mock.patch("deepfellow.suite.utils.install.echo")
 @mock.patch("deepfellow.suite.utils.install.env_get")
+@mock.patch("deepfellow.suite.utils.install.update_project")
 @mock.patch("deepfellow.suite.utils.install.create_workspace")
 @mock.patch("deepfellow.suite.utils.install.get_token_from_login")
 @mock.patch("deepfellow.suite.utils.install.set_default_server_directory")
@@ -175,6 +185,7 @@ def test_install_non_interactive_with_all_admin_values_proceeds(
     mock_set_default_server_directory: Mock,
     mock_get_token_from_login: Mock,
     mock_create_workspace: Mock,
+    mock_update_project: Mock,
     mock_env_get: Mock,
     mock_echo: Mock,
 ) -> None:
@@ -188,6 +199,7 @@ def test_install_non_interactive_with_all_admin_values_proceeds(
     assert mock_infra_install.call_count == 1
     assert mock_server_install.call_count == 1
     assert mock_set_default_server_directory.call_count == 1
+    assert mock_update_project.call_count == 1
     assert mock_echo.prompt_until_valid.call_count == 0
 
 
@@ -216,6 +228,7 @@ def test_install_translates_step_exit_to_install_error(mock_infra_install: Mock,
 
 @mock.patch("deepfellow.suite.utils.install.echo")
 @mock.patch("deepfellow.suite.utils.install.env_get")
+@mock.patch("deepfellow.suite.utils.install.update_project")
 @mock.patch("deepfellow.suite.utils.install.create_workspace")
 @mock.patch("deepfellow.suite.utils.install.get_token_from_login")
 @mock.patch("deepfellow.suite.utils.install.set_default_server_directory")
@@ -227,6 +240,7 @@ def test_install_prompted_credentials_are_reused_for_server_install_and_login(
     mock_set_default_server_directory: Mock,
     mock_get_token_from_login: Mock,
     mock_create_workspace: Mock,
+    mock_update_project: Mock,
     mock_env_get: Mock,
     mock_echo: Mock,
 ) -> None:
