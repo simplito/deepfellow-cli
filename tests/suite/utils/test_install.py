@@ -23,27 +23,13 @@ from deepfellow.suite.utils.install import install
 @mock.patch("deepfellow.suite.utils.install.env_get")
 @mock.patch("deepfellow.suite.utils.install.create_workspace")
 @mock.patch("deepfellow.suite.utils.install.get_token_from_login")
-@mock.patch("deepfellow.suite.utils.install.create_admin")
-@mock.patch("deepfellow.suite.utils.install.start_server")
-@mock.patch("deepfellow.suite.utils.install.check_server_directory")
 @mock.patch("deepfellow.suite.utils.install.set_default_server_directory")
 @mock.patch("deepfellow.suite.utils.install.server_install")
-@mock.patch("deepfellow.suite.utils.install.infra_model_install")
-@mock.patch("deepfellow.suite.utils.install.infra_service_install")
-@mock.patch("deepfellow.suite.utils.install.start_infra")
-@mock.patch("deepfellow.suite.utils.install.check_infra_directory")
 @mock.patch("deepfellow.suite.utils.install.infra_install")
 def test_install_success_calls_all_steps_in_order(
     mock_infra_install: Mock,
-    mock_check_infra_directory: Mock,
-    mock_start_infra: Mock,
-    mock_infra_service_install: Mock,
-    mock_infra_model_install: Mock,
     mock_server_install: Mock,
     mock_set_default_server_directory: Mock,
-    mock_check_server_directory: Mock,
-    mock_start_server: Mock,
-    mock_create_admin: Mock,
     mock_get_token_from_login: Mock,
     mock_create_workspace: Mock,
     mock_env_get: Mock,
@@ -56,16 +42,18 @@ def test_install_success_calls_all_steps_in_order(
     install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
 
     assert mock_infra_install.call_count == 1
-    assert mock_start_infra.call_count == 1
-    assert mock_infra_service_install.call_count == 1
-    assert mock_infra_service_install.call_args.kwargs["name"] == "ollama"
-    assert mock_infra_model_install.call_count == 3
+    assert mock_infra_install.call_args == mock.call(template="workspace")
+    assert mock_env_get.call_count == 1
+    assert mock_env_get.call_args.args[1] == "DF_INFRA_API_KEY"
     assert mock_server_install.call_count == 1
-    assert mock_server_install.call_args.kwargs["infra_api_key"] == "infra-api-key"
+    assert mock_server_install.call_args == mock.call(
+        template="workspace",
+        infra_api_key="infra-api-key",
+        admin_name="Admin",
+        admin_email="admin@example.com",
+        admin_password="Sup3r$ecret!",
+    )
     assert mock_set_default_server_directory.call_count == 1
-    assert mock_start_server.call_count == 1
-    assert mock_create_admin.call_count == 1
-    assert mock_create_admin.call_args.args[1:] == ("Admin", "admin@example.com", "Sup3r$ecret!")
     assert mock_get_token_from_login.call_count == 1
     assert mock_get_token_from_login.call_args.kwargs["email"] == "admin@example.com"
     assert mock_get_token_from_login.call_args.kwargs["password"] == "Sup3r$ecret!"
@@ -74,17 +62,13 @@ def test_install_success_calls_all_steps_in_order(
 
 
 @mock.patch("deepfellow.suite.utils.install.echo")
-@mock.patch("deepfellow.suite.utils.install.infra_model_install")
-@mock.patch("deepfellow.suite.utils.install.infra_service_install")
-@mock.patch("deepfellow.suite.utils.install.start_infra")
-@mock.patch("deepfellow.suite.utils.install.check_infra_directory")
+@mock.patch("deepfellow.suite.utils.install.env_get")
+@mock.patch("deepfellow.suite.utils.install.server_install")
 @mock.patch("deepfellow.suite.utils.install.infra_install")
 def test_install_stops_after_infra_install_error(
     mock_infra_install: Mock,
-    mock_check_infra_directory: Mock,
-    mock_start_infra: Mock,
-    mock_infra_service_install: Mock,
-    mock_infra_model_install: Mock,
+    mock_server_install: Mock,
+    mock_env_get: Mock,
     mock_echo: Mock,
 ) -> None:
     mock_infra_install.side_effect = InstallError("boom")
@@ -92,50 +76,16 @@ def test_install_stops_after_infra_install_error(
     with pytest.raises(InstallError):
         install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
 
-    assert mock_start_infra.call_count == 0
-    assert mock_infra_service_install.call_count == 0
-    assert mock_infra_model_install.call_count == 0
-
-
-@mock.patch("deepfellow.suite.utils.install.echo")
-@mock.patch("deepfellow.suite.utils.install.server_install")
-@mock.patch("deepfellow.suite.utils.install.infra_model_install")
-@mock.patch("deepfellow.suite.utils.install.infra_service_install")
-@mock.patch("deepfellow.suite.utils.install.start_infra")
-@mock.patch("deepfellow.suite.utils.install.check_infra_directory")
-@mock.patch("deepfellow.suite.utils.install.infra_install")
-def test_install_stops_after_model_install_failure_does_not_call_server_install(
-    mock_infra_install: Mock,
-    mock_check_infra_directory: Mock,
-    mock_start_infra: Mock,
-    mock_infra_service_install: Mock,
-    mock_infra_model_install: Mock,
-    mock_server_install: Mock,
-    mock_echo: Mock,
-) -> None:
-    mock_infra_model_install.side_effect = [None, typer.Exit(1), None]
-
-    with pytest.raises(InstallError):
-        install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
-
-    assert mock_infra_model_install.call_count == 2
+    assert mock_env_get.call_count == 0
     assert mock_server_install.call_count == 0
 
 
 @mock.patch("deepfellow.suite.utils.install.echo")
 @mock.patch("deepfellow.suite.utils.install.env_get")
 @mock.patch("deepfellow.suite.utils.install.server_install")
-@mock.patch("deepfellow.suite.utils.install.infra_model_install")
-@mock.patch("deepfellow.suite.utils.install.infra_service_install")
-@mock.patch("deepfellow.suite.utils.install.start_infra")
-@mock.patch("deepfellow.suite.utils.install.check_infra_directory")
 @mock.patch("deepfellow.suite.utils.install.infra_install")
 def test_install_stops_when_infra_api_key_missing_does_not_call_server_install(
     mock_infra_install: Mock,
-    mock_check_infra_directory: Mock,
-    mock_start_infra: Mock,
-    mock_infra_service_install: Mock,
-    mock_infra_model_install: Mock,
     mock_server_install: Mock,
     mock_env_get: Mock,
     mock_echo: Mock,
@@ -146,6 +96,30 @@ def test_install_stops_when_infra_api_key_missing_does_not_call_server_install(
         install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
 
     assert mock_server_install.call_count == 0
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+@mock.patch("deepfellow.suite.utils.install.get_token_from_login")
+@mock.patch("deepfellow.suite.utils.install.set_default_server_directory")
+@mock.patch("deepfellow.suite.utils.install.server_install")
+@mock.patch("deepfellow.suite.utils.install.env_get")
+@mock.patch("deepfellow.suite.utils.install.infra_install")
+def test_install_stops_after_server_install_error_does_not_call_login(
+    mock_infra_install: Mock,
+    mock_env_get: Mock,
+    mock_server_install: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_get_token_from_login: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_env_get.return_value = "infra-api-key"
+    mock_server_install.side_effect = InstallError("boom")
+
+    with pytest.raises(InstallError):
+        install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
+
+    assert mock_set_default_server_directory.call_count == 0
+    assert mock_get_token_from_login.call_count == 0
 
 
 @mock.patch("deepfellow.suite.utils.install.echo")
@@ -192,27 +166,13 @@ def test_install_non_interactive_reports_only_missing_admin_values(mock_infra_in
 @mock.patch("deepfellow.suite.utils.install.env_get")
 @mock.patch("deepfellow.suite.utils.install.create_workspace")
 @mock.patch("deepfellow.suite.utils.install.get_token_from_login")
-@mock.patch("deepfellow.suite.utils.install.create_admin")
-@mock.patch("deepfellow.suite.utils.install.start_server")
-@mock.patch("deepfellow.suite.utils.install.check_server_directory")
 @mock.patch("deepfellow.suite.utils.install.set_default_server_directory")
 @mock.patch("deepfellow.suite.utils.install.server_install")
-@mock.patch("deepfellow.suite.utils.install.infra_model_install")
-@mock.patch("deepfellow.suite.utils.install.infra_service_install")
-@mock.patch("deepfellow.suite.utils.install.start_infra")
-@mock.patch("deepfellow.suite.utils.install.check_infra_directory")
 @mock.patch("deepfellow.suite.utils.install.infra_install")
 def test_install_non_interactive_with_all_admin_values_proceeds(
     mock_infra_install: Mock,
-    mock_check_infra_directory: Mock,
-    mock_start_infra: Mock,
-    mock_infra_service_install: Mock,
-    mock_infra_model_install: Mock,
     mock_server_install: Mock,
     mock_set_default_server_directory: Mock,
-    mock_check_server_directory: Mock,
-    mock_start_server: Mock,
-    mock_create_admin: Mock,
     mock_get_token_from_login: Mock,
     mock_create_workspace: Mock,
     mock_env_get: Mock,
@@ -227,7 +187,7 @@ def test_install_non_interactive_with_all_admin_values_proceeds(
 
     assert mock_infra_install.call_count == 1
     assert mock_server_install.call_count == 1
-    assert mock_create_admin.call_count == 1
+    assert mock_set_default_server_directory.call_count == 1
     assert mock_echo.prompt_until_valid.call_count == 0
 
 
@@ -258,27 +218,13 @@ def test_install_translates_step_exit_to_install_error(mock_infra_install: Mock,
 @mock.patch("deepfellow.suite.utils.install.env_get")
 @mock.patch("deepfellow.suite.utils.install.create_workspace")
 @mock.patch("deepfellow.suite.utils.install.get_token_from_login")
-@mock.patch("deepfellow.suite.utils.install.create_admin")
-@mock.patch("deepfellow.suite.utils.install.start_server")
-@mock.patch("deepfellow.suite.utils.install.check_server_directory")
 @mock.patch("deepfellow.suite.utils.install.set_default_server_directory")
 @mock.patch("deepfellow.suite.utils.install.server_install")
-@mock.patch("deepfellow.suite.utils.install.infra_model_install")
-@mock.patch("deepfellow.suite.utils.install.infra_service_install")
-@mock.patch("deepfellow.suite.utils.install.start_infra")
-@mock.patch("deepfellow.suite.utils.install.check_infra_directory")
 @mock.patch("deepfellow.suite.utils.install.infra_install")
-def test_install_prompted_credentials_are_reused_for_create_admin_and_login(
+def test_install_prompted_credentials_are_reused_for_server_install_and_login(
     mock_infra_install: Mock,
-    mock_check_infra_directory: Mock,
-    mock_start_infra: Mock,
-    mock_infra_service_install: Mock,
-    mock_infra_model_install: Mock,
     mock_server_install: Mock,
     mock_set_default_server_directory: Mock,
-    mock_check_server_directory: Mock,
-    mock_start_server: Mock,
-    mock_create_admin: Mock,
     mock_get_token_from_login: Mock,
     mock_create_workspace: Mock,
     mock_env_get: Mock,
@@ -291,6 +237,8 @@ def test_install_prompted_credentials_are_reused_for_create_admin_and_login(
 
     install(admin_name=None, admin_email=None, admin_password=None)
 
-    assert mock_create_admin.call_args.args[1:] == ("Prompted Admin", "prompted@example.com", "Pr0mpted$ecret!")
+    assert mock_server_install.call_args.kwargs["admin_name"] == "Prompted Admin"
+    assert mock_server_install.call_args.kwargs["admin_email"] == "prompted@example.com"
+    assert mock_server_install.call_args.kwargs["admin_password"] == "Pr0mpted$ecret!"
     assert mock_get_token_from_login.call_args.kwargs["email"] == "prompted@example.com"
     assert mock_get_token_from_login.call_args.kwargs["password"] == "Pr0mpted$ecret!"
