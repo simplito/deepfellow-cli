@@ -40,8 +40,10 @@ def install(
         return
 
     if data.get("status", "").lower() != "ok":
-        message = data.get("details") or data.get("error")
+        message = data.get("details")
         echo.error(f"Unable to install model.{f' {message}' if message else ''}")
+        if not message:
+            echo.error("Check `docker compose logs infra` for details.")
         raise typer.Exit(1)
 
     echo.success(f"Model {model_name} installed.")
