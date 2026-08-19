@@ -29,13 +29,15 @@ def install(
 ) -> None:
     """Provision a complete DeepFellow workspace: Infra, Server, admin user, and a ready-to-use workspace.
 
-    Runs, in one non-interactive-friendly pass: infra install, infra start, infra service install
-    (ollama, GPU spec), three infra model installs (chat, embedding, fast), server install (milvus,
-    mxbai-embed-large), server start, create-admin, login, and one call to the server's atomic
-    workspace-creation endpoint (organization "Workspace", project "Default", API key "app").
+    Runs, in one non-interactive-friendly pass: infra install (via the built-in `workspace`
+    template, which also starts infra and installs the ollama service plus chat/embedding/fast
+    models), server install (via the built-in `workspace` template, which also starts server and
+    creates the admin user), login, and one call to the server's atomic workspace-creation endpoint
+    (organization "Workspace", project "Default", API key "app").
 
-    All defaults are hardcoded in this version — there is no `--template` flag. This is a one-shot
-    command: it does not track progress and cannot resume after a partial failure.
+    `suite install` itself exposes no `--template` option — it always uses each command's built-in
+    `workspace` template. This is a one-shot command: it does not track progress and cannot resume
+    after a partial failure.
     """
     try:
         install_util(admin_name=admin_name, admin_email=admin_email, admin_password=admin_password)
