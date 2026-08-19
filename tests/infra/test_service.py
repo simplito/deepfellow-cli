@@ -149,7 +149,7 @@ def test_install_with_valid_spec(
 @mock.patch(
     "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
 )
-def test_install_exits_with_detail_when_finish_status_error(
+def test_install_exits_with_details_when_finish_status_error(
     mock_resolve: Mock,
     mock_get: Mock,
     mock_install_with_progress: Mock,
@@ -165,6 +165,35 @@ def test_install_exits_with_detail_when_finish_status_error(
 
     assert mock_echo.error.call_count == 1
     assert mock_echo.error.call_args == mock.call("Unable to install service. disk full")
+    assert mock_echo.success.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.connection.env_set")
+@mock.patch("deepfellow.infra.utils.service_install.echo")
+@mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
+@mock.patch("deepfellow.infra.utils.service_install.get")
+@mock.patch(
+    "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
+def test_install_points_to_infra_logs_when_finish_status_error_without_details(
+    mock_resolve: Mock,
+    mock_get: Mock,
+    mock_install_with_progress: Mock,
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    name: str,
+) -> None:
+    mock_get.return_value = {"spec": {"fields": []}}
+    mock_install_with_progress.return_value = {"type": "finish", "status": "error"}
+
+    with pytest.raises(typer.Exit):
+        install(name=name, spec=None)
+
+    assert mock_echo.error.call_count == 2
+    assert mock_echo.error.call_args_list == [
+        mock.call("Unable to install service."),
+        mock.call("Check `docker compose logs infra` for details."),
+    ]
     assert mock_echo.success.call_count == 0
 
 
