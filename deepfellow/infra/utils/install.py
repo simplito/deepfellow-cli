@@ -21,6 +21,8 @@ import typer
 from deepfellow.common.config import (
     EnvDict,
     configure_uuid_key,
+    merge_config_json_into_env,
+    read_config_json_settings,
     read_env_file_to_dict,
     save_env_file,
 )
@@ -44,7 +46,7 @@ from deepfellow.common.docker import (
     save_compose_file,
 )
 from deepfellow.common.echo import echo
-from deepfellow.common.env import env_set
+from deepfellow.common.env import env_get, env_set
 from deepfellow.common.exceptions import DockerNetworkError, InstallError, translate_to_install_error
 from deepfellow.common.generate import generate_password
 from deepfellow.common.install import assert_docker, ensure_directory
@@ -65,7 +67,7 @@ class InstallContext:
     directory: Path
     docker_socket: str
     newest_image_tag: str | None
-    original_env_content: EnvDict  # {} if no prior .env
+    original_env_content: EnvDict  # {} if no prior .env, merged with config.json's settings if any
 
 
 def inspect(
@@ -102,8 +104,19 @@ def inspect(
     )
     newest_image_tag = get_newest_image_tag(DF_INFRA_IMAGE_HUB) if not local_image and image == DF_INFRA_IMAGE else None
 
-    # Prepare the starting point for .env
-    original_env_content = read_env_file_to_dict(directory / ".env")
+    # Prepare the starting point for .env, enriched with config.json's values (which take
+    # precedence for fields that migrated there - see _config_json_exists() in
+    # deepfellow/infra/env_command/set.py for the same storage dir logic)
+    env_file = directory / ".env"
+    original_env_content: EnvDict = read_env_file_to_dict(env_file)
+    if env_file.is_file():
+        # Only resolve a storage dir and read its config.json once a prior .env is confirmed for
+        # this directory - otherwise a fresh install (no .env yet) would default storage_dir to
+        # the global DF_INFRA_STORAGE_DIR and silently inherit an unrelated installation's
+        # config.json values.
+        storage_dir = env_get(env_file, "DF_INFRA_STORAGE_DIR", should_raise=False) or str(DF_INFRA_STORAGE_DIR)
+        config_json_settings = read_config_json_settings(Path(storage_dir) / "config.json")
+        original_env_content = merge_config_json_into_env(original_env_content, config_json_settings)
 
     return InstallContext(resolved_template, directory, docker_socket, newest_image_tag, original_env_content)
 
@@ -153,12 +166,15 @@ def _merge_template_config(
 
     Precedence, highest to lowest: an explicit CLI flag (the arg no longer equals its own original
     default) always wins; a value already configured by a prior install (found in that install's
-    .env) is preserved next - a template must not silently discard existing configuration; only
-    then does the template's config value apply; the CLI option's hardcoded default is the fallback.
+    `.env`, merged with any `config.json` values by `merge_config_json_into_env()` before
+    `original_env_content` reaches here) is preserved next - a template must not silently discard
+    existing configuration; only then does the template's config value apply; the CLI option's
+    hardcoded default is the fallback.
 
     Args:
         template_config: The resolved template's "config" mapping (empty if no template was given).
-        original_env_content: The prior install's .env content (empty if there wasn't one).
+        original_env_content: The prior install's .env content, merged with config.json (empty if
+            neither existed).
         values: CLI-resolved values for the fields in `_MERGEABLE_FIELDS`, keyed by their template
             config key, e.g. {"port": port, "infra_name": infra_name, ...}.
 
@@ -166,8 +182,8 @@ def _merge_template_config(
         The merged values (same keys as `values`), plus the subset of its keys that came from the
         template. `resolve()` passes force_provided=True for infra_name/infra_url/docker_network's
         prompt when the key is in this set, so it isn't re-asked; `port` has no prompt of its own,
-        so its merged value (already restored to a prior .env value when one blocked the template,
-        see above) is used as-is.
+        so its merged value (already restored to a prior value when one blocked the template, see
+        above) is used as-is.
 
     Raises:
         InstallError: If a prior install's .env has a non-numeric port value.

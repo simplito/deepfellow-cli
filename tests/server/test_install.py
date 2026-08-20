@@ -915,7 +915,10 @@ def test_merge_template_config_preserves_prior_env_value_over_template_value():
 
 def test_merge_template_config_skips_field_absent_from_template_config():
     merged, from_template, blocked_by_prior_env = _merge_template_config(
-        template_config={}, original_env_content={}, values={"port": DF_SERVER_PORT}, explicitly_provided=set()
+        template_config={},
+        original_env_content={},
+        values={"port": DF_SERVER_PORT},
+        explicitly_provided=set(),
     )
 
     assert merged == {"port": DF_SERVER_PORT}
@@ -2398,10 +2401,71 @@ def test_install_preserves_prior_env_value_over_template_config(
     assert infra_call[1]["force_provided_url"] is False
 
     warning_messages = [call.args[0] for call in mock_echo.warning.call_args_list]
-    assert "Template's 'docker_network' config value is ignored because a prior install's .env already sets it." in (
+    assert "Template's 'docker_network' config value is ignored because a prior install already configured it." in (
         warning_messages
     )
-    assert "Template's 'infra_url' config value is ignored because a prior install's .env already sets it." in (
+    assert "Template's 'infra_url' config value is ignored because a prior install already configured it." in (
+        warning_messages
+    )
+
+
+@mock.patch("deepfellow.server.utils.install.read_config_json_settings")
+@MOCK_RESOLVE_TEMPLATE
+@MOCK_SAVE_COMPOSE_FILE
+@MOCK_RUN
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@MOCK_ENSURE_NETWORK
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_install_preserves_prior_config_json_value_over_template_config(
+    mock_echo,
+    mock_assert_docker,
+    mock_ensure_network,
+    mock_configure_mongo,
+    mock_configure_infra,
+    mock_configure_vector_db,
+    mock_configure_otel,
+    mock_run,
+    mock_save_compose_file,
+    mock_resolve_template,
+    mock_read_config_json_settings,
+    tmp_path,
+):
+    """Regression test for DFCLI-55: a template must not silently discard a value that only exists
+    in config.json - e.g. a field that migrated away from .env after the service's first start, so
+    .env alone would see it as "unset" - and the real config.json value, not a hardcoded default,
+    must be what's actually used downstream."""
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+    (tmp_path / ".env").touch()  # config.json is only consulted once a prior .env is confirmed
+    mock_read_config_json_settings.return_value = {
+        "infra_docker_subnet": "config-json-net",
+        "infra": {"url": "http://config-json-infra:8086"},
+    }
+    template_config = {"docker_network": "templated-net", "infra_url": "http://templated-infra:9999"}
+    mock_resolve_template.return_value = {"config": template_config, "post_start_actions": []}
+
+    install(directory=tmp_path, template="workspace", force_install=True)
+
+    network_prompt_kwargs = mock_echo.prompt.call_args_list[0][1]
+    assert network_prompt_kwargs["from_args"] == DF_INFRA_DOCKER_NETWORK
+    assert network_prompt_kwargs["force_provided"] is False
+    assert network_prompt_kwargs["default"] == "config-json-net"
+
+    infra_call = mock_configure_infra.call_args
+    assert infra_call[0][1] == DF_INFRA_URL
+    assert infra_call[1]["force_provided_url"] is False
+    assert infra_call[0][2]["df_infra"]["url"] == "http://config-json-infra:8086"
+
+    warning_messages = [call.args[0] for call in mock_echo.warning.call_args_list]
+    assert "Template's 'docker_network' config value is ignored because a prior install already configured it." in (
+        warning_messages
+    )
+    assert "Template's 'infra_url' config value is ignored because a prior install already configured it." in (
         warning_messages
     )
 
