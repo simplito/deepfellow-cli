@@ -2228,6 +2228,28 @@ def test_install_preserves_prior_env_value_over_template_config(install_mocks: I
     assert name_prompt_kwargs["default"] == "existing-name"
 
 
+@mock.patch("deepfellow.infra.utils.install.read_config_json_settings")
+def test_install_preserves_prior_config_json_value_over_template_config(
+    mock_read_config_json_settings: Mock, install_mocks: InstallMocks, tmp_path: Path
+) -> None:
+    """Regression test for DFCLI-55: a template must not silently discard a value that only exists
+    in config.json - e.g. a field that migrated away from .env after the service's first start, so
+    .env alone would see it as "unset"."""
+    _setup_echo(install_mocks.echo)
+    (tmp_path / ".env").touch()  # config.json is only consulted once a prior .env is confirmed
+    install_mocks.read_env_file_to_dict.return_value = {}
+    mock_read_config_json_settings.return_value = {"name": "existing-name"}
+    template_config = {"infra_name": "templated-infra"}
+    install_mocks.resolve_template.return_value = {"config": template_config, "post_start_actions": []}
+
+    install(directory=tmp_path, template="workspace")
+
+    name_prompt_kwargs = install_mocks.echo.prompt.call_args_list[0][1]
+    assert name_prompt_kwargs["from_args"] == DF_INFRA_NAME
+    assert name_prompt_kwargs["force_provided"] is False
+    assert name_prompt_kwargs["default"] == "existing-name"
+
+
 def test_install_preserves_prior_env_infra_url_over_template_config(
     install_mocks: InstallMocks, tmp_path: Path
 ) -> None:

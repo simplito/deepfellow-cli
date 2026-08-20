@@ -20,6 +20,8 @@ import typer
 
 from deepfellow.common.config import (
     EnvDict,
+    merge_config_json_into_env,
+    read_config_json_settings,
     read_env_file_to_dict,
     save_env_file,
 )
@@ -204,7 +206,13 @@ def inspect(
     )
 
     env_file = directory / ".env"
-    original_env_content = read_env_file_to_dict(env_file)
+    original_env_content: EnvDict = read_env_file_to_dict(env_file)
+    if env_file.is_file():
+        # Only read config.json once a prior .env is confirmed for this directory - otherwise a
+        # fresh install (no .env yet) would silently inherit config.json values left behind by any
+        # other server install that ever used the same global DF_SERVER_STORAGE_DIRECTORY.
+        config_json_settings = read_config_json_settings(DF_SERVER_STORAGE_DIRECTORY / "config.json")
+        original_env_content = merge_config_json_into_env(original_env_content, config_json_settings)
 
     log_level = str(original_env_content.get("df_log_level", "INFO")).upper()
     if log_level not in LOG_LEVELS:
@@ -217,7 +225,12 @@ def inspect(
         raise typer.Exit(1)
 
     return InstallContext(
-        resolved_template, directory, newest_image_tag, original_env_content, log_level, plugins_setup
+        resolved_template,
+        directory,
+        newest_image_tag,
+        original_env_content,
+        log_level,
+        plugins_setup,
     )
 
 
@@ -236,7 +249,8 @@ def _get_nested_env_value(original_env_content: EnvDict, path: tuple[str, ...]) 
 
     Args:
         original_env_content: The prior install's .env content, as read back by read_env_file_to_dict
-            (nested on "__" boundaries).
+            and merged with config.json's settings by merge_config_json_into_env() (nested on "__"
+            boundaries).
         path: The key path to walk, e.g. ("df_vector_database", "provider", "url").
 
     Returns:
@@ -284,13 +298,15 @@ def _merge_template_config(
     """Fill in CLI-level install values from a template's config, without overriding what should win.
 
     Precedence, highest to lowest: an explicit CLI flag (its key is in `explicitly_provided`) always
-    wins; a value already configured by a prior install (found in that install's .env) is preserved
-    next - a template must not silently discard existing configuration; only then does the
-    template's config value apply; the CLI option's hardcoded default is the fallback.
+    wins; a value already configured by a prior install (found in that install's `.env`, merged with
+    any `config.json` values by `merge_config_json_into_env()` before `original_env_content` reaches
+    here) is preserved next - a template must not silently discard existing configuration; only then
+    does the template's config value apply; the CLI option's hardcoded default is the fallback.
 
     Args:
         template_config: The resolved template's "config" mapping (empty if no template was given).
-        original_env_content: The prior install's .env content (empty if there wasn't one).
+        original_env_content: The prior install's .env content, merged with config.json (empty if
+            neither existed).
         values: CLI-resolved values for the fields in `_MERGEABLE_FIELDS`, keyed by their template
             config key, e.g. {"port": port, "docker_network": docker_network, ...}. `port` must
             already be resolved via `_resolve_port()` before calling this - unlike the other
@@ -309,12 +325,12 @@ def _merge_template_config(
         matching force_provided_* kwarg (configure_infra()/configure_vector_db(), for the other
         seven prompted fields) whenever the key is in this set, so a template-supplied value isn't
         re-asked for even when it equals that field's own default). And the subset of
-        template_config's keys that were ignored because a prior install's .env already set that
-        field, so `resolve()` can warn about each one instead of discarding it silently.
+        template_config's keys that were ignored because a prior install already set that field, so
+        `resolve()` can warn about each one instead of discarding it silently.
     """
     merged = dict(values)
     from_template: set[str] = set()
-    blocked_by_prior_env: set[str] = set()
+    blocked_by_prior_value: set[str] = set()
 
     for key, path in _MERGEABLE_FIELDS:
         if key not in template_config:
@@ -324,13 +340,13 @@ def _merge_template_config(
 
         prior_value = _get_nested_env_value(original_env_content, path)
         if prior_value is not None:
-            blocked_by_prior_env.add(key)
+            blocked_by_prior_value.add(key)
             continue  # a prior install's value must not be silently discarded
 
         merged[key] = template_config[key]
         from_template.add(key)
 
-    return merged, from_template, blocked_by_prior_env
+    return merged, from_template, blocked_by_prior_value
 
 
 @dataclass
@@ -448,7 +464,7 @@ def resolve(
     template_config = context.resolved_template["config"] if context.resolved_template else {}
     port = _resolve_port(port, original_env_content, explicitly_provided)
 
-    merged, from_template, blocked_by_prior_env = _merge_template_config(
+    merged, from_template, blocked_by_prior_value = _merge_template_config(
         template_config,
         original_env_content,
         {
@@ -464,8 +480,8 @@ def resolve(
         },
         explicitly_provided,
     )
-    for key in blocked_by_prior_env:
-        echo.warning(f"Template's '{key}' config value is ignored because a prior install's .env already sets it.")
+    for key in blocked_by_prior_value:
+        echo.warning(f"Template's '{key}' config value is ignored because a prior install already configured it.")
     port = merged["port"]
     docker_network = merged["docker_network"]
     infra_url = merged["infra_url"]

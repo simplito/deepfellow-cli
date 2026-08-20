@@ -13,7 +13,7 @@ import json
 import re
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import typer
@@ -149,6 +149,68 @@ def read_env_file_to_dict(env_file: Path) -> EnvDict:
         return env_to_dict(original_env_vars)
 
     return {}
+
+
+def read_config_json_settings(config_json_file: Path) -> dict[str, Any]:
+    """Best-effort read of a server/infra config.json's "settings" section.
+
+    config.json is written by the running service (not this CLI) as
+    ``{"schema_version": ..., "settings": {...}}``. A missing file, unreadable file, invalid JSON, or a
+    "settings" value that isn't a dict is treated as "no config.json values available" rather than an
+    error, since this is only ever used to avoid overwriting a value that's genuinely there.
+
+    Args:
+        config_json_file: Path to the config.json file.
+
+    Returns:
+        The "settings" dict, or {} if unavailable for any reason.
+    """
+    try:
+        data = json.loads(config_json_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+
+    settings = data.get("settings") if isinstance(data, dict) else None
+    return settings if isinstance(settings, dict) else {}
+
+
+def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge `overlay` over `base`; `overlay`'s leaf values win on conflicts.
+
+    The standard library has no recursive dict-merge helper (`dict.update()`/`{**a, **b}`/
+    `ChainMap` are all shallow). Third-party packages exist (`deepmerge`, `mergedeep`), but aren't
+    worth adding as a dependency for this one call site.
+    """
+    merged = dict(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def merge_config_json_into_env(env_content: EnvDict, config_json_settings: dict[str, Any]) -> EnvDict:
+    """Overlay a config.json "settings" dict onto a .env-derived EnvDict, config.json winning.
+
+    config.json's settings keys aren't "df_"-prefixed (unlike .env's, once read through
+    read_env_file_to_dict()/env_to_dict()), so its top-level keys are prefixed with "df_" first -
+    the same convention env_to_dict() already uses - before deep-merging it over `env_content`. The
+    merge is recursive so a nested field only `.env` has (e.g. a sibling key under the same
+    "df_vector_database" tree that config.json doesn't carry) survives instead of being dropped by a
+    shallow top-level overwrite.
+
+    Args:
+        env_content: The prior install's .env content, as read by read_env_file_to_dict().
+        config_json_settings: The prior install's config.json "settings" content, as read by
+            read_config_json_settings() (empty if config.json doesn't exist or has no "settings").
+
+    Returns:
+        A new EnvDict with config_json_settings's values merged in, taking precedence over
+        env_content's for any field present in both.
+    """
+    prefixed = {f"df_{key}": value for key, value in config_json_settings.items()}
+    return cast("EnvDict", _deep_merge(env_content, prefixed))
 
 
 def save_env_file(

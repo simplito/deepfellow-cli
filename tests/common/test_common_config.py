@@ -16,10 +16,13 @@ import pytest
 import typer
 
 from deepfellow.common.config import (
+    EnvDict,
     configure_uuid_key,
     dict_to_env,
     env_to_dict,
+    merge_config_json_into_env,
     parse_key_value_updates,
+    read_config_json_settings,
     read_env_file,
     reveal_masked_paths,
     reveal_secret_entries,
@@ -1106,3 +1109,92 @@ def test_reveal_masked_paths_uses_custom_mask_sentinel():
     reveal_masked_paths(config, reveal, mask="MASKED")
 
     assert config["smtp"]["password"] == "real-password"
+
+
+def test_read_config_json_settings_missing_file_returns_empty_dict(tmp_path: Path) -> None:
+    config_json = tmp_path / "config.json"
+
+    result = read_config_json_settings(config_json)
+
+    assert result == {}
+
+
+def test_read_config_json_settings_returns_settings_dict(tmp_path: Path) -> None:
+    config_json = tmp_path / "config.json"
+    config_json.write_text('{"schema_version": 1, "settings": {"infra_url": "http://infra:8086"}}')
+
+    result = read_config_json_settings(config_json)
+
+    assert result == {"infra_url": "http://infra:8086"}
+
+
+def test_read_config_json_settings_malformed_json_returns_empty_dict(tmp_path: Path) -> None:
+    config_json = tmp_path / "config.json"
+    config_json.write_text("not valid json")
+
+    result = read_config_json_settings(config_json)
+
+    assert result == {}
+
+
+def test_read_config_json_settings_missing_settings_key_returns_empty_dict(tmp_path: Path) -> None:
+    config_json = tmp_path / "config.json"
+    config_json.write_text('{"schema_version": 1}')
+
+    result = read_config_json_settings(config_json)
+
+    assert result == {}
+
+
+def test_read_config_json_settings_settings_not_a_dict_returns_empty_dict(tmp_path: Path) -> None:
+    config_json = tmp_path / "config.json"
+    config_json.write_text('{"settings": "not-a-dict"}')
+
+    result = read_config_json_settings(config_json)
+
+    assert result == {}
+
+
+def test_merge_config_json_into_env_prefixes_top_level_keys_with_df():
+    env_content: EnvDict = {}
+    config_json_settings = {"name": "infra", "infra_url": "http://infra:8086"}
+
+    result = merge_config_json_into_env(env_content, config_json_settings)
+
+    assert result == {"df_name": "infra", "df_infra_url": "http://infra:8086"}
+
+
+def test_merge_config_json_into_env_config_json_wins_on_conflict():
+    env_content: EnvDict = {"df_infra_url": "http://stale-infra:8086"}
+    config_json_settings = {"infra_url": "http://current-infra:8086"}
+
+    result = merge_config_json_into_env(env_content, config_json_settings)
+
+    assert result == {"df_infra_url": "http://current-infra:8086"}
+
+
+def test_merge_config_json_into_env_recurses_into_nested_dicts():
+    env_content: EnvDict = {"df_vector_database": {"provider": {"type": "milvus", "url": "http://stale-vdb:19530"}}}
+    config_json_settings = {"vector_database": {"provider": {"url": "http://current-vdb:19530"}}}
+
+    result = merge_config_json_into_env(env_content, config_json_settings)
+
+    assert result == {"df_vector_database": {"provider": {"type": "milvus", "url": "http://current-vdb:19530"}}}
+
+
+def test_merge_config_json_into_env_keeps_env_only_fields_untouched():
+    env_content: EnvDict = {"df_server_port": 8000, "df_log_level": "DEBUG"}
+    config_json_settings: dict[str, Any] = {}
+
+    result = merge_config_json_into_env(env_content, config_json_settings)
+
+    assert result == {"df_server_port": 8000, "df_log_level": "DEBUG"}
+
+
+def test_merge_config_json_into_env_scalar_overlay_replaces_env_dict_value():
+    env_content: EnvDict = {"df_infra": {"url": "http://stale-infra:8086"}}
+    config_json_settings = {"infra": "not-a-dict-anymore"}
+
+    result = merge_config_json_into_env(env_content, config_json_settings)
+
+    assert result == {"df_infra": "not-a-dict-anymore"}
