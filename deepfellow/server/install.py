@@ -108,10 +108,22 @@ def install(
     force_install: bool = typer.Option(False, help="Force install"),
     dev: bool = typer.Option(False, "--dev", help="Expose internal service ports to host for development."),
     template: str | None = typer.Option(None, help=_TEMPLATE_HELP),
-    admin_name: str | None = typer.Option(None, "--admin-name", help="Admin user's name."),
-    admin_email: str | None = typer.Option(None, "--admin-email", callback=validate_email, help="Admin user's email."),
+    admin_name: str | None = typer.Option(
+        None, "--admin-name", envvar="DF_SERVER_ADMIN_NAME", help="Admin user's name."
+    ),
+    admin_email: str | None = typer.Option(
+        None,
+        "--admin-email",
+        envvar="DF_SERVER_ADMIN_EMAIL",
+        callback=validate_email,
+        help="Admin user's email.",
+    ),
     admin_password: str | None = typer.Option(
-        None, "--admin-password", callback=validate_password, help="Admin user's password."
+        None,
+        "--admin-password",
+        envvar="DF_SERVER_ADMIN_PASSWORD",
+        callback=validate_password,
+        help="Admin user's password.",
     ),
 ) -> None:
     """Install DeepFellow Server with docker."""
