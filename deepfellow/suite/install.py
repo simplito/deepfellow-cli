@@ -21,10 +21,22 @@ app = typer.Typer()
 
 @app.command()
 def install(
-    admin_name: str | None = typer.Option(None, "--admin-name", help="Admin user's name."),
-    admin_email: str | None = typer.Option(None, "--admin-email", callback=validate_email, help="Admin user's email."),
+    admin_name: str | None = typer.Option(
+        None, "--admin-name", envvar="DF_SERVER_ADMIN_NAME", help="Admin user's name."
+    ),
+    admin_email: str | None = typer.Option(
+        None,
+        "--admin-email",
+        envvar="DF_SERVER_ADMIN_EMAIL",
+        callback=validate_email,
+        help="Admin user's email.",
+    ),
     admin_password: str | None = typer.Option(
-        None, "--admin-password", callback=validate_password, help="Admin user's password."
+        None,
+        "--admin-password",
+        envvar="DF_SERVER_ADMIN_PASSWORD",
+        callback=validate_password,
+        help="Admin user's password.",
     ),
 ) -> None:
     """Provision a complete DeepFellow workspace: Infra, Server, admin user, and a ready-to-use workspace.
