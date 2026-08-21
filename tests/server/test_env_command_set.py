@@ -209,6 +209,8 @@ def test_dynamic_field_name_returns_none_when_no_user_token_stored(
     directory: Path,
 ) -> None:
     (directory / ".env").write_text("DF_SERVER_PORT=8000\n")
+    secrets_file = directory / "secrets"
+    state.cli_secrets_file = secrets_file
 
     result = _dynamic_field_name(directory, "DF_OTEL_TRACING_ENABLED")
 

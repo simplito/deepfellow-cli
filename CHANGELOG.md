@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - CLI no longer crashes with a raw `KeyError` traceback instead of a readable error message when the DeepFellow Server reports an error in its newer `{"error": {"message": ...}}` format.
 - `deepfellow infra install`/`server install` in `--non-interactive` mode now explains how to proceed (pass `--force-install` or remove the directory manually) when the target directory already exists, instead of aborting with no guidance.
 - `deepfellow suite install --non-interactive` now reports every missing admin value (name, email, password) in a single error naming the exact `--admin-name`/`--admin-email`/`--admin-password` flags to pass, instead of aborting on just the first missing value with a message that didn't name a flag.
+- `test_dynamic_field_name_returns_none_when_no_user_token_stored` no longer reads the real `~/.deepfellow/secrets` on the machine running the tests — it previously passed only by coincidence when that file had no `DF_USER_TOKEN`, and failed once one was actually present (e.g. after a real `deepfellow server login`).
 
 ## [0.31.0] - 2026-08-06
 ### Added
