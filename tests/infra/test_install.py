@@ -7,6 +7,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ from unittest.mock import Mock
 
 import pytest
 import typer
+from click.core import ParameterSource
 from typer.models import OptionInfo
 
 from deepfellow.common.defaults import (
@@ -32,7 +34,8 @@ from deepfellow.common.docker import DockerError
 from deepfellow.common.exceptions import DockerNetworkError, InstallError
 from deepfellow.common.state import state
 from deepfellow.infra.install import install as install_command
-from deepfellow.infra.utils.install import InstallConfig, InstallContext, apply, inspect, install, resolve
+from deepfellow.infra.utils.install import InstallConfig, InstallContext, apply, install, mergeable_field_names, resolve
+from deepfellow.infra.utils.install import inspect as inspect_util
 from deepfellow.infra.utils.templates import BUILTIN_TEMPLATES
 
 
@@ -104,6 +107,17 @@ def _setup_echo(mock_echo: Mock) -> None:
     mock_echo.confirm.return_value = False
 
 
+def dummy_ctx() -> Mock:
+    """A `typer.Context` stand-in for direct (non-Click) calls to `install_command()`.
+
+    `get_parameter_source()` defaults to DEFAULT for every field, i.e. "nothing was explicitly
+    passed" - matching a bare Python call, which has no real Click parsing behind it.
+    """
+    ctx = mock.MagicMock(spec=typer.Context)
+    ctx.get_parameter_source.return_value = ParameterSource.DEFAULT
+    return ctx
+
+
 @mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
 @mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
 @mock.patch("deepfellow.infra.utils.install.ensure_directory")
@@ -120,7 +134,7 @@ def test_inspect_calls_assert_docker(
     mock_get_socket.return_value = "/var/run/docker.sock"
     mock_read_env_file_to_dict.return_value = {}
 
-    inspect(directory=directory, allow_rootful=False, force_install=False, image=DF_INFRA_IMAGE, local_image=False)
+    inspect_util(directory=directory, allow_rootful=False, force_install=False, image=DF_INFRA_IMAGE, local_image=False)
 
     assert mock_assert_docker.call_count == 1
 
@@ -141,7 +155,7 @@ def test_inspect_passes_allow_rootful_to_get_socket(
     mock_get_socket.return_value = "/var/run/docker.sock"
     mock_read_env_file_to_dict.return_value = {}
 
-    inspect(directory=directory, allow_rootful=True, force_install=False, image=DF_INFRA_IMAGE, local_image=False)
+    inspect_util(directory=directory, allow_rootful=True, force_install=False, image=DF_INFRA_IMAGE, local_image=False)
 
     assert mock_get_socket.call_args == mock.call(allow_rootful=True)
 
@@ -162,7 +176,7 @@ def test_inspect_ensures_directory_with_force_install(
     mock_get_socket.return_value = "/var/run/docker.sock"
     mock_read_env_file_to_dict.return_value = {}
 
-    inspect(directory=directory, allow_rootful=False, force_install=True, image=DF_INFRA_IMAGE, local_image=False)
+    inspect_util(directory=directory, allow_rootful=False, force_install=True, image=DF_INFRA_IMAGE, local_image=False)
 
     assert mock_ensure_directory.call_args == mock.call(
         directory, error_message="Unable to create DeepFellow Infra directory.", force_install=True
@@ -186,7 +200,7 @@ def test_inspect_resolves_newest_image_tag_for_default_image(
     mock_read_env_file_to_dict.return_value = {}
     mock_get_newest_image_tag.return_value = "v1.2.3"
 
-    context = inspect(
+    context = inspect_util(
         directory=directory, allow_rootful=False, force_install=False, image=DF_INFRA_IMAGE, local_image=False
     )
 
@@ -219,7 +233,7 @@ def test_inspect_skips_newest_image_tag_lookup(
     mock_get_socket.return_value = "/var/run/docker.sock"
     mock_read_env_file_to_dict.return_value = {}
 
-    context = inspect(
+    context = inspect_util(
         directory=directory, allow_rootful=False, force_install=False, image=image, local_image=local_image
     )
 
@@ -243,7 +257,7 @@ def test_inspect_returns_context_with_docker_socket_and_env_content(
     mock_get_socket.return_value = "/var/run/docker.sock"
     mock_read_env_file_to_dict.return_value = {"DF_NAME": "infra"}
 
-    context = inspect(
+    context = inspect_util(
         directory=directory, allow_rootful=False, force_install=False, image=DF_INFRA_IMAGE, local_image=False
     )
 
@@ -291,7 +305,7 @@ def test_inspect_resolves_template_before_docker_and_directory_access(
     mock_ensure_directory.side_effect = _record_ensure_directory
     mock_read_env_file_to_dict.return_value = {}
 
-    inspect(
+    inspect_util(
         directory=directory,
         allow_rootful=False,
         force_install=False,
@@ -321,7 +335,7 @@ def test_inspect_short_circuits_before_docker_when_template_resolution_fails(
     mock_resolve_template.side_effect = InstallError("bad template")
 
     with pytest.raises(InstallError):
-        inspect(
+        inspect_util(
             directory=directory,
             allow_rootful=False,
             force_install=False,
@@ -357,7 +371,7 @@ def test_inspect_returns_the_resolved_template_in_context(
     resolved = {"config": {"port": 9000}, "post_start_actions": []}
     mock_resolve_template.return_value = resolved
 
-    context = inspect(
+    context = inspect_util(
         directory=directory,
         allow_rootful=False,
         force_install=False,
@@ -385,7 +399,7 @@ def test_inspect_returns_none_resolved_template_when_no_template_given(
     mock_get_socket.return_value = "/var/run/docker.sock"
     mock_read_env_file_to_dict.return_value = {}
 
-    context = inspect(
+    context = inspect_util(
         directory=directory, allow_rootful=False, force_install=False, image=DF_INFRA_IMAGE, local_image=False
     )
 
@@ -1910,10 +1924,29 @@ def test_install_command_delegates_to_install_util(
     mock_install_util: Mock,
     default_install_kwargs: dict,
 ) -> None:
-    install_command(**default_install_kwargs)
+    install_command(ctx=dummy_ctx(), **default_install_kwargs)
 
     assert mock_install_util.call_count == 1
-    assert mock_install_util.call_args == mock.call(**default_install_kwargs)
+    assert mock_install_util.call_args == mock.call(**default_install_kwargs, explicitly_provided=set())
+    assert set(mock_install_util.call_args[1]) == set(inspect.signature(install).parameters)
+
+
+@mock.patch("deepfellow.infra.install.install_util")
+def test_install_command_computes_explicitly_provided_from_parameter_source(
+    mock_install_util: Mock,
+    default_install_kwargs: dict,
+) -> None:
+    """explicitly_provided must reflect ctx.get_parameter_source(), not merely be an empty set -
+    COMMANDLINE and ENVIRONMENT both count as explicit, DEFAULT doesn't."""
+    ctx = dummy_ctx()
+    ctx.get_parameter_source.side_effect = lambda name: {
+        "port": ParameterSource.COMMANDLINE,
+        "infra_url": ParameterSource.ENVIRONMENT,
+    }.get(name, ParameterSource.DEFAULT)
+
+    install_command(ctx=ctx, **default_install_kwargs)
+
+    assert mock_install_util.call_args[1]["explicitly_provided"] == {"port", "infra_url"}
 
 
 @mock.patch("deepfellow.infra.install.install_util")
@@ -1924,7 +1957,7 @@ def test_install_command_translates_install_error_to_exit(
     mock_install_util.side_effect = InstallError("boom")
 
     with pytest.raises(typer.Exit) as exc_info:
-        install_command(**default_install_kwargs)
+        install_command(ctx=dummy_ctx(), **default_install_kwargs)
 
     assert exc_info.value.exit_code == 1
 
@@ -1935,13 +1968,14 @@ def test_install_command_forwards_explicit_confirm_flags_to_install_util(
     default_install_kwargs: dict,
 ) -> None:
     install_command(
+        ctx=dummy_ctx(),
         **{
             **default_install_kwargs,
             "allow_print_keys": True,
             "keep_compose_prefix": False,
             "keep_storage": True,
             "keep_metrics": False,
-        }
+        },
     )
 
     assert mock_install_util.call_count == 1
@@ -1988,6 +2022,27 @@ def test_install_util_translates_bad_parameter_to_install_error(
 
     with pytest.raises(InstallError, match="Invalid DF_NAME - cannot be empty"):
         install(**default_install_kwargs)
+
+
+def test_install_command_signature_matches_install_util():
+    """The command's own CLI-facing params must exactly match the util function's, in the same
+    order - `ctx` (Typer-only, used for explicitness detection) and `explicitly_provided`
+    (util-only, computed by the command from `ctx`) are the sole, deliberate exceptions."""
+    command_params = list(inspect.signature(install_command).parameters)
+    util_params = list(inspect.signature(install).parameters)
+
+    assert command_params[0] == "ctx"
+    assert util_params[-1] == "explicitly_provided"
+    assert command_params[1:] == util_params[:-1]
+
+
+def test_mergeable_field_names_are_real_command_parameters():
+    """Every `mergeable_field_names()` key must name an actual parameter of the Typer command -
+    `ctx.get_parameter_source(key)` silently returns None for an unknown name, which the command
+    then treats as "not explicitly provided", so a key/parameter-name drift (e.g. a future rename)
+    would silently reinstate the exact precedence bug this module exists to fix, with no error and
+    no other test catching it."""
+    assert mergeable_field_names() <= set(inspect.signature(install_command).parameters)
 
 
 @mock.patch("deepfellow.infra.utils.install.run")
@@ -2291,7 +2346,7 @@ def test_install_does_not_apply_template_port_when_a_prior_env_port_exists(
 ) -> None:
     # Regression test: a template must not silently pick a DIFFERENT port than a prior install's
     # .env - same protection infra_name/infra_url/docker_network already get. Unlike those three,
-    # port has no "keep previous value" prompt of its own, so _merge_template_config restores the
+    # port has no "keep previous value" prompt of its own, so _resolve_port() restores the
     # prior port (9500 here) itself; otherwise the CLI's own default would silently overwrite it
     # when .env is saved.
     _setup_echo(install_mocks.echo)
@@ -2303,6 +2358,49 @@ def test_install_does_not_apply_template_port_when_a_prior_env_port_exists(
 
     infra_values = install_mocks.save_env_file.call_args[0][1]
     assert infra_values["DF_INFRA_PORT"] == 9500
+
+
+def test_install_restores_prior_port_when_no_template_given(install_mocks: InstallMocks, tmp_path: Path) -> None:
+    # Regression test: _resolve_port() must restore a prior install's port unconditionally, not
+    # only when a --template happens to also declare "port" - _merge_template_config()'s per-key
+    # loop is gated on `key in template_config`, which a plain `infra install` re-run (no template
+    # at all) never satisfies, so restoration must not depend on reaching that loop.
+    _setup_echo(install_mocks.echo)
+    install_mocks.read_env_file_to_dict.return_value = {"df_infra_port": "9500"}
+
+    install(directory=tmp_path)
+
+    infra_values = install_mocks.save_env_file.call_args[0][1]
+    assert infra_values["DF_INFRA_PORT"] == 9500
+
+
+def test_install_restores_prior_port_when_template_omits_port(install_mocks: InstallMocks, tmp_path: Path) -> None:
+    # Same regression as above, for a --template that simply doesn't declare "port" at all.
+    _setup_echo(install_mocks.echo)
+    install_mocks.read_env_file_to_dict.return_value = {"df_infra_port": "9500"}
+    install_mocks.resolve_template.return_value = {
+        "config": {"docker_network": "templated-net"},
+        "post_start_actions": [],
+    }
+
+    install(directory=tmp_path, template="workspace")
+
+    infra_values = install_mocks.save_env_file.call_args[0][1]
+    assert infra_values["DF_INFRA_PORT"] == 9500
+
+
+def test_install_explicit_port_wins_over_prior_env_port(install_mocks: InstallMocks, tmp_path: Path) -> None:
+    # Regression test: an explicit --port must win over a prior install's .env port. The other
+    # prior-port tests never mark "port" as explicit, and the explicit-port tests never seed a
+    # prior .env port, so neither would catch _resolve_port()'s explicitly_provided check being
+    # skipped (or checked too late) whenever a prior .env value happens to be present.
+    _setup_echo(install_mocks.echo)
+    install_mocks.read_env_file_to_dict.return_value = {"df_infra_port": "9500"}
+
+    install(directory=tmp_path, port=1111, explicitly_provided={"port"})
+
+    infra_values = install_mocks.save_env_file.call_args[0][1]
+    assert infra_values["DF_INFRA_PORT"] == 1111
 
 
 def test_install_raises_install_error_when_prior_env_port_is_not_numeric(
@@ -2356,13 +2454,61 @@ def test_install_explicit_cli_arg_wins_over_template_config(install_mocks: Insta
     }
     install_mocks.resolve_template.return_value = {"config": template_config, "post_start_actions": []}
 
-    install(directory=tmp_path, template="workspace", infra_name="explicit-name", port=1234)
+    install(
+        directory=tmp_path,
+        template="workspace",
+        infra_name="explicit-name",
+        port=1234,
+        explicitly_provided={"infra_name", "port"},
+    )
 
     name_prompt_kwargs = install_mocks.echo.prompt.call_args_list[0][1]
     assert name_prompt_kwargs["from_args"] == "explicit-name"
     assert name_prompt_kwargs["force_provided"] is False
     infra_values = install_mocks.save_env_file.call_args[0][1]
     assert infra_values["DF_INFRA_PORT"] == 1234
+
+
+def test_install_explicit_cli_arg_equal_to_its_own_default_wins_over_template_config(
+    install_mocks: InstallMocks, tmp_path: Path
+) -> None:
+    # Regression test: the old `merged[key] != own_default` heuristic couldn't tell an explicit
+    # flag that happens to equal its own default from one never passed at all - and the built-in
+    # "workspace" template's config *is* the CLI defaults, so this is the ordinary case here, not a
+    # corner case. Every field below is explicit and equal to its own default; the template sets a
+    # DIFFERENT value for each, so only explicitly_provided (not a value comparison) can make the
+    # explicit flag win. This test fails under the old heuristic for all four fields at once.
+    _setup_echo(install_mocks.echo)
+    install_mocks.read_env_file_to_dict.return_value = {}
+    template_config = {
+        "port": 9999,
+        "infra_name": "templated-infra",
+        "infra_url": "http://templated:9999",
+        "docker_network": "templated-net",
+    }
+    install_mocks.resolve_template.return_value = {"config": template_config, "post_start_actions": []}
+
+    install(
+        directory=tmp_path,
+        template="workspace",
+        port=DF_INFRA_PORT,
+        infra_name=DF_INFRA_NAME,
+        infra_url=DF_INFRA_URL,
+        docker_network=DF_INFRA_DOCKER_NETWORK,
+        explicitly_provided={"port", "infra_name", "infra_url", "docker_network"},
+    )
+
+    name_prompt_kwargs = install_mocks.echo.prompt.call_args_list[0][1]
+    assert name_prompt_kwargs["from_args"] == DF_INFRA_NAME
+    assert name_prompt_kwargs["force_provided"] is False
+    url_prompt_kwargs = install_mocks.echo.prompt_until_valid.call_args[1]
+    assert url_prompt_kwargs["from_args"] == DF_INFRA_URL
+    assert url_prompt_kwargs["force_provided"] is False
+    network_prompt_kwargs = install_mocks.echo.prompt.call_args_list[1][1]
+    assert network_prompt_kwargs["from_args"] == DF_INFRA_DOCKER_NETWORK
+    assert network_prompt_kwargs["force_provided"] is False
+    infra_values = install_mocks.save_env_file.call_args[0][1]
+    assert infra_values["DF_INFRA_PORT"] == DF_INFRA_PORT
 
 
 # Regression coverage for _merge_template_config's shared loop over _MERGEABLE_FIELDS: the two
@@ -2409,6 +2555,7 @@ def test_install_only_the_explicit_field_wins_the_other_three_still_use_template
             if explicit_field == "docker_network"
             else DF_INFRA_DOCKER_NETWORK
         ),
+        explicitly_provided={explicit_field},
     )
 
     expected = {

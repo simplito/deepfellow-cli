@@ -11,6 +11,7 @@
 
 import random
 import string
+from collections.abc import Collection
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -121,6 +122,16 @@ def inspect(
     return InstallContext(resolved_template, directory, docker_socket, newest_image_tag, original_env_content)
 
 
+def mergeable_field_names() -> frozenset[str]:
+    """Names of the `_MERGEABLE_FIELDS` keys.
+
+    Lets the Typer command compute which of them were genuinely passed on the command line (via
+    `ctx.get_parameter_source()`), rather than merely having a same-named parameter that happens to
+    hold its own default value.
+    """
+    return frozenset(key for key, _ in _MERGEABLE_FIELDS)
+
+
 @dataclass
 class InstallConfig:
     """Final, fully-resolved installation values, ready to be persisted."""
@@ -148,68 +159,87 @@ class InstallConfig:
     df_connect_to_mesh_key: str | None
 
 
-# (template config key, CLI option's own original default, matching key in a prior install's .env)
-_MERGEABLE_FIELDS: tuple[tuple[str, Any, str], ...] = (
-    ("port", DF_INFRA_PORT, "df_infra_port"),
-    ("infra_name", DF_INFRA_NAME, "df_name"),
-    ("infra_url", DF_INFRA_URL, "df_infra_url"),
-    ("docker_network", DF_INFRA_DOCKER_NETWORK, "df_infra_docker_subnet"),
+# (template config key, matching key in a prior install's .env)
+_MERGEABLE_FIELDS: tuple[tuple[str, str], ...] = (
+    ("port", "df_infra_port"),
+    ("infra_name", "df_name"),
+    ("infra_url", "df_infra_url"),
+    ("docker_network", "df_infra_docker_subnet"),
 )
+
+
+def _resolve_port(port: int, original_env_content: EnvDict, explicitly_provided: Collection[str]) -> int:
+    """Restore a prior install's port unless explicitly overridden - regardless of --template.
+
+    port has no prompt of its own to restore a prior value via a `default=` the way the other
+    _MERGEABLE_FIELDS do, so this must run unconditionally, not just when a template happens to
+    also set `port` (unlike _merge_template_config's per-key loop, gated on template_config).
+
+    Raises:
+        InstallError: If a prior install's .env has a non-numeric DF_INFRA_PORT value.
+    """
+    if "port" in explicitly_provided:
+        return port
+    prior_value = original_env_content.get("df_infra_port")
+    if not prior_value:
+        return port
+    try:
+        return int(str(prior_value))
+    except ValueError:
+        raise InstallError(
+            f"Existing .env has an invalid DF_INFRA_PORT value ({prior_value!r}); fix or remove it before retrying."
+        ) from None
 
 
 def _merge_template_config(
     template_config: dict[str, Any],
     original_env_content: EnvDict,
     values: dict[str, Any],
+    explicitly_provided: Collection[str],
 ) -> tuple[dict[str, Any], set[str]]:
     """Fill in CLI-level install values from a template's config, without overriding what should win.
 
-    Precedence, highest to lowest: an explicit CLI flag (the arg no longer equals its own original
-    default) always wins; a value already configured by a prior install (found in that install's
-    `.env`, merged with any `config.json` values by `merge_config_json_into_env()` before
-    `original_env_content` reaches here) is preserved next - a template must not silently discard
-    existing configuration; only then does the template's config value apply; the CLI option's
-    hardcoded default is the fallback.
+    Precedence, highest to lowest: an explicit CLI flag (its key is in `explicitly_provided`) always
+    wins; a value already configured by a prior install (found in that install's .env) is preserved
+    next - a template must not silently discard existing configuration; only then does the
+    template's config value apply; the CLI option's hardcoded default is the fallback.
 
     Args:
         template_config: The resolved template's "config" mapping (empty if no template was given).
         original_env_content: The prior install's .env content, merged with config.json (empty if
             neither existed).
         values: CLI-resolved values for the fields in `_MERGEABLE_FIELDS`, keyed by their template
-            config key, e.g. {"port": port, "infra_name": infra_name, ...}.
+            config key, e.g. {"port": port, "infra_name": infra_name, ...}. `port` must already be
+            resolved via `_resolve_port()` before calling this - unlike the other fields, it has no
+            prompt of its own to restore a prior `.env` value via a `default=`, so for `port` this
+            loop only *blocks* the template from overriding the already-restored value in `values`;
+            it never restores one into it itself. For `infra_name`/`infra_url`/`docker_network`,
+            this loop instead blocks the template from claiming the slot at all, leaving the CLI
+            value in place so the field's own prompt (in `resolve()`) can still restore a prior
+            `.env` value afterward via its `default=`.
+        explicitly_provided: The subset of `_MERGEABLE_FIELDS` keys whose CLI option was actually
+            passed on the command line or via its envvar for this invocation - computed by the
+            Typer command from `ctx.get_parameter_source()`, not by comparing `values` against each
+            field's own default (which can't tell an explicitly-passed flag from an unpassed one
+            when the two happen to be equal).
 
     Returns:
         The merged values (same keys as `values`), plus the subset of its keys that came from the
         template. `resolve()` passes force_provided=True for infra_name/infra_url/docker_network's
         prompt when the key is in this set, so it isn't re-asked; `port` has no prompt of its own,
-        so its merged value (already restored to a prior value when one blocked the template, see
-        above) is used as-is.
-
-    Raises:
-        InstallError: If a prior install's .env has a non-numeric port value.
+        so its merged value (already resolved via `_resolve_port()`) is used as-is.
     """
     merged = dict(values)
     from_template: set[str] = set()
 
-    for key, own_default, env_key in _MERGEABLE_FIELDS:
+    for key, env_key in _MERGEABLE_FIELDS:
         if key not in template_config:
             continue
-        if merged[key] != own_default:
+        if key in explicitly_provided:
             continue  # an explicit CLI flag already wins
 
         prior_value = original_env_content.get(env_key)
         if prior_value:
-            # infra_name/infra_url/docker_network restore the prior value via their own prompt's
-            # `default=` in resolve(); port has no prompt of its own, so it must be restored here
-            # or the CLI's hardcoded default would silently overwrite it when .env is saved.
-            if key == "port":
-                try:
-                    merged[key] = int(str(prior_value))
-                except ValueError:
-                    raise InstallError(
-                        f"Existing .env has an invalid {env_key.upper()} value ({prior_value!r}); "
-                        "fix or remove it before retrying."
-                    ) from None
             continue  # a prior install's value must not be silently discarded
 
         merged[key] = template_config[key]
@@ -235,13 +265,18 @@ def resolve(
     keep_compose_prefix: bool | None,
     keep_storage: bool | None,
     keep_metrics: bool | None,
+    explicitly_provided: Collection[str] = frozenset(),
 ) -> InstallConfig:
     """Prompt the user for / apply CLI overrides to the remaining install values.
 
-    Before prompting, merges `context.resolved_template`'s config into port/infra_name/infra_url/
-    docker_network via `_merge_template_config()`: an explicit CLI flag always wins, a value already
-    configured by a prior install (found in `context.original_env_content`) is preserved next, and
-    only then does the template's config value apply. See `_merge_template_config()`.
+    `port` is first restored from a prior install's `.env` unconditionally via `_resolve_port()`
+    (regardless of whether a `--template` was given, and regardless of whether it declares `port`),
+    which can raise `InstallError` on a malformed prior value. The result then feeds into
+    `_merge_template_config()` along with infra_name/infra_url/docker_network, which merges in
+    `context.resolved_template`'s config for all four: an explicit CLI flag always wins, a value
+    already configured by a prior install (found in `context.original_env_content`) is preserved
+    next, and only then does the template's config value apply. See `_resolve_port()` and
+    `_merge_template_config()`.
 
     Args:
         context: Read-only values gathered by :func:`inspect`, including any resolved --template.
@@ -259,17 +294,26 @@ def resolve(
         keep_compose_prefix: Whether to keep a previously configured compose prefix.
         keep_storage: Whether to keep a previously configured storage dir.
         keep_metrics: Whether to keep previously configured metrics credentials.
+        explicitly_provided: The subset of `_MERGEABLE_FIELDS` keys actually passed on the command
+            line or via envvar for this invocation - see `_merge_template_config()`. Defaults to
+            empty for callers outside a Typer invocation (e.g. tests), which means every field is
+            treated as not explicit.
 
     Returns:
         InstallConfig: The fully-resolved installation configuration.
+
+    Raises:
+        InstallError: If a prior install's .env has a non-numeric port value (via `_resolve_port()`).
     """
     original_env_content = context.original_env_content
+    port = _resolve_port(port, original_env_content, explicitly_provided)
 
     template_config = context.resolved_template["config"] if context.resolved_template else {}
     merged, from_template = _merge_template_config(
         template_config,
         original_env_content,
         {"port": port, "infra_name": infra_name, "infra_url": infra_url, "docker_network": docker_network},
+        explicitly_provided,
     )
     port, infra_name, infra_url, docker_network = (
         merged["port"],
@@ -522,6 +566,7 @@ def install(
     keep_compose_prefix: bool | None = None,
     keep_storage: bool | None = None,
     keep_metrics: bool | None = None,
+    explicitly_provided: Collection[str] = frozenset(),
 ) -> None:
     """Install infra with docker."""
     # Retrieve the docker info to fail early in the process in docker is not running or configured differently
@@ -554,6 +599,7 @@ def install(
         keep_compose_prefix=keep_compose_prefix,
         keep_storage=keep_storage,
         keep_metrics=keep_metrics,
+        explicitly_provided=explicitly_provided,
     )
 
     post_start_actions = context.resolved_template["post_start_actions"] if context.resolved_template else []

@@ -24,6 +24,7 @@ from deepfellow.common.defaults import (
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import InstallError, reraise_if_debug
 from deepfellow.infra.utils.install import install as install_util
+from deepfellow.infra.utils.install import mergeable_field_names
 from deepfellow.infra.utils.options import directory_option
 from deepfellow.infra.utils.templates import BUILTIN_TEMPLATES
 
@@ -34,9 +35,15 @@ _TEMPLATE_HELP = (
     f"Built-in templates: ({', '.join(sorted(BUILTIN_TEMPLATES))})"
 )
 
+# get_parameter_source() returns typer's own vendored ParameterSource enum (typer._click.core),
+# not click.core's public one, so comparing by name is what actually works across typer versions
+# without reaching into that private module.
+_EXPLICIT_PARAMETER_SOURCE_NAMES = frozenset({"COMMANDLINE", "ENVIRONMENT"})
+
 
 @app.command()
 def install(
+    ctx: typer.Context,
     directory: Path = directory_option("Target directory for the DeepFellow Infra installation."),
     port: int = typer.Option(
         DF_INFRA_PORT, envvar="DF_INFRA_PORT", help="Published port to serve the DeepFellow Infra from."
@@ -79,7 +86,16 @@ def install(
         "If not given, asks interactively (default: keep).",
     ),
 ) -> None:
-    """Install infra with docker."""
+    """Install DeepFellow Infra with docker."""
+    # merged[key] != own_default can't tell an explicitly-passed flag from an unpassed one when the
+    # two happen to be equal (e.g. an explicit `--port 8086` where 8086 is also port's own default) -
+    # ctx.get_parameter_source() is the only way to know for sure, so it's computed here, once, from
+    # the live Click invocation, and handed to install_util() instead of being re-derived from values.
+    explicitly_provided = {
+        key
+        for key in mergeable_field_names()
+        if (source := ctx.get_parameter_source(key)) is not None and source.name in _EXPLICIT_PARAMETER_SOURCE_NAMES
+    }
     try:
         install_util(
             directory=directory,
@@ -97,6 +113,7 @@ def install(
             force_install=force_install,
             allow_rootful=allow_rootful,
             allow_print_keys=allow_print_keys,
+            explicitly_provided=explicitly_provided,
             keep_compose_prefix=keep_compose_prefix,
             keep_storage=keep_storage,
             keep_metrics=keep_metrics,
