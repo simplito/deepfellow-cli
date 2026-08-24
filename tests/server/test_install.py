@@ -61,6 +61,7 @@ from deepfellow.server.utils.install import (
     apply,
     expose_ports_to_host,
     install,
+    mergeable_field_names,
     resolve,
 )
 from deepfellow.server.utils.install import inspect as inspect_util
@@ -1289,6 +1290,15 @@ def test_install_command_signature_matches_install_util():
     assert command_params[0] == "ctx"
     assert util_params[-1] == "explicitly_provided"
     assert command_params[1:] == util_params[:-1]
+
+
+def test_mergeable_field_names_are_real_command_parameters():
+    """Every `mergeable_field_names()` key must name an actual parameter of the Typer command -
+    `ctx.get_parameter_source(key)` silently returns None for an unknown name, which the command
+    then treats as "not explicitly provided", so a key/parameter-name drift (e.g. a future rename)
+    would silently reinstate the exact precedence bug this module exists to fix, with no error and
+    no other test catching it."""
+    assert mergeable_field_names() <= set(inspect.signature(install_command).parameters)
 
 
 @MOCK_GET_NEWEST_IMAGE_TAG
