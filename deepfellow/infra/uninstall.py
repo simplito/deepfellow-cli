@@ -23,15 +23,26 @@ from deepfellow.infra.utils.validation import check_infra_directory
 
 app = typer.Typer()
 
+_ALREADY_UNINSTALLED_MESSAGE = "DeepFellow Infra is already uninstalled."
+_ALREADY_UNINSTALLED_IMAGES_MESSAGE = (
+    "DeepFellow Infra is already uninstalled - its Docker images can no longer be found. "
+    "List and remove them manually - `docker images`, `docker image rm <image>`."
+)
+
 
 @app.command()
 def uninstall(
     directory: Path = directory_option("DeepFellow Infra directory."),
-    remove_images: bool = typer.Option(False, help="Also remove Docker images used by DeepFellow Infra."),
+    remove_images: bool | None = typer.Option(
+        None,
+        "--remove-images/--no-remove-images",
+        help="Also remove Docker images used by DeepFellow Infra. If not given, asks interactively.",
+    ),
 ) -> None:
     """Uninstall Deepfellow Infra."""
     echo.info("Uninstalling DeepFellow Infra.")
-    check_infra_directory(directory)
+    missing_message = _ALREADY_UNINSTALLED_IMAGES_MESSAGE if remove_images else _ALREADY_UNINSTALLED_MESSAGE
+    check_infra_directory(directory, missing_message=missing_message)
     assert_docker()
 
     images_output = run(
@@ -49,14 +60,15 @@ def uninstall(
     echo.info("Turning off DeepFellow Infra.")
     run(["docker", "compose", "rm", "-s", "-f"], directory, quiet=True)
 
-    echo.info("Removing DeepFellow Infra files.")
-    rmtree(directory)
-
-    if remove_images:
-        echo.info("Removing DeepFellow Infra docker images.")
+    flag_remove_images = remove_images if remove_images is not None else echo.confirm("Also remove Docker images?")
+    if flag_remove_images:
+        echo.info("Removing DeepFellow Infra Docker images.")
         for image in images:
             run(["docker", "image", "rm", image], quiet=True, check=False)
     else:
-        echo.info("Docker images were not removed. Use --remove-images to also delete them.")
+        echo.info("Docker images were not removed.")
+
+    echo.info("Removing DeepFellow Infra files.")
+    rmtree(directory)
 
     echo.success("DeepFellow Infra uninstalled.")
