@@ -151,8 +151,8 @@ def is_command_available(command: str) -> bool:
     return shutil.which(command) is not None
 
 
-def check_service_directory(directory: Path, service_name: str) -> None:
+def check_service_directory(directory: Path, service_name: str, missing_message: str | None = None) -> None:
     """Check if service directory exist."""
     if not directory.is_dir():
-        echo.error(f"Create Deepfellow {service_name} first.")
+        echo.error(missing_message or f"Create Deepfellow {service_name} first.")
         raise typer.Exit(1)

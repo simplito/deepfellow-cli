@@ -187,6 +187,17 @@ def test_check_service_directory_raises_exit_when_directory_missing(mock_echo: M
     assert mock_echo.error.call_args == mock.call("Create Deepfellow infra first.")
 
 
+@mock.patch("deepfellow.common.system.echo")
+def test_check_service_directory_uses_custom_missing_message_when_given(mock_echo: Mock, tmp_path: Path) -> None:
+    missing = tmp_path / "missing"
+
+    with pytest.raises(typer.Exit):
+        check_service_directory(missing, "infra", missing_message="custom message")
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call("custom message")
+
+
 @mock.patch("deepfellow.common.system.shutil.rmtree")
 def test_rmtree_success(mock_shutil_rmtree: Mock, directory: Path) -> None:
     rmtree(directory)
