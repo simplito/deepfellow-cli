@@ -28,19 +28,19 @@ from deepfellow.common.config import read_env_file, read_env_file_to_dict, save_
 from deepfellow.common.defaults import (
     DEFAULT_VECTOR_DATABASE,
     DEFAULT_VECTOR_DATABASE_TYPE,
+    DF_FALKORDB_URL,
     DF_INFRA_DIRECTORY,
     DF_INFRA_DOCKER_NETWORK,
     DF_INFRA_URL,
     DF_MONGO_DB,
     DF_MONGO_PORT,
     DF_MONGO_URL,
-    DF_NEO4J_URI,
     DF_SERVER_DIRECTORY,
     DF_SERVER_IMAGE,
     DF_SERVER_PORT,
     DF_SERVER_STORAGE_DIRECTORY,
     DOCKER_COMPOSE_CONFIG_FILENAME,
-    DOCKER_COMPOSE_NEO4J,
+    DOCKER_COMPOSE_FALKORDB,
     MILVUS_DATABASE_URL,
     VectorDBTypeChoice,
 )
@@ -49,7 +49,7 @@ from deepfellow.common.exceptions import DockerNetworkError, InstallError
 from deepfellow.common.state import state
 from deepfellow.server.install import app
 from deepfellow.server.install import install as install_command
-from deepfellow.server.utils.configure import Neo4jConfig, OtelConfig, configure_infra, configure_vector_db
+from deepfellow.server.utils.configure import FalkorDBConfig, OtelConfig, configure_infra, configure_vector_db
 from deepfellow.server.utils.install import (
     _MERGEABLE_FIELDS,
     InstallConfig,
@@ -125,10 +125,10 @@ def install_kwargs(directory: Path) -> dict[str, Any]:
         "embedding_model": "",
         "embedding_size": "",
         "embedding_sparse": False,
-        "neo4j_active": False,
-        "neo4j_url": DF_NEO4J_URI,
-        "neo4j_username": "",
-        "neo4j_password": "",
+        "falkordb_active": False,
+        "falkordb_url": DF_FALKORDB_URL,
+        "falkordb_username": "",
+        "falkordb_password": "",
         "force_install": True,
         "dev": False,
         "template": None,
@@ -1568,7 +1568,7 @@ def install_config(tmp_path: Path) -> InstallConfig:
         is_custom_vector_db_server=False,
         vectordb_type="",
         otel=OtelConfig(envs={}, docker_compose={}),
-        neo4j=Neo4jConfig(envs={}, docker_compose={}),
+        falkordb=FalkorDBConfig(envs={}, docker_compose={}),
         local_image=False,
         dev=False,
     )
@@ -1899,7 +1899,7 @@ def test_apply_does_not_append_otel_tracing_envs_when_only_one_var_present(
 @mock.patch("deepfellow.server.utils.install.ensure_network")
 @mock.patch("deepfellow.server.utils.install.save_env_file")
 @mock.patch("deepfellow.server.utils.install.echo")
-def test_apply_adds_default_neo4j_service_when_docker_compose_present(
+def test_apply_adds_default_falkordb_service_when_docker_compose_present(
     mock_echo: Mock,
     mock_save_env: Mock,
     mock_ensure_network: Mock,
@@ -1908,27 +1908,29 @@ def test_apply_adds_default_neo4j_service_when_docker_compose_present(
     mock_run: Mock,
     install_config: InstallConfig,
 ) -> None:
-    install_config.neo4j = Neo4jConfig(
+    install_config.falkordb = FalkorDBConfig(
         envs={
-            "DF_GRAPHITI__ENABLED": "true",
-            "DF_GRAPHITI__NEO4J_URI": DF_NEO4J_URI,
-            "DF_GRAPHITI__NEO4J_USER": "neo4j",
-            "DF_GRAPHITI__NEO4J_PASSWORD": "neo4j-pass",
+            "DF_GRAPH__ENABLED": "true",
+            "DF_GRAPH__HOST": "falkordb",
+            "DF_GRAPH__PORT": "6379",
+            "DF_GRAPH__USERNAME": "",
+            "DF_GRAPH__PASSWORD": "falkordb-pass",
         },
-        docker_compose=DOCKER_COMPOSE_NEO4J,
+        docker_compose=DOCKER_COMPOSE_FALKORDB,
     )
 
     apply(install_config)
 
     compose_dict = mock_save_compose.call_args[0][0]
-    assert "neo4j" in compose_dict["services"]
-    assert "neo4j_data" in compose_dict["volumes"]
-    assert compose_dict["services"]["server"]["depends_on"]["neo4j"] == {"condition": "service_healthy"}
+    assert "falkordb" in compose_dict["services"]
+    assert "falkordb_data" in compose_dict["volumes"]
+    assert compose_dict["services"]["server"]["depends_on"]["falkordb"] == {"condition": "service_healthy"}
     environment = compose_dict["services"]["server"]["environment"]
-    assert "DF_GRAPHITI__ENABLED=${DF_GRAPHITI__ENABLED}" in environment
-    assert "DF_GRAPHITI__NEO4J_URI=${DF_GRAPHITI__NEO4J_URI}" in environment
-    assert "DF_GRAPHITI__NEO4J_USER=${DF_GRAPHITI__NEO4J_USER}" in environment
-    assert "DF_GRAPHITI__NEO4J_PASSWORD=${DF_GRAPHITI__NEO4J_PASSWORD}" in environment
+    assert "DF_GRAPH__ENABLED=${DF_GRAPH__ENABLED}" in environment
+    assert "DF_GRAPH__HOST=${DF_GRAPH__HOST}" in environment
+    assert "DF_GRAPH__PORT=${DF_GRAPH__PORT}" in environment
+    assert "DF_GRAPH__USERNAME=${DF_GRAPH__USERNAME}" in environment
+    assert "DF_GRAPH__PASSWORD=${DF_GRAPH__PASSWORD}" in environment
 
 
 @mock.patch("deepfellow.server.utils.install.run")
@@ -1937,7 +1939,7 @@ def test_apply_adds_default_neo4j_service_when_docker_compose_present(
 @mock.patch("deepfellow.server.utils.install.ensure_network")
 @mock.patch("deepfellow.server.utils.install.save_env_file")
 @mock.patch("deepfellow.server.utils.install.echo")
-def test_apply_does_not_add_neo4j_service_when_custom(
+def test_apply_does_not_add_falkordb_service_when_custom(
     mock_echo: Mock,
     mock_save_env: Mock,
     mock_ensure_network: Mock,
@@ -1946,12 +1948,13 @@ def test_apply_does_not_add_neo4j_service_when_custom(
     mock_run: Mock,
     install_config: InstallConfig,
 ) -> None:
-    install_config.neo4j = Neo4jConfig(
+    install_config.falkordb = FalkorDBConfig(
         envs={
-            "DF_GRAPHITI__ENABLED": "true",
-            "DF_GRAPHITI__NEO4J_URI": "bolt://custom-neo4j:7687",
-            "DF_GRAPHITI__NEO4J_USER": "custom-user",
-            "DF_GRAPHITI__NEO4J_PASSWORD": "custom-pass",
+            "DF_GRAPH__ENABLED": "true",
+            "DF_GRAPH__HOST": "custom-falkordb",
+            "DF_GRAPH__PORT": "6379",
+            "DF_GRAPH__USERNAME": "custom-user",
+            "DF_GRAPH__PASSWORD": "custom-pass",
         },
         docker_compose={},
     )
@@ -1959,10 +1962,10 @@ def test_apply_does_not_add_neo4j_service_when_custom(
     apply(install_config)
 
     compose_dict = mock_save_compose.call_args[0][0]
-    assert "neo4j" not in compose_dict["services"]
-    assert "neo4j_data" not in compose_dict["volumes"]
+    assert "falkordb" not in compose_dict["services"]
+    assert "falkordb_data" not in compose_dict["volumes"]
     environment = compose_dict["services"]["server"]["environment"]
-    assert "DF_GRAPHITI__ENABLED=${DF_GRAPHITI__ENABLED}" in environment
+    assert "DF_GRAPH__ENABLED=${DF_GRAPH__ENABLED}" in environment
 
 
 @mock.patch("deepfellow.server.utils.install.run")

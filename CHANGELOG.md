@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 - `deepfellow suite install` now reuses the built-in `workspace` templates that `infra install`/`server install` already expose via `--template`, instead of hardcoding its own copy of the same defaults (ollama service spec, chat/embedding/fast model names, Milvus config). No change in behavior or output for the end user.
+- `deepfellow server install`'s Knowledge Graph feature is now backed by FalkorDB instead of Neo4j, matching what the DeepFellow Server actually runs: `--neo4j-active`/`--neo4j-url`/`--neo4j-username`/`--neo4j-password` are replaced by `--falkordb-active`/`--falkordb-url`/`--falkordb-username`/`--falkordb-password`, and the generated `.env` now writes `DF_GRAPH__{ENABLED,HOST,PORT,USERNAME,PASSWORD}` instead of `DF_GRAPHITI__{ENABLED,NEO4J_URI,NEO4J_USER,NEO4J_PASSWORD}` (the old Neo4j wiring never matched what the Server read).
 
 ### Fixed
 - `deepfellow infra install --template` no longer lets a template's value silently override an explicit CLI flag when the flag happens to equal its own default (e.g. an explicit `--port 8000` matching `port`'s own default) - the explicit flag now always wins, as documented.

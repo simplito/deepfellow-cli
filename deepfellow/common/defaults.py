@@ -288,31 +288,31 @@ DOCKER_COMPOSE_MONGO_DB = {
     }
 }
 
-DF_NEO4J_URI = "bolt://neo4j:7687"
+DF_FALKORDB_URL = "falkordb:6379"
+DF_FALKORDB_PORT = 6379
 
-DOCKER_COMPOSE_SERVER_NEO4J_ENVS = [
-    "DF_GRAPHITI__ENABLED=${DF_GRAPHITI__ENABLED}",
-    "DF_GRAPHITI__NEO4J_URI=${DF_GRAPHITI__NEO4J_URI}",
-    "DF_GRAPHITI__NEO4J_USER=${DF_GRAPHITI__NEO4J_USER}",
-    "DF_GRAPHITI__NEO4J_PASSWORD=${DF_GRAPHITI__NEO4J_PASSWORD}",
+DOCKER_COMPOSE_SERVER_FALKORDB_ENVS = [
+    "DF_GRAPH__ENABLED=${DF_GRAPH__ENABLED}",
+    "DF_GRAPH__HOST=${DF_GRAPH__HOST}",
+    "DF_GRAPH__PORT=${DF_GRAPH__PORT}",
+    "DF_GRAPH__USERNAME=${DF_GRAPH__USERNAME}",
+    "DF_GRAPH__PASSWORD=${DF_GRAPH__PASSWORD}",
 ]
 
-DOCKER_COMPOSE_NEO4J = {
-    "neo4j": {
-        "container_name": "neo4j",
-        "image": "neo4j:5.26.2",
+DOCKER_COMPOSE_FALKORDB = {
+    "falkordb": {
+        "container_name": "falkordb",
+        "image": "falkordb/falkordb:v4.12.4",
         "restart": "always",
-        "expose": ["7474", "7687"],
-        "volumes": ["neo4j_data:/data"],
-        "environment": [
-            "NEO4J_AUTH=${DF_GRAPHITI__NEO4J_USER}/${DF_GRAPHITI__NEO4J_PASSWORD}",
-        ],
+        "expose": ["6379", "3000"],
+        "volumes": ["falkordb_data:/var/lib/falkordb/data"],
+        "environment": ["REDIS_ARGS=--requirepass ${DF_GRAPH__PASSWORD}"],
         "healthcheck": {
-            "test": ["CMD-SHELL", "wget -O /dev/null -q http://localhost:7474 || exit 1"],
-            "interval": "10s",
-            "timeout": "5s",
+            "test": ["CMD", "redis-cli", "-a", "${DF_GRAPH__PASSWORD}", "ping"],
+            "interval": "30s",
+            "timeout": "10s",
             "retries": 5,
-            "start_period": "5s",
+            "start_period": "30s",
         },
     }
 }
