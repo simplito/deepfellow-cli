@@ -80,18 +80,21 @@ ENV_METADATA: dict[str, EnvMetadata] = {
     "DF_VECTOR_DATABASE__EMBEDDING__SIZE": EnvMetadata(
         description="Embedding vector size/dimensions.",
     ),
-    "DF_GRAPHITI__ENABLED": EnvMetadata(
-        description="Enable or disable the Knowledge Graph (Neo4j) integration on first boot; "
+    "DF_GRAPH__ENABLED": EnvMetadata(
+        description="Enable or disable the Knowledge Graph (FalkorDB) integration on first boot; "
         "afterward it's dynamic config, editable via the Server's admin config API without a restart.",
     ),
-    "DF_GRAPHITI__NEO4J_URI": EnvMetadata(
-        description="Bolt connection URI for the Neo4j instance.",
+    "DF_GRAPH__HOST": EnvMetadata(
+        description="Hostname of the FalkorDB instance.",
     ),
-    "DF_GRAPHITI__NEO4J_USER": EnvMetadata(
-        description="Neo4j username.",
+    "DF_GRAPH__PORT": EnvMetadata(
+        description="Port of the FalkorDB instance.",
     ),
-    "DF_GRAPHITI__NEO4J_PASSWORD": EnvMetadata(
-        description="Neo4j password.",
+    "DF_GRAPH__USERNAME": EnvMetadata(
+        description="FalkorDB username, usually left blank (not required by a default local instance).",
+    ),
+    "DF_GRAPH__PASSWORD": EnvMetadata(
+        description="FalkorDB password.",
         sensitive=True,
     ),
 }

@@ -22,12 +22,13 @@ from deepfellow.common.defaults import (
     DEFAULT_OTEL_URL,
     DEFAULT_VECTOR_DATABASE,
     DEFAULT_VECTOR_DATABASE_TYPE,
+    DF_FALKORDB_PORT,
+    DF_FALKORDB_URL,
     DF_INFRA_URL,
     DF_MONGO_DB,
     DF_MONGO_PORT,
     DF_MONGO_URL,
-    DF_NEO4J_URI,
-    DOCKER_COMPOSE_NEO4J,
+    DOCKER_COMPOSE_FALKORDB,
     DOCKER_COMPOSE_OTEL_COLLECTOR,
     MILVUS_DATABASE,
     MONGO_DB_INIT_SH,
@@ -655,75 +656,83 @@ def configure_otel(
 
 
 @dataclass
-class Neo4jConfig:
+class FalkorDBConfig:
     envs: dict[str, Any]
     docker_compose: dict[str, Any]
 
 
-def should_use_neo4j(neo4j_active: bool) -> bool:
-    """Check if server should configure the Knowledge Graph's Neo4j instance."""
-    if not neo4j_active:
+def should_use_falkordb(falkordb_active: bool) -> bool:
+    """Check if server should configure the Knowledge Graph's FalkorDB instance."""
+    if not falkordb_active:
         return False
-    return echo.confirm("Do you want to enable the Knowledge Graph (Neo4j) feature?", default=neo4j_active)
+    return echo.confirm("Do you want to enable the Knowledge Graph (FalkorDB) feature?", default=falkordb_active)
 
 
-def is_custom_neo4j(neo4j_url: str) -> bool:
-    """Check if user wants to connect an existing Neo4j instance instead of a local one."""
-    if neo4j_url != DF_NEO4J_URI:
+def is_custom_falkordb(falkordb_url: str) -> bool:
+    """Check if user wants to connect an existing FalkorDB instance instead of a local one."""
+    if falkordb_url != DF_FALKORDB_URL:
         return True
-    return not echo.confirm("Install a local Neo4j for DeepFellow Server?", default=True)
+    return not echo.confirm("Install a local FalkorDB for DeepFellow Server?", default=True)
 
 
-def configure_neo4j(
-    neo4j_active: bool,
-    neo4j_url: str,
-    neo4j_username: str,
-    neo4j_password: str,
+def _split_falkordb_host_port(value: str) -> tuple[str, str]:
+    """Split a validated host[:port] connection string into (host, port)."""
+    host, _, port = value.partition(":")
+    return host, port or str(DF_FALKORDB_PORT)
+
+
+def configure_falkordb(
+    falkordb_active: bool,
+    falkordb_url: str,
+    falkordb_username: str,
+    falkordb_password: str,
     original_env: dict[str, Any] | None = None,
-) -> Neo4jConfig:
-    """Collect info about the Knowledge Graph's Neo4j instance."""
+) -> FalkorDBConfig:
+    """Collect info about the Knowledge Graph's FalkorDB instance."""
     original_env = original_env or {}
 
-    if not should_use_neo4j(neo4j_active):
-        return Neo4jConfig(envs={"DF_GRAPHITI__ENABLED": "false"}, docker_compose={})
+    if not should_use_falkordb(falkordb_active):
+        return FalkorDBConfig(envs={"DF_GRAPH__ENABLED": "false"}, docker_compose={})
 
-    if not is_custom_neo4j(neo4j_url):
-        neo4j_username = neo4j_username or str(original_env.get("df_graphiti__neo4j_user") or "neo4j")
-        neo4j_password = neo4j_password or str(original_env.get("df_graphiti__neo4j_password") or generate_password(12))
-        echo.info("A default Neo4j setup is created.")
-        return Neo4jConfig(
+    if not is_custom_falkordb(falkordb_url):
+        falkordb_password = falkordb_password or str(original_env.get("df_graph__password") or generate_password(12))
+        host, port = _split_falkordb_host_port(DF_FALKORDB_URL)
+        echo.info("A default FalkorDB setup is created.")
+        return FalkorDBConfig(
             envs={
-                "DF_GRAPHITI__ENABLED": "true",
-                "DF_GRAPHITI__NEO4J_URI": DF_NEO4J_URI,
-                "DF_GRAPHITI__NEO4J_USER": neo4j_username,
-                "DF_GRAPHITI__NEO4J_PASSWORD": neo4j_password,
+                "DF_GRAPH__ENABLED": "true",
+                "DF_GRAPH__HOST": host,
+                "DF_GRAPH__PORT": port,
+                "DF_GRAPH__USERNAME": "",
+                "DF_GRAPH__PASSWORD": falkordb_password,
             },
-            docker_compose=DOCKER_COMPOSE_NEO4J,
+            docker_compose=DOCKER_COMPOSE_FALKORDB,
         )
 
-    return Neo4jConfig(
+    stored_host = original_env.get("df_graph__host")
+    stored_port = original_env.get("df_graph__port", DF_FALKORDB_PORT)
+    stored_default = f"{stored_host}:{stored_port}" if stored_host else falkordb_url
+    falkordb_url = echo.prompt_until_valid(
+        "Provide host:port for FalkorDB e.g. 192.168.1.5:6379",
+        validate_connection_string,
+        from_args=falkordb_url,
+        original_default=DF_FALKORDB_URL,
+        default=stored_default,
+    )
+    host, port = _split_falkordb_host_port(falkordb_url)
+
+    return FalkorDBConfig(
         envs={
-            "DF_GRAPHITI__ENABLED": "true",
-            "DF_GRAPHITI__NEO4J_URI": echo.prompt_until_valid(
-                "Provide Neo4j instance URI",
-                validate_url,
-                from_args=neo4j_url,
-                original_default=DF_NEO4J_URI,
-                default=original_env.get("df_graphiti__neo4j_uri", neo4j_url),
-            ),
-            "DF_GRAPHITI__NEO4J_USER": echo.prompt_until_valid(
-                "Provide Neo4j username",
+            "DF_GRAPH__ENABLED": "true",
+            "DF_GRAPH__HOST": host,
+            "DF_GRAPH__PORT": port,
+            "DF_GRAPH__USERNAME": falkordb_username or str(original_env.get("df_graph__username") or ""),
+            "DF_GRAPH__PASSWORD": echo.prompt_until_valid(
+                "Provide FalkorDB password",
                 validate_truthy,
-                from_args=neo4j_username,
+                from_args=falkordb_password,
                 original_default="",
-                default=original_env.get("df_graphiti__neo4j_user", ""),
-            ),
-            "DF_GRAPHITI__NEO4J_PASSWORD": echo.prompt_until_valid(
-                "Provide Neo4j password",
-                validate_truthy,
-                from_args=neo4j_password,
-                original_default="",
-                default=original_env.get("df_graphiti__neo4j_password", ""),
+                default=original_env.get("df_graph__password", ""),
                 password=True,
             ),
         },

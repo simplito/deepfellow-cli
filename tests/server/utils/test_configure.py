@@ -20,11 +20,12 @@ from deepfellow.common.defaults import (
     DEFAULT_OTEL_URL,
     DEFAULT_VECTOR_DATABASE,
     DEFAULT_VECTOR_DATABASE_TYPE,
+    DF_FALKORDB_PORT,
+    DF_FALKORDB_URL,
     DF_INFRA_URL,
     DF_MONGO_DB,
     DF_MONGO_URL,
-    DF_NEO4J_URI,
-    DOCKER_COMPOSE_NEO4J,
+    DOCKER_COMPOSE_FALKORDB,
     DOCKER_COMPOSE_OTEL_COLLECTOR,
     MILVUS_DATABASE,
     MONGO_DB_INIT_SH,
@@ -38,15 +39,15 @@ from deepfellow.common.validation import validate_truthy, validate_url
 from deepfellow.server.utils.configure import (
     _resolve_mongo_volume_conflict,
     configure_embedding,
+    configure_falkordb,
     configure_infra,
     configure_milvus_specific_fields,
     configure_mongo,
-    configure_neo4j,
     configure_otel,
     configure_vector_db,
-    is_custom_neo4j,
+    is_custom_falkordb,
     is_custom_vectordb,
-    should_use_neo4j,
+    should_use_falkordb,
     should_use_vector_db,
 )
 
@@ -1217,127 +1218,126 @@ def test_resolve_mongo_volume_conflict_reraises_original_error_in_debug_mode(
 
 
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_should_use_neo4j_false_when_not_active(mock_echo):
-    result = should_use_neo4j(False)
+def test_should_use_falkordb_false_when_not_active(mock_echo):
+    result = should_use_falkordb(False)
 
     assert result is False
     assert mock_echo.confirm.call_count == 0
 
 
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_should_use_neo4j_false_when_user_declines(mock_echo):
+def test_should_use_falkordb_false_when_user_declines(mock_echo):
     mock_echo.confirm.return_value = False
 
-    result = should_use_neo4j(True)
+    result = should_use_falkordb(True)
 
     assert result is False
     assert mock_echo.confirm.call_args == mock.call(
-        "Do you want to enable the Knowledge Graph (Neo4j) feature?", default=True
+        "Do you want to enable the Knowledge Graph (FalkorDB) feature?", default=True
     )
 
 
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_should_use_neo4j_true_when_user_confirms(mock_echo):
+def test_should_use_falkordb_true_when_user_confirms(mock_echo):
     mock_echo.confirm.return_value = True
 
-    result = should_use_neo4j(True)
+    result = should_use_falkordb(True)
 
     assert result is True
 
 
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_is_custom_neo4j_true_when_url_changed(mock_echo):
-    result = is_custom_neo4j("bolt://custom-neo4j:7687")
+def test_is_custom_falkordb_true_when_url_changed(mock_echo):
+    result = is_custom_falkordb("custom-falkordb:6379")
 
     assert result is True
     assert mock_echo.confirm.call_count == 0
 
 
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_is_custom_neo4j_false_when_default_and_local_confirmed(mock_echo):
+def test_is_custom_falkordb_false_when_default_and_local_confirmed(mock_echo):
     mock_echo.confirm.return_value = True
 
-    result = is_custom_neo4j(DF_NEO4J_URI)
+    result = is_custom_falkordb(DF_FALKORDB_URL)
 
     assert result is False
-    assert mock_echo.confirm.call_args == mock.call("Install a local Neo4j for DeepFellow Server?", default=True)
+    assert mock_echo.confirm.call_args == mock.call("Install a local FalkorDB for DeepFellow Server?", default=True)
 
 
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_is_custom_neo4j_true_when_default_and_local_declined(mock_echo):
+def test_is_custom_falkordb_true_when_default_and_local_declined(mock_echo):
     mock_echo.confirm.return_value = False
 
-    result = is_custom_neo4j(DF_NEO4J_URI)
+    result = is_custom_falkordb(DF_FALKORDB_URL)
 
     assert result is True
 
 
-@mock.patch("deepfellow.server.utils.configure.should_use_neo4j", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.should_use_falkordb", return_value=False)
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_neo4j_returns_disabled_env_when_declined(mock_echo, mock_should_use_neo4j):
-    result = configure_neo4j(False, DF_NEO4J_URI, "", "")
+def test_configure_falkordb_returns_disabled_env_when_declined(mock_echo, mock_should_use_falkordb):
+    result = configure_falkordb(False, DF_FALKORDB_URL, "", "")
 
-    assert result.envs == {"DF_GRAPHITI__ENABLED": "false"}
+    assert result.envs == {"DF_GRAPH__ENABLED": "false"}
     assert result.docker_compose == {}
-    assert mock_should_use_neo4j.call_count == 1
+    assert mock_should_use_falkordb.call_count == 1
 
 
 @mock.patch("deepfellow.server.utils.configure.generate_password")
-@mock.patch("deepfellow.server.utils.configure.is_custom_neo4j", return_value=False)
-@mock.patch("deepfellow.server.utils.configure.should_use_neo4j", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.is_custom_falkordb", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.should_use_falkordb", return_value=True)
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_neo4j_managed_generates_missing_credentials(
-    mock_echo, mock_should_use_neo4j, mock_is_custom, mock_generate_password
+def test_configure_falkordb_managed_generates_missing_password(
+    mock_echo, mock_should_use_falkordb, mock_is_custom, mock_generate_password
 ):
     mock_generate_password.return_value = "generated-password"
 
-    result = configure_neo4j(True, DF_NEO4J_URI, "", "")
+    result = configure_falkordb(True, DF_FALKORDB_URL, "", "")
 
     assert result.envs == {
-        "DF_GRAPHITI__ENABLED": "true",
-        "DF_GRAPHITI__NEO4J_URI": DF_NEO4J_URI,
-        "DF_GRAPHITI__NEO4J_USER": "neo4j",
-        "DF_GRAPHITI__NEO4J_PASSWORD": "generated-password",
+        "DF_GRAPH__ENABLED": "true",
+        "DF_GRAPH__HOST": "falkordb",
+        "DF_GRAPH__PORT": str(DF_FALKORDB_PORT),
+        "DF_GRAPH__USERNAME": "",
+        "DF_GRAPH__PASSWORD": "generated-password",
     }
-    assert result.docker_compose == DOCKER_COMPOSE_NEO4J
+    assert result.docker_compose == DOCKER_COMPOSE_FALKORDB
     assert mock_echo.info.call_count == 1
 
 
 @mock.patch("deepfellow.server.utils.configure.generate_password")
-@mock.patch("deepfellow.server.utils.configure.is_custom_neo4j", return_value=False)
-@mock.patch("deepfellow.server.utils.configure.should_use_neo4j", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.is_custom_falkordb", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.should_use_falkordb", return_value=True)
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_neo4j_managed_preserves_existing_credentials_on_reconfigure(
-    mock_echo, mock_should_use_neo4j, mock_is_custom, mock_generate_password
+def test_configure_falkordb_managed_preserves_existing_password_on_reconfigure(
+    mock_echo, mock_should_use_falkordb, mock_is_custom, mock_generate_password
 ):
-    original_env = {
-        "df_graphiti__neo4j_user": "existing-user",
-        "df_graphiti__neo4j_password": "existing-password",
-    }
+    original_env = {"df_graph__password": "existing-password"}
 
-    result = configure_neo4j(True, DF_NEO4J_URI, "", "", original_env)
+    result = configure_falkordb(True, DF_FALKORDB_URL, "", "", original_env)
 
-    assert result.envs["DF_GRAPHITI__NEO4J_USER"] == "existing-user"
-    assert result.envs["DF_GRAPHITI__NEO4J_PASSWORD"] == "existing-password"
+    assert result.envs["DF_GRAPH__PASSWORD"] == "existing-password"
     assert mock_generate_password.call_count == 0
 
 
-@mock.patch("deepfellow.server.utils.configure.is_custom_neo4j", return_value=True)
-@mock.patch("deepfellow.server.utils.configure.should_use_neo4j", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.is_custom_falkordb", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.should_use_falkordb", return_value=True)
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_neo4j_custom_prompts_for_uri_user_password(mock_echo, mock_should_use_neo4j, mock_is_custom):
+def test_configure_falkordb_custom_prompts_for_host_port_and_password(
+    mock_echo, mock_should_use_falkordb, mock_is_custom
+):
     mock_echo.prompt_until_valid.side_effect = [
-        "bolt://custom-neo4j:7687",
-        "custom-user",
+        "custom-falkordb:6379",
         "custom-password",
     ]
 
-    result = configure_neo4j(True, "bolt://custom-neo4j:7687", "custom-user", "custom-password")
+    result = configure_falkordb(True, "custom-falkordb:6379", "custom-user", "custom-password")
 
     assert result.envs == {
-        "DF_GRAPHITI__ENABLED": "true",
-        "DF_GRAPHITI__NEO4J_URI": "bolt://custom-neo4j:7687",
-        "DF_GRAPHITI__NEO4J_USER": "custom-user",
-        "DF_GRAPHITI__NEO4J_PASSWORD": "custom-password",
+        "DF_GRAPH__ENABLED": "true",
+        "DF_GRAPH__HOST": "custom-falkordb",
+        "DF_GRAPH__PORT": "6379",
+        "DF_GRAPH__USERNAME": "custom-user",
+        "DF_GRAPH__PASSWORD": "custom-password",
     }
     assert result.docker_compose == {}
