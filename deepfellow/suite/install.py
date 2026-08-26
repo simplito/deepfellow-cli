@@ -38,6 +38,10 @@ def install(
         callback=validate_password,
         help="Admin user's password.",
     ),
+    force_install: bool = typer.Option(
+        False,
+        help="Force a reinstall over an already-existing infra/server directories.",
+    ),
 ) -> None:
     """Provision a complete DeepFellow workspace: Infra, Server, admin user, and a ready-to-use workspace.
 
@@ -53,7 +57,9 @@ def install(
     after a partial failure.
     """
     try:
-        install_util(admin_name=admin_name, admin_email=admin_email, admin_password=admin_password)
+        install_util(
+            admin_name=admin_name, admin_email=admin_email, admin_password=admin_password, force_install=force_install
+        )
     except InstallError as exc:
         echo.error(str(exc))
         reraise_if_debug(exc)

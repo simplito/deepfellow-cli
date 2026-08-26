@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 ### Added
+- `deepfellow suite install` gains a `--force-install` flag, forwarded to both its `infra install` and `server install` steps, so a scripted/non-interactive suite install can force a reinstall over an already-existing `~/.deepfellow/infra` or `~/.deepfellow/server` directory without manually removing it first.
 - `deepfellow server install` and `deepfellow suite install` now accept the admin user's name/email/password via `DF_SERVER_ADMIN_NAME`/`DF_SERVER_ADMIN_EMAIL`/`DF_SERVER_ADMIN_PASSWORD` environment variables, in addition to the existing `--admin-name`/`--admin-email`/`--admin-password` flags — so a scripted or CI install no longer has to put the password on the command line, where it would leak into shell history and process listings.
 - `deepfellow suite install` now checks Docker availability before prompting for admin credentials, instead of only checking once step 1 (infra install) runs — so a missing/unusable Docker installation is caught immediately instead of after the admin name/email/password prompts.
 

@@ -41,7 +41,7 @@ def ensure_directory(
         echo.warning(warning_message)
         if not is_interactive():
             echo.info(
-                "Non-interactive mode is ON. To overwrite the existing installation, pass "
+                "Non-interactive mode is ON. To force a reinstall over the existing installation, pass "
                 f"--force-install, or remove the directory manually: rm -rf {directory}"
             )
         if not echo.confirm(confirm_message):

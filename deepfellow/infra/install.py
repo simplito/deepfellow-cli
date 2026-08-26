@@ -62,7 +62,7 @@ def install(
         DF_INFRA_DOCKER_NETWORK, envvar="DF_INFRA_DOCKER_NETWORK", help="Docker network"
     ),
     template: str | None = typer.Option(None, help=_TEMPLATE_HELP),
-    force_install: bool = typer.Option(False, help="Force install"),
+    force_install: bool = typer.Option(False, help="Force a reinstall over an already-existing infra directory."),
     allow_rootful: bool = typer.Option(False, help="Allow rootful Docker without asking user for permission"),
     allow_print_keys: bool | None = typer.Option(
         None,

@@ -48,7 +48,7 @@ def test_install_success_calls_all_steps_in_order(
 
     assert mock_assert_docker.call_count == 1
     assert mock_infra_install.call_count == 1
-    assert mock_infra_install.call_args == mock.call(template="workspace")
+    assert mock_infra_install.call_args == mock.call(template="workspace", force_install=False)
     assert mock_env_get.call_count == 1
     assert mock_env_get.call_args.args[1] == "DF_INFRA_API_KEY"
     assert mock_server_install.call_count == 1
@@ -58,6 +58,7 @@ def test_install_success_calls_all_steps_in_order(
         admin_name="Admin",
         admin_email="admin@example.com",
         admin_password="Sup3r$ecret!",
+        force_install=False,
     )
     assert mock_set_default_server_directory.call_count == 1
     assert mock_get_token_from_login.call_count == 1
@@ -70,6 +71,43 @@ def test_install_success_calls_all_steps_in_order(
         workspace.organization.id,
         workspace.project.id,
         {"models": ["gemma4:e4b", "mxbai-embed-large", "qwen3.5:4b"]},
+    )
+
+
+@mock.patch("deepfellow.suite.utils.install.assert_docker")
+@mock.patch("deepfellow.suite.utils.install.echo")
+@mock.patch("deepfellow.suite.utils.install.env_get")
+@mock.patch("deepfellow.suite.utils.install.update_project")
+@mock.patch("deepfellow.suite.utils.install.create_workspace")
+@mock.patch("deepfellow.suite.utils.install.get_token_from_login")
+@mock.patch("deepfellow.suite.utils.install.set_default_server_directory")
+@mock.patch("deepfellow.suite.utils.install.server_install")
+@mock.patch("deepfellow.suite.utils.install.infra_install")
+def test_install_forwards_force_install_to_infra_and_server_install(
+    mock_infra_install: Mock,
+    mock_server_install: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_get_token_from_login: Mock,
+    mock_create_workspace: Mock,
+    mock_update_project: Mock,
+    mock_env_get: Mock,
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+) -> None:
+    mock_env_get.return_value = "infra-api-key"
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = Workspace(organization=Mock(), project=Mock(), api_key=Mock())
+
+    install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", force_install=True)
+
+    assert mock_infra_install.call_args == mock.call(template="workspace", force_install=True)
+    assert mock_server_install.call_args == mock.call(
+        template="workspace",
+        infra_api_key="infra-api-key",
+        admin_name="Admin",
+        admin_email="admin@example.com",
+        admin_password="Sup3r$ecret!",
+        force_install=True,
     )
 
 
