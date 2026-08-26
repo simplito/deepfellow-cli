@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 ### Added
 - `deepfellow server install` and `deepfellow suite install` now accept the admin user's name/email/password via `DF_SERVER_ADMIN_NAME`/`DF_SERVER_ADMIN_EMAIL`/`DF_SERVER_ADMIN_PASSWORD` environment variables, in addition to the existing `--admin-name`/`--admin-email`/`--admin-password` flags — so a scripted or CI install no longer has to put the password on the command line, where it would leak into shell history and process listings.
+- `deepfellow suite install` now checks Docker availability before prompting for admin credentials, instead of only checking once step 1 (infra install) runs — so a missing/unusable Docker installation is caught immediately instead of after the admin name/email/password prompts.
 
 ### Changed
 - `deepfellow suite install` now reuses the built-in `workspace` templates that `infra install`/`server install` already expose via `--template`, instead of hardcoding its own copy of the same defaults (ollama service spec, chat/embedding/fast model names, Milvus config). No change in behavior or output for the end user.

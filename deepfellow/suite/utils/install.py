@@ -22,7 +22,7 @@ from deepfellow.common.defaults import (
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get
 from deepfellow.common.exceptions import InstallError, translate_to_install_error
-from deepfellow.common.install import resolve_admin_kwargs, validate_non_interactive_admin_values
+from deepfellow.common.install import assert_docker, resolve_admin_kwargs, validate_non_interactive_admin_values
 from deepfellow.common.state import state
 from deepfellow.common.validation import PASSWORD_REQUIREMENTS, validate_email, validate_password, validate_truthy
 from deepfellow.infra.utils.install import install as infra_install
@@ -90,9 +90,15 @@ def install(
         admin_password: Admin user's password. Prompted interactively if not given.
 
     Raises:
-        InstallError: If any step fails, or if --non-interactive is set and an admin name, email,
-            or password is missing.
+        InstallError: If Docker is missing/unusable, if any step fails, or if --non-interactive is
+            set and an admin name, email, or password is missing.
     """
+    # Checked before any prompting: infra install's own inspect() checks this too, but only once
+    # step 1 actually runs, which is after the admin-credential prompts below. Checking it here
+    # avoids making the user answer those prompts just to hit an unrelated Docker failure right
+    # after.
+    assert_docker()
+
     # No action_kwargs source here (unlike server install's create_admin post-start action) - {} makes
     # the CLI flags the only source, which is what suite install has ever supported.
     effective = resolve_admin_kwargs({}, admin_name, admin_email, admin_password)
