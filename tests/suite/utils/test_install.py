@@ -19,6 +19,7 @@ from deepfellow.server.utils.workspace import Workspace
 from deepfellow.suite.utils.install import install
 
 
+@mock.patch("deepfellow.suite.utils.install.assert_docker")
 @mock.patch("deepfellow.suite.utils.install.echo")
 @mock.patch("deepfellow.suite.utils.install.env_get")
 @mock.patch("deepfellow.suite.utils.install.update_project")
@@ -36,6 +37,7 @@ def test_install_success_calls_all_steps_in_order(
     mock_update_project: Mock,
     mock_env_get: Mock,
     mock_echo: Mock,
+    mock_assert_docker: Mock,
 ) -> None:
     mock_env_get.return_value = "infra-api-key"
     mock_get_token_from_login.return_value = "token"
@@ -44,6 +46,7 @@ def test_install_success_calls_all_steps_in_order(
 
     install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
 
+    assert mock_assert_docker.call_count == 1
     assert mock_infra_install.call_count == 1
     assert mock_infra_install.call_args == mock.call(template="workspace")
     assert mock_env_get.call_count == 1
@@ -70,6 +73,7 @@ def test_install_success_calls_all_steps_in_order(
     )
 
 
+@mock.patch("deepfellow.suite.utils.install.assert_docker")
 @mock.patch("deepfellow.suite.utils.install.echo")
 @mock.patch("deepfellow.suite.utils.install.env_get")
 @mock.patch("deepfellow.suite.utils.install.server_install")
@@ -79,6 +83,7 @@ def test_install_stops_after_infra_install_error(
     mock_server_install: Mock,
     mock_env_get: Mock,
     mock_echo: Mock,
+    mock_assert_docker: Mock,
 ) -> None:
     mock_infra_install.side_effect = InstallError("boom")
 
@@ -89,6 +94,7 @@ def test_install_stops_after_infra_install_error(
     assert mock_server_install.call_count == 0
 
 
+@mock.patch("deepfellow.suite.utils.install.assert_docker")
 @mock.patch("deepfellow.suite.utils.install.echo")
 @mock.patch("deepfellow.suite.utils.install.env_get")
 @mock.patch("deepfellow.suite.utils.install.server_install")
@@ -98,6 +104,7 @@ def test_install_stops_when_infra_api_key_missing_does_not_call_server_install(
     mock_server_install: Mock,
     mock_env_get: Mock,
     mock_echo: Mock,
+    mock_assert_docker: Mock,
 ) -> None:
     mock_env_get.return_value = None
 
@@ -107,6 +114,7 @@ def test_install_stops_when_infra_api_key_missing_does_not_call_server_install(
     assert mock_server_install.call_count == 0
 
 
+@mock.patch("deepfellow.suite.utils.install.assert_docker")
 @mock.patch("deepfellow.suite.utils.install.echo")
 @mock.patch("deepfellow.suite.utils.install.get_token_from_login")
 @mock.patch("deepfellow.suite.utils.install.set_default_server_directory")
@@ -120,6 +128,7 @@ def test_install_stops_after_server_install_error_does_not_call_login(
     mock_set_default_server_directory: Mock,
     mock_get_token_from_login: Mock,
     mock_echo: Mock,
+    mock_assert_docker: Mock,
 ) -> None:
     mock_env_get.return_value = "infra-api-key"
     mock_server_install.side_effect = InstallError("boom")
@@ -131,8 +140,9 @@ def test_install_stops_after_server_install_error_does_not_call_login(
     assert mock_get_token_from_login.call_count == 0
 
 
+@mock.patch("deepfellow.suite.utils.install.assert_docker")
 @mock.patch("deepfellow.suite.utils.install.echo")
-def test_install_prompt_failure_is_translated_to_install_error(mock_echo: Mock) -> None:
+def test_install_prompt_failure_is_translated_to_install_error(mock_echo: Mock, mock_assert_docker: Mock) -> None:
     mock_echo.prompt_until_valid.side_effect = typer.Exit(1)
 
     with pytest.raises(InstallError):
@@ -141,9 +151,12 @@ def test_install_prompt_failure_is_translated_to_install_error(mock_echo: Mock) 
     assert mock_echo.prompt_until_valid.call_count == 1
 
 
+@mock.patch("deepfellow.suite.utils.install.assert_docker")
 @mock.patch("deepfellow.suite.utils.install.echo")
 @mock.patch("deepfellow.suite.utils.install.infra_install")
-def test_install_non_interactive_reports_all_missing_admin_values(mock_infra_install: Mock, mock_echo: Mock) -> None:
+def test_install_non_interactive_reports_all_missing_admin_values(
+    mock_infra_install: Mock, mock_echo: Mock, mock_assert_docker: Mock
+) -> None:
     state.non_interactive = True
 
     with pytest.raises(InstallError) as exc_info:
@@ -156,9 +169,12 @@ def test_install_non_interactive_reports_all_missing_admin_values(mock_infra_ins
     assert mock_infra_install.call_count == 0
 
 
+@mock.patch("deepfellow.suite.utils.install.assert_docker")
 @mock.patch("deepfellow.suite.utils.install.echo")
 @mock.patch("deepfellow.suite.utils.install.infra_install")
-def test_install_non_interactive_reports_only_missing_admin_values(mock_infra_install: Mock, mock_echo: Mock) -> None:
+def test_install_non_interactive_reports_only_missing_admin_values(
+    mock_infra_install: Mock, mock_echo: Mock, mock_assert_docker: Mock
+) -> None:
     state.non_interactive = True
 
     with pytest.raises(InstallError) as exc_info:
@@ -171,6 +187,7 @@ def test_install_non_interactive_reports_only_missing_admin_values(mock_infra_in
     assert mock_infra_install.call_count == 0
 
 
+@mock.patch("deepfellow.suite.utils.install.assert_docker")
 @mock.patch("deepfellow.suite.utils.install.echo")
 @mock.patch("deepfellow.suite.utils.install.env_get")
 @mock.patch("deepfellow.suite.utils.install.update_project")
@@ -188,6 +205,7 @@ def test_install_non_interactive_with_all_admin_values_proceeds(
     mock_update_project: Mock,
     mock_env_get: Mock,
     mock_echo: Mock,
+    mock_assert_docker: Mock,
 ) -> None:
     state.non_interactive = True
     mock_env_get.return_value = "infra-api-key"
@@ -203,8 +221,9 @@ def test_install_non_interactive_with_all_admin_values_proceeds(
     assert mock_echo.prompt_until_valid.call_count == 0
 
 
+@mock.patch("deepfellow.suite.utils.install.assert_docker")
 @mock.patch("deepfellow.suite.utils.install.echo")
-def test_install_translates_bad_parameter_to_install_error(mock_echo: Mock) -> None:
+def test_install_translates_bad_parameter_to_install_error(mock_echo: Mock, mock_assert_docker: Mock) -> None:
     """A caller outside Click (e.g. the suite Typer command) sees a message-carrying
     InstallError instead of an unhandled, message-less typer.BadParameter - mirroring how
     server's install() is made safe by the same @translate_to_install_error decorator."""
@@ -214,9 +233,12 @@ def test_install_translates_bad_parameter_to_install_error(mock_echo: Mock) -> N
         install(admin_name=None, admin_email=None, admin_password=None)
 
 
+@mock.patch("deepfellow.suite.utils.install.assert_docker")
 @mock.patch("deepfellow.suite.utils.install.echo")
 @mock.patch("deepfellow.suite.utils.install.infra_install")
-def test_install_translates_step_exit_to_install_error(mock_infra_install: Mock, mock_echo: Mock) -> None:
+def test_install_translates_step_exit_to_install_error(
+    mock_infra_install: Mock, mock_echo: Mock, mock_assert_docker: Mock
+) -> None:
     """A step's typer.Exit (already normalized and re-raised by _run_step) must surface from
     install() as InstallError, not an unhandled typer.Exit - the same @translate_to_install_error
     contract as server's install()."""
@@ -226,6 +248,7 @@ def test_install_translates_step_exit_to_install_error(mock_infra_install: Mock,
         install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
 
 
+@mock.patch("deepfellow.suite.utils.install.assert_docker")
 @mock.patch("deepfellow.suite.utils.install.echo")
 @mock.patch("deepfellow.suite.utils.install.env_get")
 @mock.patch("deepfellow.suite.utils.install.update_project")
@@ -243,6 +266,7 @@ def test_install_prompted_credentials_are_reused_for_server_install_and_login(
     mock_update_project: Mock,
     mock_env_get: Mock,
     mock_echo: Mock,
+    mock_assert_docker: Mock,
 ) -> None:
     mock_env_get.return_value = "infra-api-key"
     mock_echo.prompt_until_valid.side_effect = ["Prompted Admin", "prompted@example.com", "Pr0mpted$ecret!"]
@@ -256,3 +280,59 @@ def test_install_prompted_credentials_are_reused_for_server_install_and_login(
     assert mock_server_install.call_args.kwargs["admin_password"] == "Pr0mpted$ecret!"
     assert mock_get_token_from_login.call_args.kwargs["email"] == "prompted@example.com"
     assert mock_get_token_from_login.call_args.kwargs["password"] == "Pr0mpted$ecret!"
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+@mock.patch("deepfellow.suite.utils.install.assert_docker")
+@mock.patch("deepfellow.suite.utils.install.env_get")
+@mock.patch("deepfellow.suite.utils.install.update_project")
+@mock.patch("deepfellow.suite.utils.install.create_workspace")
+@mock.patch("deepfellow.suite.utils.install.get_token_from_login")
+@mock.patch("deepfellow.suite.utils.install.set_default_server_directory")
+@mock.patch("deepfellow.suite.utils.install.server_install")
+@mock.patch("deepfellow.suite.utils.install.infra_install")
+def test_install_checks_docker_before_prompting(
+    mock_infra_install: Mock,
+    mock_server_install: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_get_token_from_login: Mock,
+    mock_create_workspace: Mock,
+    mock_update_project: Mock,
+    mock_env_get: Mock,
+    mock_assert_docker: Mock,
+    mock_echo: Mock,
+) -> None:
+    call_order: list[str] = []
+
+    def _record_prompt(*args: object, **kwargs: object) -> str:
+        call_order.append("prompt")
+        return "value"
+
+    mock_assert_docker.side_effect = lambda: call_order.append("assert_docker")
+    mock_echo.prompt_until_valid.side_effect = _record_prompt
+    mock_env_get.return_value = "infra-api-key"
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = Workspace(organization=Mock(), project=Mock(), api_key=Mock())
+
+    install(admin_name=None, admin_email=None, admin_password=None)
+
+    assert call_order[0] == "assert_docker"
+    assert mock_assert_docker.call_count == 1
+    assert mock_infra_install.call_count == 1
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+@mock.patch("deepfellow.suite.utils.install.assert_docker")
+@mock.patch("deepfellow.suite.utils.install.infra_install")
+def test_install_stops_when_docker_check_fails(
+    mock_infra_install: Mock,
+    mock_assert_docker: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_assert_docker.side_effect = typer.Exit(1)
+
+    with pytest.raises(InstallError):
+        install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
+
+    assert mock_echo.prompt_until_valid.call_count == 0
+    assert mock_infra_install.call_count == 0
