@@ -51,7 +51,13 @@ _EXPLICIT_PARAMETER_SOURCE_NAMES = frozenset({"COMMANDLINE", "ENVIRONMENT"})
 @app.command()
 def install(
     ctx: typer.Context,
-    directory: Path = directory_option(help="Target directory for the DeepFellow Server installation."),
+    directory: Path = directory_option(
+        help=(
+            "Target directory for the DeepFellow Server installation. Note: server storage "
+            "(config.json, uploads) is shared globally across all installs on this machine and is "
+            "not isolated per --directory."
+        )
+    ),
     port: int = typer.Option(
         DF_SERVER_PORT, envvar="DF_SERVER_PORT", help="Port to use to serve the DeepFellow Server from."
     ),

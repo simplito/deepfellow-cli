@@ -15,13 +15,13 @@ import httpx
 import typer
 
 from deepfellow.common.config import dict_to_env, read_env_file
-from deepfellow.common.defaults import DF_SERVER_STORAGE_DIRECTORY
 from deepfellow.common.docker import is_service_running
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get, env_set
 from deepfellow.common.state import state
 from deepfellow.server.utils.docker import start_server, stop_server
 from deepfellow.server.utils.options import directory_option
+from deepfellow.server.utils.storage import config_json_exists
 from deepfellow.server.utils.validation import check_server_directory
 
 app = typer.Typer()
@@ -33,18 +33,6 @@ def _resolved_env_name(env_name: str, df_prefix: bool) -> str:
     if df_prefix and not env_name.startswith("DF_"):
         env_name = f"DF_{env_name}"
     return env_name
-
-
-def _config_json_exists() -> bool:
-    """Best-effort check for whether config.json has already been seeded on this server install.
-
-    Only meaningful when the server isn't running, since that's when `_dynamic_field_name` can't
-    query the admin API. Existence alone doesn't tell us whether the specific variable being set is
-    one of the fields that migrated to config.json — only the admin API knows that — so this is
-    used for a warning, not to block the write. Unlike infra's storage dir, the server's storage
-    directory isn't configurable per-install, so no `.env` lookup is needed.
-    """
-    return (DF_SERVER_STORAGE_DIRECTORY / "config.json").is_file()
 
 
 def _dynamic_field_name(directory: Path, env_name: str) -> str | None:
@@ -108,7 +96,10 @@ def set(
             f"once the server is running. Use `deepfellow server config set {field_name}=<value>` instead."
         )
         raise typer.Exit(1)
-    if not is_service_running("server", cwd=directory) and _config_json_exists():
+    # Existence alone doesn't tell us whether this particular variable is one of the fields that
+    # migrated to config.json - only the admin API knows that, and it's unreachable while the server
+    # is down - so this warns rather than blocking the write.
+    if not is_service_running("server", cwd=directory) and config_json_exists():
         echo.warning(
             "The server isn't running, so I can't check whether this variable is dynamic configuration stored "
             "in config.json. config.json already exists on this install, though — if it was migrated there, "

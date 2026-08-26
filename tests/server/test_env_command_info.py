@@ -15,7 +15,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from deepfellow.server.env_command.info import ENV_METADATA, _config_json_exists, info
+from deepfellow.server.env_command.info import ENV_METADATA, info
 
 
 @pytest.fixture
@@ -23,7 +23,7 @@ def directory(tmp_path: Path) -> Path:
     return tmp_path
 
 
-@mock.patch("deepfellow.server.env_command.info._config_json_exists", return_value=False)
+@mock.patch("deepfellow.server.env_command.info.config_json_exists", return_value=False)
 @mock.patch("deepfellow.server.env_command.info.print_env_info")
 @mock.patch("deepfellow.server.env_command.info.get_envs_list")
 @mock.patch("deepfellow.server.env_command.info.check_server_directory")
@@ -45,7 +45,7 @@ def test_doc_mode_calls_print_env_info(
     )
 
 
-@mock.patch("deepfellow.server.env_command.info._config_json_exists", return_value=False)
+@mock.patch("deepfellow.server.env_command.info.config_json_exists", return_value=False)
 @mock.patch("deepfellow.server.env_command.info.print_env_info")
 @mock.patch("deepfellow.server.env_command.info.get_envs_list")
 @mock.patch("deepfellow.server.env_command.info.check_server_directory")
@@ -67,7 +67,7 @@ def test_normal_mode_calls_print_env_info(
     )
 
 
-@mock.patch("deepfellow.server.env_command.info._config_json_exists", return_value=False)
+@mock.patch("deepfellow.server.env_command.info.config_json_exists", return_value=False)
 @mock.patch("deepfellow.server.env_command.info.print_env_info")
 @mock.patch("deepfellow.server.env_command.info.get_envs_list")
 @mock.patch("deepfellow.server.env_command.info.check_server_directory")
@@ -88,7 +88,7 @@ def test_show_secret_passed_to_print_env_info(
     )
 
 
-@mock.patch("deepfellow.server.env_command.info._config_json_exists", return_value=True)
+@mock.patch("deepfellow.server.env_command.info.config_json_exists", return_value=True)
 @mock.patch("deepfellow.server.env_command.info.echo")
 @mock.patch("deepfellow.server.env_command.info.print_env_info")
 @mock.patch("deepfellow.server.env_command.info.get_envs_list")
@@ -103,7 +103,7 @@ def test_config_json_exists_warns(
     assert mock_echo.warning.call_count == 1
 
 
-@mock.patch("deepfellow.server.env_command.info._config_json_exists", return_value=False)
+@mock.patch("deepfellow.server.env_command.info.config_json_exists", return_value=False)
 @mock.patch("deepfellow.server.env_command.info.echo")
 @mock.patch("deepfellow.server.env_command.info.print_env_info")
 @mock.patch("deepfellow.server.env_command.info.get_envs_list")
@@ -116,18 +116,3 @@ def test_config_json_missing_does_not_warn(
     info(directory=directory, secret=False, doc=False)
 
     assert mock_echo.warning.call_count == 0
-
-
-@mock.patch("deepfellow.server.env_command.info.DF_SERVER_STORAGE_DIRECTORY")
-def test_config_json_exists_checks_fixed_storage_dir(mock_storage_dir: Mock, tmp_path: Path) -> None:
-    mock_storage_dir.__truediv__.side_effect = lambda name: tmp_path / name
-    (tmp_path / "config.json").write_text("{}")
-
-    assert _config_json_exists() is True
-
-
-@mock.patch("deepfellow.server.env_command.info.DF_SERVER_STORAGE_DIRECTORY")
-def test_config_json_exists_returns_false_when_missing(mock_storage_dir: Mock, tmp_path: Path) -> None:
-    mock_storage_dir.__truediv__.side_effect = lambda name: tmp_path / name
-
-    assert _config_json_exists() is False

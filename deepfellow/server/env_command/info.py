@@ -13,10 +13,10 @@ from pathlib import Path
 
 import typer
 
-from deepfellow.common.defaults import DF_SERVER_STORAGE_DIRECTORY
 from deepfellow.common.echo import echo
 from deepfellow.common.env import EnvMetadata, get_envs_list, print_env_info
 from deepfellow.server.utils.options import directory_option
+from deepfellow.server.utils.storage import config_json_exists
 from deepfellow.server.utils.validation import check_server_directory
 
 app = typer.Typer()
@@ -100,17 +100,6 @@ ENV_METADATA: dict[str, EnvMetadata] = {
 }
 
 
-def _config_json_exists() -> bool:
-    """Best-effort check for whether config.json has already been seeded on this server install.
-
-    Existence alone doesn't mean any of the values below are stale — only that the Server's
-    runtime config has diverged from `.env` for at least the fields that migrated into config.json.
-    Unlike infra's storage dir, the server's storage directory isn't configurable per-install, so
-    no `.env` lookup is needed.
-    """
-    return (DF_SERVER_STORAGE_DIRECTORY / "config.json").is_file()
-
-
 @app.command()
 def info(
     directory: Path = directory_option(),
@@ -132,7 +121,9 @@ def info(
     envs = get_envs_list(env_file)
     env_values = dict(e.split("=", 1) for e in envs)
 
-    if _config_json_exists():
+    # Existence alone doesn't mean any of these values are stale - only that the Server's runtime
+    # config has diverged from `.env` for whichever fields migrated into config.json.
+    if config_json_exists():
         echo.warning(
             "config.json exists on this install — some of these values may be stale if they were migrated to "
             "dynamic configuration. Run `deepfellow server info` for the Server's current runtime configuration."
