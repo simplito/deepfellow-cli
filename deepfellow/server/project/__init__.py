@@ -16,6 +16,7 @@ from .archive import app as archive_app
 from .create import app as create_app
 from .get import app as get_app
 from .list import app as list_app
+from .update import app as update_app
 
 app = typer.Typer()
 
@@ -23,5 +24,6 @@ app = typer.Typer()
 app.add_typer(get_app)
 app.add_typer(list_app)
 app.add_typer(create_app)
+app.add_typer(update_app)
 app.add_typer(archive_app)
 app.add_typer(api_key_app, name="api-key", help="Manage Project API Keys.")
