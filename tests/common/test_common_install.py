@@ -141,7 +141,7 @@ def test_ensure_directory_shows_guidance_when_non_interactive_and_existing(
 
     assert mock_echo.info.call_count == 1
     assert mock_echo.info.call_args == mock.call(
-        "Non-interactive mode is ON. To overwrite the existing installation, pass "
+        "Non-interactive mode is ON. To force a reinstall over the existing installation, pass "
         f"--force-install, or remove the directory manually: rm -rf {tmp_path}"
     )
 

@@ -70,6 +70,7 @@ def install(
     admin_name: str | None = None,
     admin_email: str | None = None,
     admin_password: str | None = None,
+    force_install: bool = False,
 ) -> None:
     """Provision a complete DeepFellow workspace: Infra, Server, admin user, and a ready-to-use workspace.
 
@@ -88,6 +89,7 @@ def install(
         admin_name: Admin user's name. Prompted interactively if not given.
         admin_email: Admin user's email. Prompted interactively if not given.
         admin_password: Admin user's password. Prompted interactively if not given.
+        force_install: Force a reinstall over an already-existing infra/server directories.
 
     Raises:
         InstallError: If Docker is missing/unusable, if any step fails, or if --non-interactive is
@@ -117,8 +119,8 @@ def install(
         "Provide admin password", validate_password, password=True
     )
 
-    _run_step(1, "infra install", lambda: infra_install(template="workspace"))
-    _run_step(2, "server install", lambda: _server_install(name, email, password))
+    _run_step(1, "infra install", lambda: infra_install(template="workspace", force_install=force_install))
+    _run_step(2, "server install", lambda: _server_install(name, email, password, force_install))
 
     token = _run_step(
         3,
@@ -150,7 +152,7 @@ def install(
     echo.info(str(workspace))
 
 
-def _server_install(name: str, email: str, password: str) -> None:
+def _server_install(name: str, email: str, password: str, force_install: bool) -> None:
     infra_api_key = env_get(DF_INFRA_DIRECTORY / ".env", "DF_INFRA_API_KEY")
     if not infra_api_key:
         raise InstallError(
@@ -163,5 +165,6 @@ def _server_install(name: str, email: str, password: str) -> None:
         admin_name=name,
         admin_email=email,
         admin_password=password,
+        force_install=force_install,
     )
     set_default_server_directory(DF_SERVER_DIRECTORY, force=False)

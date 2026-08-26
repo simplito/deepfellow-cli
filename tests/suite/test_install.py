@@ -30,6 +30,7 @@ def default_install_kwargs() -> dict:
         "admin_name": "Admin",
         "admin_email": "admin@example.com",
         "admin_password": "Sup3r$ecret!",
+        "force_install": False,
     }
 
 
@@ -67,7 +68,7 @@ def test_install_command_reads_admin_credentials_from_env_vars(
 
     assert result.exit_code == 0, result.output
     assert mock_install_util.call_args == mock.call(
-        admin_name="Admin User", admin_email="admin@example.com", admin_password="Password1!"
+        admin_name="Admin User", admin_email="admin@example.com", admin_password="Password1!", force_install=False
     )
 
 
@@ -82,3 +83,13 @@ def test_install_command_translates_install_error_to_exit(
         install_command(**default_install_kwargs)
 
     assert exc_info.value.exit_code == 1
+
+
+@mock.patch("deepfellow.suite.install.install_util")
+def test_install_command_forwards_force_install_flag(
+    mock_install_util: Mock,
+    default_install_kwargs: dict,
+) -> None:
+    install_command(**{**default_install_kwargs, "force_install": True})
+
+    assert mock_install_util.call_args == mock.call(**{**default_install_kwargs, "force_install": True})

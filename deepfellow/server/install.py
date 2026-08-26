@@ -111,7 +111,7 @@ def install(
     falkordb_url: str = typer.Option(DF_FALKORDB_URL, help="The host:port for the FalkorDB instance"),
     falkordb_username: str = typer.Option("", help="Username for FalkorDB authentication"),
     falkordb_password: str = typer.Option("", help="Password for FalkorDB authentication"),
-    force_install: bool = typer.Option(False, help="Force install"),
+    force_install: bool = typer.Option(False, help="Force a reinstall over an already-existing server directory."),
     dev: bool = typer.Option(False, "--dev", help="Expose internal service ports to host for development."),
     template: str | None = typer.Option(None, help=_TEMPLATE_HELP),
     admin_name: str | None = typer.Option(
