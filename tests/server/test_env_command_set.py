@@ -18,7 +18,7 @@ import pytest
 import typer
 
 from deepfellow.common.state import state
-from deepfellow.server.env_command.set import _config_json_exists, _dynamic_field_name, _resolved_env_name, set
+from deepfellow.server.env_command.set import _dynamic_field_name, _resolved_env_name, set
 
 
 @pytest.fixture
@@ -271,26 +271,7 @@ def test_dynamic_field_name_returns_none_when_admin_api_unreachable(
     assert result is None
 
 
-@mock.patch("deepfellow.server.env_command.set.DF_SERVER_STORAGE_DIRECTORY")
-def test_config_json_exists_returns_true_when_file_present(mock_storage_dir: Mock, directory: Path) -> None:
-    (directory / "config.json").write_text("{}")
-    mock_storage_dir.__truediv__.return_value = directory / "config.json"
-
-    result = _config_json_exists()
-
-    assert result is True
-
-
-@mock.patch("deepfellow.server.env_command.set.DF_SERVER_STORAGE_DIRECTORY")
-def test_config_json_exists_returns_false_when_file_absent(mock_storage_dir: Mock, directory: Path) -> None:
-    mock_storage_dir.__truediv__.return_value = directory / "config.json"
-
-    result = _config_json_exists()
-
-    assert result is False
-
-
-@mock.patch("deepfellow.server.env_command.set._config_json_exists", return_value=True)
+@mock.patch("deepfellow.server.env_command.set.config_json_exists", return_value=True)
 @mock.patch("deepfellow.server.env_command.set._dynamic_field_name", return_value=None)
 @mock.patch("deepfellow.server.env_command.set.is_service_running", return_value=False)
 @mock.patch("deepfellow.server.env_command.set.start_server")
@@ -317,7 +298,7 @@ def test_set_warns_when_config_json_exists_and_server_not_running(
     assert mock_env_set.call_count == 1
 
 
-@mock.patch("deepfellow.server.env_command.set._config_json_exists", return_value=False)
+@mock.patch("deepfellow.server.env_command.set.config_json_exists", return_value=False)
 @mock.patch("deepfellow.server.env_command.set._dynamic_field_name", return_value=None)
 @mock.patch("deepfellow.server.env_command.set.is_service_running", return_value=False)
 @mock.patch("deepfellow.server.env_command.set.start_server")

@@ -624,6 +624,63 @@ def test_inspect_returns_context_with_defaults_when_no_env_file(
     assert context.plugins_setup == "{}"
 
 
+@mock.patch("deepfellow.server.utils.install.config_json_exists", return_value=True)
+@MOCK_ENSURE_DIRECTORY
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_inspect_warns_when_storage_already_holds_another_installs_config(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_ensure_directory: Mock,
+    mock_config_json_exists: Mock,
+    tmp_path: Path,
+) -> None:
+    """No .env at this --directory yet, but the storage already holds another install's config.json
+    - warn, since server has no --storage option to relocate storage per install the way infra
+    does, so every install shares the one fixed path."""
+    inspect_util(directory=tmp_path, image="deepfellow-server:test", local_image=False, force_install=False)
+
+    assert mock_echo.warning.call_count == 1
+    assert "shared globally" in mock_echo.warning.call_args[0][0]
+
+
+@mock.patch("deepfellow.server.utils.install.config_json_exists", return_value=False)
+@MOCK_ENSURE_DIRECTORY
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_inspect_does_not_warn_when_storage_has_no_config_json(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_ensure_directory: Mock,
+    mock_config_json_exists: Mock,
+    tmp_path: Path,
+) -> None:
+    inspect_util(directory=tmp_path, image="deepfellow-server:test", local_image=False, force_install=False)
+
+    assert mock_echo.warning.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.install.config_json_exists", return_value=True)
+@MOCK_ENSURE_DIRECTORY
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_inspect_does_not_warn_about_shared_storage_on_a_reinstall(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_ensure_directory: Mock,
+    mock_config_json_exists: Mock,
+    tmp_path: Path,
+) -> None:
+    """A re-install (prior .env present) owns that storage's config.json, so the shared-storage
+    warning must stay silent - it's for a brand-new --directory only. Guards the if/elif split:
+    a plain `if` here would make every routine re-install warn spuriously."""
+    (tmp_path / ".env").touch()
+
+    inspect_util(directory=tmp_path, image="deepfellow-server:test", local_image=False, force_install=False)
+
+    assert mock_echo.warning.call_count == 0
+
+
 @MOCK_ENSURE_DIRECTORY
 @MOCK_ASSERT_DOCKER
 @MOCK_ECHO

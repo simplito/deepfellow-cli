@@ -80,6 +80,7 @@ from deepfellow.server.utils.configure import (
     configure_vector_db,
 )
 from deepfellow.server.utils.docker import start_server
+from deepfellow.server.utils.storage import config_json_exists
 from deepfellow.server.utils.templates import dispatch_post_start_action, resolve_template
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
@@ -213,6 +214,16 @@ def inspect(
         # other server install that ever used the same global DF_SERVER_STORAGE_DIRECTORY.
         config_json_settings = read_config_json_settings(DF_SERVER_STORAGE_DIRECTORY / "config.json")
         original_env_content = merge_config_json_into_env(original_env_content, config_json_settings)
+    elif config_json_exists():
+        # A first install at this --directory, but the storage already holds another install's
+        # config.json - server has no --storage option to relocate storage per install (unlike
+        # infra's --storage/DF_INFRA_STORAGE_DIR), so this install will share (and can clobber)
+        # that other install's config.json and uploads.
+        echo.warning(
+            f"DeepFellow Server storage ({DF_SERVER_STORAGE_DIRECTORY}) already holds a config.json from "
+            "a previous install elsewhere on this machine. Storage is shared globally and is not "
+            "isolated per --directory - this install will read and write that same data."
+        )
 
     log_level = str(original_env_content.get("df_log_level", "INFO")).upper()
     if log_level not in LOG_LEVELS:
