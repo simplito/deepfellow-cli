@@ -120,11 +120,11 @@ def test_create_project_returns_project(mock_post: Mock):
     )
 
 
-@mock.patch("deepfellow.server.project.utils.post")
-def test_update_project_returns_updated_project(mock_post: Mock):
+@mock.patch("deepfellow.server.project.utils.make_request")
+def test_update_project_returns_updated_project(mock_make_request: Mock):
     data = project_data()
     data["models"] = ["model-a", "model-b"]
-    mock_post.return_value = data
+    mock_make_request.return_value = data
 
     result: Project = update_project(
         "https://server", "token", "org-id", "project-id", {"models": ["model-a", "model-b"]}
@@ -132,13 +132,14 @@ def test_update_project_returns_updated_project(mock_post: Mock):
 
     assert isinstance(result, Project)
     assert result.models == ["model-a", "model-b"]
-    assert mock_post.call_count == 1
-    assert mock_post.call_args == mock.call(
+    assert mock_make_request.call_count == 1
+    assert mock_make_request.call_args == mock.call(
+        "POST",
         "https://server/v1/organization/projects/project-id",
         "token",
-        item_name="Project",
         headers={"OpenAI-Organization": "org-id"},
         data={"models": ["model-a", "model-b"]},
+        err_msg="Unable to update project.",
     )
 
 

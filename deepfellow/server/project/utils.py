@@ -12,7 +12,7 @@
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from deepfellow.common.rest import get, post
+from deepfellow.common.rest import get, make_request, post
 from deepfellow.server.utils.time import datetime_to_str
 
 
@@ -21,9 +21,9 @@ class Project:
     name: str
     id: str
     status: Literal["active", "archived"]
-    models: list[str] | str
-    custom_endpoints: list[str]
-    mcp_prefixes: list[str] | str
+    models: list[str] | Literal["all"]
+    custom_endpoints: list[str] | Literal["all"]
+    mcp_prefixes: list[str] | Literal["all"]
     created_at: float
 
     def created_at_to_str(self) -> str:
@@ -85,12 +85,13 @@ def update_project(
     server: str | None, token: str, organization_id: str, project_id: str, data: dict[str, Any]
 ) -> Project:
     """Update project."""
-    project = post(
+    project = make_request(
+        "POST",
         f"{server}/v1/organization/projects/{project_id}",
         token,
-        item_name="Project",
         headers={"OpenAI-Organization": organization_id},
         data=data,
+        err_msg="Unable to update project.",
     )
     return Project(**project)
 
