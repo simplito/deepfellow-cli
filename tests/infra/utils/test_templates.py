@@ -44,6 +44,7 @@ def test_dispatch_post_start_action_calls_registered_function_with_kwargs() -> N
     assert mock_func.call_args == mock.call(service_name="ollama", model_name="gemma4:e4b")
 
 
+@mock.patch("deepfellow.infra.utils.connection.persist_infra_connection")
 @mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch(
     "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
@@ -51,6 +52,7 @@ def test_dispatch_post_start_action_calls_registered_function_with_kwargs() -> N
 def test_dispatch_post_start_action_installs_ollama_service_from_builtin_workspace_template(
     mock_resolve: Mock,
     mock_install_with_progress: Mock,
+    mock_persist: Mock,
 ) -> None:
     mock_install_with_progress.return_value = {"status": "OK"}
     action = BUILTIN_TEMPLATES["workspace"]["post_start_actions"][0]
@@ -62,8 +64,10 @@ def test_dispatch_post_start_action_installs_ollama_service_from_builtin_workspa
     assert call_kwargs["data"] == {"spec": OLLAMA_SERVICE_SPEC}
     assert mock_resolve.call_count == 1
     assert mock_resolve.call_args == mock.call(None)
+    assert mock_persist.call_count == 1
 
 
+@mock.patch("deepfellow.infra.utils.connection.persist_infra_connection")
 @mock.patch("deepfellow.infra.utils.model_install.install_with_progress")
 @mock.patch(
     "deepfellow.infra.utils.model_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
@@ -71,6 +75,7 @@ def test_dispatch_post_start_action_installs_ollama_service_from_builtin_workspa
 def test_dispatch_post_start_action_installs_chat_model_from_builtin_workspace_template(
     mock_resolve: Mock,
     mock_install_with_progress: Mock,
+    mock_persist: Mock,
 ) -> None:
     mock_install_with_progress.return_value = {"status": "OK"}
     action = BUILTIN_TEMPLATES["workspace"]["post_start_actions"][1]
@@ -80,6 +85,7 @@ def test_dispatch_post_start_action_installs_chat_model_from_builtin_workspace_t
     assert mock_install_with_progress.call_count == 1
     assert mock_resolve.call_count == 1
     assert mock_resolve.call_args == mock.call(None)
+    assert mock_persist.call_count == 1
 
 
 def test_builtin_workspace_ollama_spec_is_json_serialized_for_service_install() -> None:

@@ -9,6 +9,9 @@
 
 """Tests for the state module."""
 
+import os
+from pathlib import Path
+
 from deepfellow.common.defaults import DF_CLI_CONFIG_PATH, DF_CLI_SECRETS_PATH
 from deepfellow.common.state import AppState, state
 
@@ -27,6 +30,16 @@ def test_appstate_second_construction_does_not_reset_existing_values():
     new = AppState()
 
     assert new.debug is True
+
+
+def test_cli_state_paths_point_inside_tmp_path_not_the_real_home(tmp_path: Path) -> None:
+    assert state.cli_config_file.parent == tmp_path
+    assert state.cli_secrets_file.parent == tmp_path
+
+
+def test_cli_path_env_vars_point_inside_tmp_path(tmp_path: Path) -> None:
+    assert os.environ["DF_CLI_CONFIG_PATH"] == str(tmp_path / "config")
+    assert os.environ["DF_CLI_SECRETS_PATH"] == str(tmp_path / "secrets")
 
 
 def test_reset_restores_every_field_to_default():
