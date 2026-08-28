@@ -1198,3 +1198,31 @@ def test_merge_config_json_into_env_scalar_overlay_replaces_env_dict_value():
     result = merge_config_json_into_env(env_content, config_json_settings)
 
     assert result == {"df_infra": "not-a-dict-anymore"}
+
+
+def test_merge_config_json_into_env_stringifies_dict_overlay_over_env_string_value():
+    """A field kept in .env as one flattened JSON-string blob (e.g. server's DF_PLUGINS_SETUP)
+    still has its real, structured shape in config.json - a plain dict, not a string. Overwriting
+    the .env-side string with that raw dict would leave every downstream reader (which still
+    expects a string, since that's what .env can only ever hold for this field) looking at the
+    wrong type. This is detected purely by shape (str base, dict overlay), not by field name - it
+    applies to any field with this pattern, not just plugins_setup specifically."""
+    env_content: EnvDict = {"df_custom_blob": "{}"}
+    config_json_settings = {"custom_blob": {"nested": ["value"]}}
+
+    result = merge_config_json_into_env(env_content, config_json_settings)
+
+    assert result == {"df_custom_blob": '{"nested": ["value"]}'}
+
+
+def test_merge_config_json_into_env_stringifies_plugins_setup_dict_from_config_json():
+    """Regression test for DFCLI-79: reinstalling over a server that has actually started at least
+    once used to fail with "Invalid DF_PLUGINS_SETUP", because this exact field/shape combination
+    left a real dict in place instead of a string."""
+    env_content: EnvDict = {"df_plugins_setup": "{}"}
+    config_json_settings = {"plugins_setup": {"df_anonymize_models": ["model-a"]}}
+
+    result = merge_config_json_into_env(env_content, config_json_settings)
+
+    assert result == {"df_plugins_setup": '{"df_anonymize_models": ["model-a"]}'}
+    assert isinstance(result["df_plugins_setup"], str)
