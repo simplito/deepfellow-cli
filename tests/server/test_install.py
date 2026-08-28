@@ -695,6 +695,33 @@ def test_inspect_preserves_existing_log_level_and_plugins_setup(
     assert json.loads(context.plugins_setup) == {"df_anonymize_models": ["model-a"]}
 
 
+@mock.patch("deepfellow.server.utils.install.read_config_json_settings")
+@MOCK_ENSURE_DIRECTORY
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_inspect_normalizes_plugins_setup_from_config_json_back_to_a_string(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_ensure_directory: Mock,
+    mock_read_config_json_settings: Mock,
+    tmp_path: Path,
+) -> None:
+    """Regression test for DFCLI-79, end to end through inspect(): unlike every other field,
+    plugins_setup is kept in .env as one raw JSON-string blob rather than decomposed into
+    DF_X__Y__Z keys, but config.json (the Server's own native settings store) has it as a real JSON
+    object. merge_config_json_into_env() (see its own unit tests in test_common_config.py) converts
+    it back to a string during the merge itself - this test just confirms inspect()'s own
+    isinstance(str) check right after (and everything downstream expecting a string) sees the
+    result it always has, instead of failing on a type mismatch despite valid content."""
+    (tmp_path / ".env").write_text("DF_PLUGINS_SETUP={}\n")
+    mock_read_config_json_settings.return_value = {"plugins_setup": {"df_anonymize_models": ["model-a"]}}
+
+    context = inspect_util(directory=tmp_path, image="deepfellow-server:test", local_image=False, force_install=False)
+
+    assert isinstance(context.plugins_setup, str)
+    assert json.loads(context.plugins_setup) == {"df_anonymize_models": ["model-a"]}
+
+
 @MOCK_ENSURE_DIRECTORY
 @MOCK_ASSERT_DOCKER
 @MOCK_ECHO

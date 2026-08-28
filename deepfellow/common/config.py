@@ -185,6 +185,8 @@ def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]
     for key, value in overlay.items():
         if isinstance(value, dict) and isinstance(merged.get(key), dict):
             merged[key] = _deep_merge(merged[key], value)
+        elif isinstance(value, dict) and isinstance(merged.get(key), str):
+            merged[key] = json.dumps(value)  # NOTE: needed to properly parse DF_PLUGINS_SETUP
         else:
             merged[key] = value
     return merged
