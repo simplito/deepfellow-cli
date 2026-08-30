@@ -8,6 +8,7 @@
 # limitations under the License.
 
 import json
+from collections.abc import Iterator
 from typing import Any
 from unittest import mock
 from unittest.mock import Mock
@@ -15,11 +16,17 @@ from unittest.mock import Mock
 import httpx
 import pytest
 
-from deepfellow.infra.utils.progress import install_with_progress
+from deepfellow.infra.utils.progress import _Heartbeat, install_with_progress
 
 
 def _sse_lines(*events: dict[str, Any]) -> list[str]:
     return [json.dumps(event) for event in events]
+
+
+def _lines_then_read_error(*lines: str) -> Iterator[str]:
+    """Yield SSE lines, then fail the stream the way a dropped connection would."""
+    yield from lines
+    raise httpx.ReadError("connection dropped")
 
 
 def _stream_response(
@@ -130,6 +137,7 @@ def test_install_with_progress_injects_stream_true_in_request_body(
     assert mock_stream.call_args.kwargs["json"] == {"spec": {"hardware": "GPU"}, "stream": True}
 
 
+@mock.patch("deepfellow.infra.utils.progress._Heartbeat")
 @mock.patch("deepfellow.infra.utils.progress.echo")
 @mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=False)
 @mock.patch("deepfellow.infra.utils.progress.httpx.stream")
@@ -137,6 +145,7 @@ def test_install_with_progress_logs_periodic_progress_when_non_interactive(
     mock_stream: Mock,
     mock_is_interactive: Mock,
     mock_echo: Mock,
+    mock_heartbeat: Mock,
 ) -> None:
     response = _stream_response(
         lines=_sse_lines(
@@ -154,6 +163,7 @@ def test_install_with_progress_logs_periodic_progress_when_non_interactive(
     assert mock_echo.info.call_args_list == [mock.call("download: 0%"), mock.call("download: 50%")]
 
 
+@mock.patch("deepfellow.infra.utils.progress._Heartbeat")
 @mock.patch("deepfellow.infra.utils.progress.echo")
 @mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=False)
 @mock.patch("deepfellow.infra.utils.progress.httpx.stream")
@@ -161,6 +171,7 @@ def test_install_with_progress_skips_non_json_stream_lines(
     mock_stream: Mock,
     mock_is_interactive: Mock,
     mock_echo: Mock,
+    mock_heartbeat: Mock,
 ) -> None:
     response = _stream_response(
         lines=[
@@ -244,6 +255,7 @@ def test_install_with_progress_returns_default_finish_when_stream_ends_without_f
     assert mock_echo.info.call_count == 0
 
 
+@mock.patch("deepfellow.infra.utils.progress._Heartbeat")
 @mock.patch("deepfellow.infra.utils.progress.echo")
 @mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=False)
 @mock.patch("deepfellow.infra.utils.progress.httpx.stream")
@@ -251,6 +263,7 @@ def test_install_with_progress_skips_progress_log_below_step_threshold_when_non_
     mock_stream: Mock,
     mock_is_interactive: Mock,
     mock_echo: Mock,
+    mock_heartbeat: Mock,
 ) -> None:
     response = _stream_response(
         lines=_sse_lines(
@@ -288,3 +301,351 @@ def test_install_with_progress_ignores_unknown_event_type_when_non_interactive(
 
     assert result == {"type": "finish", "status": "ok"}
     assert mock_echo.info.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.progress._Heartbeat")
+@mock.patch("deepfellow.infra.utils.progress.echo")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=False)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_notifies_heartbeat_of_unfinished_stage_when_non_interactive(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_echo: Mock,
+    mock_heartbeat: Mock,
+) -> None:
+    response = _stream_response(
+        lines=_sse_lines(
+            {"type": "progress", "stage": "install", "value": 0.0},
+            {"type": "finish", "status": "ok"},
+        )
+    )
+    mock_stream.return_value.__enter__.return_value = response
+
+    result = install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert result == {"type": "finish", "status": "ok"}
+    assert mock_heartbeat.call_count == 1
+    assert mock_heartbeat.return_value.start.call_count == 1
+    assert mock_heartbeat.return_value.notify.call_args_list == [mock.call("install")]
+
+
+@mock.patch("deepfellow.infra.utils.progress._Heartbeat")
+@mock.patch("deepfellow.infra.utils.progress.echo")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=False)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_stops_heartbeat_after_finish_event(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_echo: Mock,
+    mock_heartbeat: Mock,
+) -> None:
+    response = _stream_response(
+        lines=_sse_lines(
+            {"type": "progress", "stage": "install", "value": 0.0},
+            {"type": "finish", "status": "ok"},
+        )
+    )
+    mock_stream.return_value.__enter__.return_value = response
+
+    install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert mock_heartbeat.return_value.stop.call_count == 1
+
+
+@mock.patch("deepfellow.infra.utils.progress._Heartbeat")
+@mock.patch("deepfellow.infra.utils.progress.echo")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=False)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_notifies_heartbeat_on_each_progress_event(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_echo: Mock,
+    mock_heartbeat: Mock,
+) -> None:
+    response = _stream_response(
+        lines=_sse_lines(
+            {"type": "progress", "stage": "download", "value": 0.0},
+            {"type": "progress", "stage": "download", "value": 0.5},
+            {"type": "finish", "status": "ok"},
+        )
+    )
+    mock_stream.return_value.__enter__.return_value = response
+
+    install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert mock_heartbeat.call_count == 1
+    assert mock_heartbeat.return_value.start.call_count == 1
+    assert mock_heartbeat.return_value.notify.call_args_list == [mock.call("download"), mock.call("download")]
+
+
+@mock.patch("deepfellow.infra.utils.progress._Heartbeat")
+@mock.patch("deepfellow.infra.utils.progress.echo")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=False)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_clears_heartbeat_stage_for_completed_stage(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_echo: Mock,
+    mock_heartbeat: Mock,
+) -> None:
+    response = _stream_response(
+        lines=_sse_lines(
+            {"type": "progress", "stage": "install", "value": 1.0},
+            {"type": "finish", "status": "ok"},
+        )
+    )
+    mock_stream.return_value.__enter__.return_value = response
+
+    install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert mock_heartbeat.return_value.notify.call_args_list == [mock.call(None)]
+    assert mock_echo.info.call_args == mock.call("install: 100%")
+
+
+@mock.patch("deepfellow.infra.utils.progress._Heartbeat")
+@mock.patch("deepfellow.infra.utils.progress.echo")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=False)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_stops_heartbeat_when_stream_fails_before_finish(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_echo: Mock,
+    mock_heartbeat: Mock,
+) -> None:
+    response = _stream_response()
+    response.iter_lines.return_value = _lines_then_read_error(
+        json.dumps({"type": "progress", "stage": "install", "value": 0.0})
+    )
+    mock_stream.return_value.__enter__.return_value = response
+
+    with pytest.raises(httpx.ReadError):
+        install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert mock_heartbeat.return_value.stop.call_count == 1
+
+
+@mock.patch("deepfellow.infra.utils.progress.Progress")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=True)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_adds_indeterminate_task_for_zero_value_stage(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_progress: Mock,
+) -> None:
+    response = _stream_response(
+        lines=_sse_lines(
+            {"type": "progress", "stage": "install", "value": 0.0},
+            {"type": "finish", "status": "error"},
+        )
+    )
+    mock_stream.return_value.__enter__.return_value = response
+    progress_instance = mock_progress.return_value.__enter__.return_value
+
+    install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert progress_instance.add_task.call_count == 1
+    assert progress_instance.add_task.call_args == mock.call("Install…", total=None)
+    assert progress_instance.update.call_args_list == [
+        mock.call(progress_instance.add_task.return_value, completed=0.0, total=None)
+    ]
+
+
+@mock.patch("deepfellow.infra.utils.progress.Progress")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=True)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_promotes_task_to_determinate_on_first_real_value(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_progress: Mock,
+) -> None:
+    response = _stream_response(
+        lines=_sse_lines(
+            {"type": "progress", "stage": "download", "value": 0.0},
+            {"type": "progress", "stage": "download", "value": 0.5},
+            {"type": "finish", "status": "error"},
+        )
+    )
+    mock_stream.return_value.__enter__.return_value = response
+    progress_instance = mock_progress.return_value.__enter__.return_value
+    task_id = progress_instance.add_task.return_value
+
+    install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert progress_instance.add_task.call_count == 1
+    assert progress_instance.update.call_args_list == [
+        mock.call(task_id, completed=0.0, total=None),
+        mock.call(task_id, completed=0.5, total=1.0),
+    ]
+
+
+@mock.patch("deepfellow.infra.utils.progress.Progress")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=True)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_snaps_indeterminate_task_to_full_on_success(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_progress: Mock,
+) -> None:
+    response = _stream_response(
+        lines=_sse_lines(
+            {"type": "progress", "stage": "install", "value": 0.0},
+            {"type": "finish", "status": "ok"},
+        )
+    )
+    mock_stream.return_value.__enter__.return_value = response
+    progress_instance = mock_progress.return_value.__enter__.return_value
+    task_id = progress_instance.add_task.return_value
+
+    install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert progress_instance.update.call_args_list == [
+        mock.call(task_id, completed=0.0, total=None),
+        mock.call(task_id, total=1.0, completed=1.0),
+    ]
+
+
+@mock.patch("deepfellow.infra.utils.progress.echo")
+@mock.patch("deepfellow.infra.utils.progress.threading.Event")
+@mock.patch("deepfellow.infra.utils.progress.threading.Thread")
+def test_heartbeat_prints_line_per_interval_of_uninterrupted_silence(
+    mock_thread: Mock,
+    mock_event: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_event.return_value.wait.side_effect = [False] * 7 + [True]
+    mock_event.return_value.is_set.return_value = False
+    heartbeat = _Heartbeat(interval=3.0, poll=1.0)
+    heartbeat.notify("install")
+
+    heartbeat._run()
+
+    assert mock_echo.info.call_args_list == [
+        mock.call("install: still working… (3s)"),
+        mock.call("install: still working… (6s)"),
+    ]
+
+
+@mock.patch("deepfellow.infra.utils.progress.echo")
+@mock.patch("deepfellow.infra.utils.progress.threading.Event")
+@mock.patch("deepfellow.infra.utils.progress.threading.Thread")
+def test_heartbeat_prints_nothing_while_silence_stays_below_interval(
+    mock_thread: Mock,
+    mock_event: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_event.return_value.wait.side_effect = [False, False, True]
+    mock_event.return_value.is_set.return_value = False
+    heartbeat = _Heartbeat(interval=3.0, poll=1.0)
+    heartbeat.notify("install")
+
+    heartbeat._run()
+
+    assert mock_echo.info.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.progress.echo")
+@mock.patch("deepfellow.infra.utils.progress.threading.Event")
+@mock.patch("deepfellow.infra.utils.progress.threading.Thread")
+def test_heartbeat_prints_nothing_when_no_stage_is_in_flight(
+    mock_thread: Mock,
+    mock_event: Mock,
+    mock_echo: Mock,
+) -> None:
+    mock_event.return_value.wait.side_effect = [False] * 7 + [True]
+    mock_event.return_value.is_set.return_value = False
+    heartbeat = _Heartbeat(interval=3.0, poll=1.0)
+    heartbeat.notify(None)
+
+    heartbeat._run()
+
+    assert mock_echo.info.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.progress.echo")
+@mock.patch("deepfellow.infra.utils.progress.threading.Event")
+@mock.patch("deepfellow.infra.utils.progress.threading.Thread")
+def test_heartbeat_notify_restarts_the_silence_countdown(
+    mock_thread: Mock,
+    mock_event: Mock,
+    mock_echo: Mock,
+) -> None:
+    heartbeat = _Heartbeat(interval=3.0, poll=1.0)
+    heartbeat.notify("download")
+    ticks = {"count": 0}
+
+    def wait(timeout: float) -> bool:
+        ticks["count"] += 1
+        if ticks["count"] == 2:
+            # A progress event lands one second before the first line would be due.
+            heartbeat.notify("download")
+        return ticks["count"] > 5
+
+    mock_event.return_value.wait.side_effect = wait
+    mock_event.return_value.is_set.return_value = False
+
+    heartbeat._run()
+
+    # Without the reset the worker would have printed at 3s and 6s of wall time.
+    assert mock_echo.info.call_args_list == [mock.call("download: still working… (3s)")]
+
+
+@mock.patch("deepfellow.infra.utils.progress.echo")
+@mock.patch("deepfellow.infra.utils.progress.threading.Event")
+@mock.patch("deepfellow.infra.utils.progress.threading.Thread")
+def test_heartbeat_prints_nothing_when_stopped_while_the_line_was_due(
+    mock_thread: Mock,
+    mock_event: Mock,
+    mock_echo: Mock,
+) -> None:
+    # wait() timed out, but stop() set the flag before the worker took the lock.
+    mock_event.return_value.wait.side_effect = [False, True]
+    mock_event.return_value.is_set.return_value = True
+    heartbeat = _Heartbeat(interval=1.0, poll=1.0)
+    heartbeat.notify("install")
+
+    heartbeat._run()
+
+    assert mock_echo.info.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.progress.threading.Thread")
+def test_heartbeat_start_runs_worker_in_named_daemon_thread(mock_thread: Mock) -> None:
+    heartbeat = _Heartbeat()
+
+    heartbeat.start()
+
+    assert mock_thread.call_count == 1
+    assert mock_thread.call_args.kwargs["name"] == "heartbeat"
+    assert mock_thread.call_args.kwargs["daemon"] is True
+    assert mock_thread.return_value.start.call_count == 1
+
+
+@mock.patch("deepfellow.infra.utils.progress.threading.Event")
+@mock.patch("deepfellow.infra.utils.progress.threading.Thread")
+def test_heartbeat_stop_signals_worker_and_joins_running_thread(
+    mock_thread: Mock,
+    mock_event: Mock,
+) -> None:
+    mock_thread.return_value.is_alive.return_value = True
+    heartbeat = _Heartbeat()
+    heartbeat.start()
+
+    heartbeat.stop()
+
+    assert mock_event.return_value.set.call_count == 1
+    assert mock_thread.return_value.join.call_count == 1
+
+
+@mock.patch("deepfellow.infra.utils.progress.threading.Event")
+@mock.patch("deepfellow.infra.utils.progress.threading.Thread")
+def test_heartbeat_stop_skips_join_when_thread_was_never_started(
+    mock_thread: Mock,
+    mock_event: Mock,
+) -> None:
+    mock_thread.return_value.is_alive.return_value = False
+    heartbeat = _Heartbeat()
+
+    heartbeat.stop()
+
+    assert mock_event.return_value.set.call_count == 1
+    assert mock_thread.return_value.join.call_count == 0
