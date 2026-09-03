@@ -18,6 +18,8 @@ DF_DEEPFELLOW_DIRECTORY = Path.home() / ".deepfellow"
 DF_CLI_CONFIG_PATH = DF_DEEPFELLOW_DIRECTORY / "config"  # env style config file
 DF_CLI_SECRETS_PATH = DF_DEEPFELLOW_DIRECTORY / "secrets"  # env style secrets file
 
+DF_SUITE_INSTALL_STATE_FILE = DF_DEEPFELLOW_DIRECTORY / "suite_install_state.json"
+
 DF_INFRA_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / "infra"
 DF_INFRA_IMAGE_HUB = "hub.simplito.com/deepfellow/deepfellow-infra"
 DF_INFRA_IMAGE = f"{DF_INFRA_IMAGE_HUB}:latest"

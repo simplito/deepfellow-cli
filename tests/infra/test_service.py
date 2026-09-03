@@ -149,6 +149,34 @@ def test_install_with_valid_spec(
 @mock.patch(
     "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
 )
+def test_install_with_valid_spec_and_explicit_quiet_suppresses_env_set_confirmation(
+    mock_resolve: Mock,
+    mock_get: Mock,
+    mock_install_with_progress: Mock,
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    name: str,
+) -> None:
+    """An explicit spec alone doesn't quiet the "Updated config/secrets" confirmation (see
+    test_install_with_valid_spec above) - but suite install --resume passes quiet=True explicitly
+    (it calls this repeatedly against the same already-confirmed connection), which must override
+    that default regardless of whether a spec was given."""
+    mock_install_with_progress.return_value = {"status": "OK"}
+
+    install(name=name, spec='{"url": "http://host:11434"}', quiet=True)
+
+    assert mock_env_set.call_count == 2
+    assert mock_env_set.call_args_list[0].kwargs["quiet"] is True
+    assert mock_env_set.call_args_list[1].kwargs["quiet"] is True
+
+
+@mock.patch("deepfellow.infra.utils.connection.env_set")
+@mock.patch("deepfellow.infra.utils.service_install.echo")
+@mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
+@mock.patch("deepfellow.infra.utils.service_install.get")
+@mock.patch(
+    "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
 def test_install_exits_with_details_when_finish_status_error(
     mock_resolve: Mock,
     mock_get: Mock,

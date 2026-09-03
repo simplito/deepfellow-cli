@@ -23,8 +23,27 @@ class UserActionError(Exception):
     """Raised if create exception failes on docker."""
 
 
-def create_admin(directory: Path, name: str | None, email: str | None, password: str | None) -> None:
-    """Create admin."""
+def create_admin(
+    directory: Path, name: str | None, email: str | None, password: str | None, *, silent_if_exists: bool = False
+) -> bool:
+    """Create admin.
+
+    Args:
+        directory: Server's install directory.
+        name: Admin name. Prompted interactively if not given.
+        email: Admin email. Prompted interactively if not given.
+        password: Admin password. Prompted interactively if not given.
+        silent_if_exists: Suppress the "already exists; skipping" info message on a no-op. Used by
+            the standalone `server create-admin` command, which reports its own explicit failure
+            message instead - printing both back to back would read as one message implying
+            success immediately followed by a contradictory one implying failure.
+
+    Returns:
+        True if a new admin account was created, False if one already existed for `email` and
+        this call was a no-op - lets a caller that resolved `name`/`password` from an explicit
+        override (as opposed to a reused prior value) tell the two apart and warn if the override
+        was ignored.
+    """
     name = name or echo.prompt_until_valid("Provide admin name", validate_truthy)
     email = email or echo.prompt_until_valid("Provide admin email", validate_email)
     if not password:
@@ -55,8 +74,10 @@ def create_admin(directory: Path, name: str | None, email: str | None, password:
         )
     except UserActionError as exc:
         if "User with that email already exists" in str(exc):
-            echo.error("Unable to create an admin: user with that email already exists")
-        elif "HTTPException" in str(exc):
+            if not silent_if_exists:
+                echo.info(f"Admin account for {email} already exists; skipping.")
+            return False
+        if "HTTPException" in str(exc):
             # If validation changes on server user still gets usable message.
             # For example:
             # HTTPException: 422: Password is too short, need min 10 characters.
@@ -77,6 +98,7 @@ def create_admin(directory: Path, name: str | None, email: str | None, password:
         echo.success("Admin account created.")
     else:
         echo.warning("Admin creation script finished without confirming success; verify the admin account manually.")
+    return True
 
 
 def reset_password(directory: Path, email: str | None, password: str | None) -> None:

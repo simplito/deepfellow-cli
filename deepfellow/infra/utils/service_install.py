@@ -186,8 +186,22 @@ def install(
     spec: str | None = None,
     set_args: list[str] | None = None,
     prompt_all: bool = True,
+    quiet: bool = False,
 ) -> None:
-    """Install service."""
+    """Install service.
+
+    Args:
+        name: Service name to install (e.g. "ollama").
+        server: Infra server URL. Resolved from config/prompt if not given.
+        service_api_key: Value for the service's "api_key" spec field, if it has one.
+        spec: JSON spec to send as-is, skipping the interactive/`--set` field resolution.
+        set_args: `key=value` overrides for individual spec fields.
+        prompt_all: Prompt for optional fields too, not only required ones.
+        quiet: Suppress the "Updated ..." confirmation when the resolved server/API key are
+            re-persisted - e.g. suite install --resume calls this with an explicit spec (so it
+            wouldn't otherwise go quiet), but the connection was already confirmed by an earlier
+            step in the same run, so re-announcing it is noise.
+    """
     if spec is not None and not spec.strip():
         echo.error("--spec cannot be empty.")
         raise typer.Exit(1)
@@ -210,8 +224,9 @@ def install(
             "Unable to install service",
             server=server,
             api_key=api_key,
-            quiet=parsed_spec is None,
+            quiet=quiet or parsed_spec is None,
             skip_if_message_contains="already installed",
+            retry_if_message_contains="already installing",
         )
     except InfraInstallSkippedError:
         echo.info(f"Service '{name}' is already installed; skipping.")

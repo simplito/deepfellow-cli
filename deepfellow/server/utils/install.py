@@ -321,9 +321,12 @@ def _merge_template_config(
         values: CLI-resolved values for the fields in `_MERGEABLE_FIELDS`, keyed by their template
             config key, e.g. {"port": port, "docker_network": docker_network, ...}. `port` must
             already be resolved via `_resolve_port()` before calling this - unlike the other
-            fields, it has no prompt of its own to restore a prior `.env` value via a `default=`,
-            so this loop only *blocks* the template from overriding a prior value that's already
-            in `values`; it never restores one into it.
+            fields, this loop never touches `values["port"]`: it only *blocks* the template from
+            overriding the value already resolved into it, so a stray raw (unconverted-to-int)
+            `.env` string never lands there. Every other field, once blocked by a prior value, has
+            that prior value restored into `merged` directly (mirroring the template branch just
+            below) - restoring it here, once, is simpler than relying on each field's own
+            downstream prompt to notice a prior value was already found and skip re-asking for it.
         explicitly_provided: The subset of `_MERGEABLE_FIELDS` keys whose CLI option was actually
             passed on the command line or via its envvar for this invocation - computed by the
             Typer command from `ctx.get_parameter_source()`, not by comparing `values` against each
@@ -331,13 +334,17 @@ def _merge_template_config(
             when the two happen to be equal).
 
     Returns:
-        The merged values (same keys as `values`). The subset of `values`' keys that came from the
-        template (`resolve()` passes force_provided=True (docker_network's own prompt) or the
-        matching force_provided_* kwarg (configure_infra()/configure_vector_db(), for the other
-        seven prompted fields) whenever the key is in this set, so a template-supplied value isn't
-        re-asked for even when it equals that field's own default). And the subset of
-        template_config's keys that were ignored because a prior install already set that field, so
-        `resolve()` can warn about each one instead of discarding it silently.
+        The merged values (same keys as `values`; every non-port field already holds its final
+        resolved value once its key is in either of the two returned sets - a raw string for a
+        field restored from `.env`/`config.json`, e.g. `vectordb_type` needs converting back to a
+        `VectorDBTypeChoice` by the caller). The subset of `values`' keys that came from the
+        template. And the subset of `template_config`'s keys that were ignored because a prior
+        install already set that field, so `resolve()` can warn about each one instead of
+        discarding it silently. `resolve()` passes force_provided=True (docker_network's own
+        prompt) or the matching force_provided_* kwarg (configure_infra()/configure_vector_db(),
+        for the other seven prompted fields) whenever a key is in *either* set, so a value already
+        resolved - whether from the template or from a prior install - isn't re-asked for even
+        when it equals that field's own default.
     """
     merged = dict(values)
     from_template: set[str] = set()
@@ -352,6 +359,8 @@ def _merge_template_config(
         prior_value = _get_nested_env_value(original_env_content, path)
         if prior_value is not None:
             blocked_by_prior_value.add(key)
+            if key != "port":
+                merged[key] = prior_value
             continue  # a prior install's value must not be silently discarded
 
         merged[key] = template_config[key]
@@ -493,6 +502,9 @@ def resolve(
     )
     for key in blocked_by_prior_value:
         echo.warning(f"Template's '{key}' config value is ignored because a prior install already configured it.")
+    # A value already resolved - whether supplied by the template or restored from a prior
+    # install - must not be re-asked for downstream; see _merge_template_config()'s Returns.
+    already_resolved = from_template | blocked_by_prior_value
     port = merged["port"]
     docker_network = merged["docker_network"]
     infra_url = merged["infra_url"]
@@ -502,18 +514,20 @@ def resolve(
     embedding_model = merged["embedding_model"]
     embedding_size = merged["embedding_size"]
     vectordb_type = merged["vectordb_type"]
+    # A prior-value restoration lands here as the raw .env/config.json string (see
+    # _merge_template_config()'s Returns); a template-supplied or CLI-default value is already a
+    # VectorDBTypeChoice, so this is a no-op in every other case.
+    if not isinstance(vectordb_type, VectorDBTypeChoice):
+        vectordb_type = VectorDBTypeChoice(vectordb_type)
 
     # Falls back to a local `infra install`'s own DF_INFRA_API_KEY only after the CLI flag/prior
     # server .env/template have all had a chance to supply one - done here, not before the merge
     # above, so a discovered local key isn't baked into values["infra_api_key"] and mistaken for
     # an explicit --infra-api-key flag there, which would silently (and without the warning every
-    # other blocked field gets) block a template's own infra_api_key from ever applying. Also
-    # skipped outright when a prior server .env already has its own api_key: infra_api_key would
-    # otherwise still be None here (the merge above only *blocks* a template value from
-    # overwriting it, it doesn't restore the prior value into this variable - that restoration
-    # happens via configure_infra()'s own `default=` a few lines down), and feeding the local
-    # fallback key into configure_infra() as `from_args` makes it look explicitly provided,
-    # silently discarding the previously configured key.
+    # other blocked field gets) block a template's own infra_api_key from ever applying. By this
+    # point infra_api_key already holds a prior .env's value if the template declares an
+    # infra_api_key key at all (see _merge_template_config()); the second condition below only
+    # matters for a template that doesn't declare one, where nothing restores it here.
     if not infra_api_key and not _get_nested_env_value(original_env_content, ("df_infra", "api_key")):
         infra_api_key = env_get(DF_INFRA_DIRECTORY / ".env", "DF_INFRA_API_KEY", should_raise=False)
         if infra_api_key:
@@ -525,7 +539,7 @@ def resolve(
         from_args=docker_network,
         original_default=DF_INFRA_DOCKER_NETWORK,
         default=original_env_content.get("df_infra_docker_subnet", docker_network),
-        force_provided="docker_network" in from_template,
+        force_provided="docker_network" in already_resolved,
     )
 
     echo.info("DeepFellow Server requires a MongoDB to be installed.")
@@ -550,8 +564,8 @@ def resolve(
         infra_api_key,
         infra_url,
         original_env_content,
-        force_provided_url="infra_url" in from_template,
-        force_provided_api_key="infra_api_key" in from_template,
+        force_provided_url="infra_url" in already_resolved,
+        force_provided_api_key="infra_api_key" in already_resolved,
     )
 
     original_metrics_username = original_env_content.get("df_metrics_username")
@@ -587,11 +601,11 @@ def resolve(
             _get_nested_env_value(original_env_content, ("df_vector_database", "provider", "type"))
             or vectordb_type.value
         ),
-        force_provided_type="vectordb_type" in from_template,
-        force_provided_url="vectordb_url" in from_template,
-        force_provided_database_name="vectordb_database_name" in from_template,
-        force_provided_model="embedding_model" in from_template,
-        force_provided_size="embedding_size" in from_template,
+        force_provided_type="vectordb_type" in already_resolved,
+        force_provided_url="vectordb_url" in already_resolved,
+        force_provided_database_name="vectordb_database_name" in already_resolved,
+        force_provided_model="embedding_model" in already_resolved,
+        force_provided_size="embedding_size" in already_resolved,
     )
     is_vectordb_active = vectordb_envs.get("DF_VECTOR_DATABASE__PROVIDER__ACTIVE") == "1"
     vectordb_type_str = vectordb_envs.get("DF_VECTOR_DATABASE__PROVIDER__TYPE", "")

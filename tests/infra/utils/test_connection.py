@@ -19,6 +19,7 @@ import typer
 from deepfellow.common.exceptions import InfraInstallSkippedError
 from deepfellow.common.state import state
 from deepfellow.infra.utils.connection import (
+    INSTALL_RETRY_INTERVAL_SECONDS,
     _error_message,
     call_infra,
     persist_infra_connection,
@@ -373,6 +374,90 @@ def test_call_infra_does_not_skip_when_message_does_not_match(mock_echo: Mock) -
 
     assert mock_echo.error.call_count == 1
     assert mock_echo.error.call_args == mock.call("Out of disk space")
+
+
+@mock.patch("deepfellow.infra.utils.connection.time")
+@mock.patch("deepfellow.infra.utils.connection.echo")
+def test_call_infra_retries_and_succeeds_when_message_matches_retry(mock_echo: Mock, mock_time: Mock) -> None:
+    """A job some other (likely interrupted) run left installing server-side must be waited out,
+    not treated as a hard failure - the very bug behind DFCLI-60's --resume/ollama report."""
+    mock_time.monotonic.side_effect = [0, 0, 0]
+    response = Mock(
+        json=Mock(return_value={"error": {"message": "Service ollama on default instance already installing"}})
+    )
+    error = httpx.HTTPStatusError("TEST", request=Mock(), response=response)
+    request = Mock(side_effect=[error, {"status": "ok"}])
+
+    result = call_infra(request, "Unable to call Infra", retry_if_message_contains="already installing")
+
+    assert result == {"status": "ok"}
+    assert request.call_count == 2
+    assert mock_time.sleep.call_count == 1
+    assert mock_time.sleep.call_args == mock.call(INSTALL_RETRY_INTERVAL_SECONDS)
+    assert mock_echo.error.call_count == 0
+    assert mock_echo.info.call_count == 1
+    assert mock_echo.info.call_args == mock.call(
+        "Service ollama on default instance already installing; waiting for it to finish before retrying..."
+    )
+
+
+@mock.patch("deepfellow.infra.utils.connection.time")
+@mock.patch("deepfellow.infra.utils.connection.echo")
+def test_call_infra_prints_still_waiting_on_subsequent_retries(mock_echo: Mock, mock_time: Mock) -> None:
+    mock_time.monotonic.side_effect = [0, 0, 0, 5, 10]
+    response = Mock(
+        json=Mock(return_value={"error": {"message": "Service ollama on default instance already installing"}})
+    )
+    error = httpx.HTTPStatusError("TEST", request=Mock(), response=response)
+    request = Mock(side_effect=[error, error, {"status": "ok"}])
+
+    result = call_infra(request, "Unable to call Infra", retry_if_message_contains="already installing")
+
+    assert result == {"status": "ok"}
+    assert request.call_count == 3
+    assert mock_time.sleep.call_count == 2
+    assert mock_echo.info.call_count == 2
+    assert mock_echo.info.call_args_list[1] == mock.call("Still waiting... (10s)")
+
+
+@mock.patch("deepfellow.infra.utils.connection.time")
+@mock.patch("deepfellow.infra.utils.connection.echo")
+def test_call_infra_gives_up_retrying_once_deadline_has_passed(mock_echo: Mock, mock_time: Mock) -> None:
+    mock_time.monotonic.side_effect = [0, 0, 999_999]
+    response = Mock(
+        json=Mock(return_value={"error": {"message": "Service ollama on default instance already installing"}})
+    )
+    error = httpx.HTTPStatusError("TEST", request=Mock(), response=response)
+    request = Mock(side_effect=error)
+
+    with pytest.raises(typer.Exit):
+        call_infra(request, "Unable to call Infra", retry_if_message_contains="already installing")
+
+    assert request.call_count == 1
+    assert mock_time.sleep.call_count == 0
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call("Service ollama on default instance already installing")
+
+
+@mock.patch("deepfellow.infra.utils.connection.time")
+@mock.patch("deepfellow.infra.utils.connection.echo")
+def test_call_infra_skip_takes_precedence_over_retry_when_both_match(mock_echo: Mock, mock_time: Mock) -> None:
+    response = Mock(
+        json=Mock(return_value={"error": {"message": "Service ollama on default instance already installed"}})
+    )
+    error = httpx.HTTPStatusError("TEST", request=Mock(), response=response)
+    request = Mock(side_effect=error)
+
+    with pytest.raises(InfraInstallSkippedError):
+        call_infra(
+            request,
+            "Unable to call Infra",
+            skip_if_message_contains="already installed",
+            retry_if_message_contains="already installing",
+        )
+
+    assert request.call_count == 1
+    assert mock_time.sleep.call_count == 0
 
 
 @mock.patch("deepfellow.infra.utils.connection.echo")

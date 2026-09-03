@@ -2278,9 +2278,14 @@ def test_install_preserves_prior_env_value_over_template_config(install_mocks: I
     install(directory=tmp_path, template="workspace")
 
     name_prompt_kwargs = install_mocks.echo.prompt.call_args_list[0][1]
-    assert name_prompt_kwargs["from_args"] == DF_INFRA_NAME
-    assert name_prompt_kwargs["force_provided"] is False
+    assert name_prompt_kwargs["from_args"] == "existing-name"
+    assert name_prompt_kwargs["force_provided"] is True
     assert name_prompt_kwargs["default"] == "existing-name"
+
+    warning_messages = [call.args[0] for call in install_mocks.echo.warning.call_args_list]
+    assert "Template's 'infra_name' config value is ignored because a prior install already configured it." in (
+        warning_messages
+    )
 
 
 @mock.patch("deepfellow.infra.utils.install.read_config_json_settings")
@@ -2300,9 +2305,14 @@ def test_install_preserves_prior_config_json_value_over_template_config(
     install(directory=tmp_path, template="workspace")
 
     name_prompt_kwargs = install_mocks.echo.prompt.call_args_list[0][1]
-    assert name_prompt_kwargs["from_args"] == DF_INFRA_NAME
-    assert name_prompt_kwargs["force_provided"] is False
+    assert name_prompt_kwargs["from_args"] == "existing-name"
+    assert name_prompt_kwargs["force_provided"] is True
     assert name_prompt_kwargs["default"] == "existing-name"
+
+    warning_messages = [call.args[0] for call in install_mocks.echo.warning.call_args_list]
+    assert "Template's 'infra_name' config value is ignored because a prior install already configured it." in (
+        warning_messages
+    )
 
 
 def test_install_preserves_prior_env_infra_url_over_template_config(
@@ -2318,9 +2328,14 @@ def test_install_preserves_prior_env_infra_url_over_template_config(
     install(directory=tmp_path, template="workspace")
 
     url_prompt_kwargs = install_mocks.echo.prompt_until_valid.call_args[1]
-    assert url_prompt_kwargs["from_args"] == DF_INFRA_URL
-    assert url_prompt_kwargs["force_provided"] is False
+    assert url_prompt_kwargs["from_args"] == "http://existing:8086"
+    assert url_prompt_kwargs["force_provided"] is True
     assert url_prompt_kwargs["default"] == "http://existing:8086"
+
+    warning_messages = [call.args[0] for call in install_mocks.echo.warning.call_args_list]
+    assert "Template's 'infra_url' config value is ignored because a prior install already configured it." in (
+        warning_messages
+    )
 
 
 def test_install_preserves_prior_env_docker_network_over_template_config(
@@ -2336,9 +2351,14 @@ def test_install_preserves_prior_env_docker_network_over_template_config(
     install(directory=tmp_path, template="workspace")
 
     network_prompt_kwargs = install_mocks.echo.prompt.call_args_list[1][1]
-    assert network_prompt_kwargs["from_args"] == DF_INFRA_DOCKER_NETWORK
-    assert network_prompt_kwargs["force_provided"] is False
+    assert network_prompt_kwargs["from_args"] == "existing-net"
+    assert network_prompt_kwargs["force_provided"] is True
     assert network_prompt_kwargs["default"] == "existing-net"
+
+    warning_messages = [call.args[0] for call in install_mocks.echo.warning.call_args_list]
+    assert "Template's 'docker_network' config value is ignored because a prior install already configured it." in (
+        warning_messages
+    )
 
 
 def test_install_does_not_apply_template_port_when_a_prior_env_port_exists(

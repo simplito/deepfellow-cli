@@ -196,7 +196,7 @@ def _merge_template_config(
     original_env_content: EnvDict,
     values: dict[str, Any],
     explicitly_provided: Collection[str],
-) -> tuple[dict[str, Any], set[str]]:
+) -> tuple[dict[str, Any], set[str], set[str]]:
     """Fill in CLI-level install values from a template's config, without overriding what should win.
 
     Precedence, highest to lowest: an explicit CLI flag (its key is in `explicitly_provided`) always
@@ -224,13 +224,21 @@ def _merge_template_config(
             when the two happen to be equal).
 
     Returns:
-        The merged values (same keys as `values`), plus the subset of its keys that came from the
-        template. `resolve()` passes force_provided=True for infra_name/infra_url/docker_network's
-        prompt when the key is in this set, so it isn't re-asked; `port` has no prompt of its own,
-        so its merged value (already resolved via `_resolve_port()`) is used as-is.
+        The merged values (same keys as `values`; every non-port field already holds its final
+        resolved value once its key is in either of the two returned sets - restored directly from
+        the prior install's value when blocked by one; `port` is excluded from this restoration
+        since it's already been resolved via `_resolve_port()` before this function is even
+        called - see the `values` note above). The subset of `values`' keys that came from the
+        template. And the subset that were blocked by a prior install's value, so `resolve()` can
+        warn about each one instead of discarding it silently. `resolve()` passes
+        force_provided=True for infra_name/infra_url/docker_network's prompt whenever the key is in
+        *either* set, so an already-resolved value - whether from the template or from a prior
+        install - isn't re-asked for; `port` has no prompt of its own, so its merged value (already
+        resolved via `_resolve_port()`) is used as-is regardless.
     """
     merged = dict(values)
     from_template: set[str] = set()
+    blocked_by_prior_value: set[str] = set()
 
     for key, env_key in _MERGEABLE_FIELDS:
         if key not in template_config:
@@ -240,12 +248,15 @@ def _merge_template_config(
 
         prior_value = original_env_content.get(env_key)
         if prior_value:
+            blocked_by_prior_value.add(key)
+            if key != "port":
+                merged[key] = prior_value
             continue  # a prior install's value must not be silently discarded
 
         merged[key] = template_config[key]
         from_template.add(key)
 
-    return merged, from_template
+    return merged, from_template, blocked_by_prior_value
 
 
 def resolve(
@@ -309,12 +320,17 @@ def resolve(
     port = _resolve_port(port, original_env_content, explicitly_provided)
 
     template_config = context.resolved_template["config"] if context.resolved_template else {}
-    merged, from_template = _merge_template_config(
+    merged, from_template, blocked_by_prior_value = _merge_template_config(
         template_config,
         original_env_content,
         {"port": port, "infra_name": infra_name, "infra_url": infra_url, "docker_network": docker_network},
         explicitly_provided,
     )
+    for key in blocked_by_prior_value:
+        echo.warning(f"Template's '{key}' config value is ignored because a prior install already configured it.")
+    # A value already resolved - whether supplied by the template or restored from a prior
+    # install - must not be re-asked for downstream; see _merge_template_config()'s Returns.
+    already_resolved = from_template | blocked_by_prior_value
     port, infra_name, infra_url, docker_network = (
         merged["port"],
         merged["infra_name"],
@@ -328,7 +344,7 @@ def resolve(
         from_args=infra_name,
         original_default=DF_INFRA_NAME,
         default=original_env_content.get("df_name", infra_name),
-        force_provided="infra_name" in from_template,
+        force_provided="infra_name" in already_resolved,
     )
 
     df_infra_url = echo.prompt_until_valid(
@@ -338,7 +354,7 @@ def resolve(
         from_args=infra_url,
         original_default=DF_INFRA_URL,
         default=original_env_content.get("df_infra_url", infra_url),
-        force_provided="infra_url" in from_template,
+        force_provided="infra_url" in already_resolved,
     )
 
     # Find out which docker network to use
@@ -347,7 +363,7 @@ def resolve(
         from_args=docker_network,
         original_default=DF_INFRA_DOCKER_NETWORK,
         default=original_env_content.get("df_infra_docker_subnet", docker_network),
-        force_provided="docker_network" in from_template,
+        force_provided="docker_network" in already_resolved,
     )
 
     flag_print_keys = echo.confirm("Is it safe to print API keys here?", from_args=allow_print_keys)
