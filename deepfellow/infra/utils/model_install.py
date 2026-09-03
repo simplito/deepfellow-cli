@@ -21,8 +21,18 @@ def install(
     service_name: str,
     model_name: str,
     server: str | None = None,
+    quiet: bool = False,
 ) -> None:
-    """Install model."""
+    """Install model.
+
+    Args:
+        service_name: Name of the service the model belongs to (e.g. "ollama").
+        model_name: Name of the model to install.
+        server: Infra server URL. Resolved from config/prompt if not given.
+        quiet: Suppress the "Updated ..." confirmation when the resolved server/API key are
+            re-persisted - e.g. suite install --resume calls this repeatedly (once per model) with
+            the exact same, already-confirmed connection, so re-announcing it every time is noise.
+    """
     server, api_key = resolve_infra_connection(server)
 
     url = f"{server}/admin/services/{service_name}/models/_?model_id={model_name}"
@@ -33,7 +43,9 @@ def install(
             "Unable to install model.",
             server=server,
             api_key=api_key,
+            quiet=quiet,
             skip_if_message_contains="already installed",
+            retry_if_message_contains="already installing",
         )
     except InfraInstallSkippedError:
         echo.info(f"Model '{model_name}' is already installed; skipping.")

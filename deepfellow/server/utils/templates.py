@@ -45,7 +45,7 @@ from deepfellow.common.templates import (
 from deepfellow.common.templates import dispatch_post_start_action as _dispatch_post_start_action
 from deepfellow.server.utils.users import create_admin as create_admin_util
 
-POST_START_ACTION_REGISTRY: dict[str, Callable[..., None]] = {
+POST_START_ACTION_REGISTRY: dict[str, Callable[..., Any]] = {
     "server.create_admin": create_admin_util,
 }
 

@@ -9,6 +9,7 @@
 
 """Infra connection resolution utilities."""
 
+import time
 from collections.abc import Callable
 from json import JSONDecodeError
 from typing import Any, cast
@@ -22,6 +23,12 @@ from deepfellow.common.env import env_set
 from deepfellow.common.exceptions import InfraInstallSkippedError
 from deepfellow.common.state import state
 from deepfellow.common.validation import validate_url
+
+# How long to keep retrying a "some other run left this installing" response before giving up,
+# and how long to wait between attempts. The timeout mirrors install_with_progress's own read
+# timeout for a single install/download - a resumed wait is given the same overall budget.
+INSTALL_RETRY_TIMEOUT_SECONDS = 60 * 60 * 24
+INSTALL_RETRY_INTERVAL_SECONDS = 10.0
 
 
 def resolve_infra_connection(server: str | None) -> tuple[str, str]:
@@ -80,6 +87,7 @@ def call_infra(
     api_key: str | None = None,
     quiet: bool = False,
     skip_if_message_contains: str | None = None,
+    retry_if_message_contains: str | None = None,
 ) -> dict[str, Any]:
     """Call the Infra API, translating transport errors into user-facing messages.
 
@@ -87,7 +95,9 @@ def call_infra(
     propagate here instead of being swallowed with a generic message.
 
     Args:
-        request: Zero-argument callable performing the REST call (e.g. ``lambda: get(...)``).
+        request: Zero-argument callable performing the REST call (e.g. ``lambda: get(...)``). Called
+            again, unmodified, on each retry - so it must perform a fresh request every time, not
+            replay a cached one.
         default_error_msg: Message shown when an HTTP error response has no body.
         server: If given (together with `api_key`), persisted via `persist_infra_connection`
             once `request` succeeds — never before, so a bad `server`/`api_key` never clobbers
@@ -97,6 +107,11 @@ def call_infra(
         skip_if_message_contains: When the error message extracted from an ``httpx.HTTPStatusError``
             response contains this substring, raise ``InfraInstallSkippedError`` instead of echoing an
             error and exiting — lets the caller treat it as a no-op.
+        retry_if_message_contains: When the error message extracted from an ``httpx.HTTPStatusError``
+            response contains this substring, wait `INSTALL_RETRY_INTERVAL_SECONDS` and call
+            `request` again instead of failing — for a job some other, likely interrupted, run left
+            running server-side (the CLI has no way to reattach to its progress, only to poll until
+            it clears). Retries for up to `INSTALL_RETRY_TIMEOUT_SECONDS`, then fails normally.
 
     Returns:
         The parsed JSON response.
@@ -104,20 +119,34 @@ def call_infra(
     Raises:
         InfraInstallSkippedError: if the extracted error message matches `skip_if_message_contains`.
     """
-    try:
-        result = request()
-    except httpx.ConnectError as exc:
-        echo.error("No connection with DeepFellow Infra. Is it up? (deepfellow infra start)")
-        raise typer.Exit(1) from exc
-    except httpx.HTTPStatusError as exc:
-        message = _error_message(exc.response, default_error_msg)
-        if skip_if_message_contains and skip_if_message_contains in message:
-            raise InfraInstallSkippedError(message) from exc
-        echo.error(message)
-        raise typer.Exit(1) from exc
-    except httpx.HTTPError as exc:
-        echo.error(default_error_msg)
-        raise typer.Exit(1) from exc
+    deadline = time.monotonic() + INSTALL_RETRY_TIMEOUT_SECONDS
+    start = time.monotonic()
+    announced = False
+
+    while True:
+        try:
+            result = request()
+        except httpx.ConnectError as exc:
+            echo.error("No connection with DeepFellow Infra. Is it up? (deepfellow infra start)")
+            raise typer.Exit(1) from exc
+        except httpx.HTTPStatusError as exc:
+            message = _error_message(exc.response, default_error_msg)
+            if skip_if_message_contains and skip_if_message_contains in message:
+                raise InfraInstallSkippedError(message) from exc
+            if retry_if_message_contains and retry_if_message_contains in message and time.monotonic() < deadline:
+                if not announced:
+                    echo.info(f"{message}; waiting for it to finish before retrying...")
+                    announced = True
+                else:
+                    echo.info(f"Still waiting... ({int(time.monotonic() - start)}s)")
+                time.sleep(INSTALL_RETRY_INTERVAL_SECONDS)
+                continue
+            echo.error(message)
+            raise typer.Exit(1) from exc
+        except httpx.HTTPError as exc:
+            echo.error(default_error_msg)
+            raise typer.Exit(1) from exc
+        break
 
     if server is not None and api_key is not None:
         persist_infra_connection(server, api_key, quiet=quiet)

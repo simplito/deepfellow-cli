@@ -68,6 +68,30 @@ def test_install_success(
 @mock.patch(
     "deepfellow.infra.utils.model_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
 )
+def test_install_quiet_suppresses_env_set_confirmation(
+    mock_resolve: Mock,
+    mock_install_with_progress: Mock,
+    mock_echo: Mock,
+    mock_env_set: Mock,
+) -> None:
+    """suite install --resume passes quiet=True (it calls this repeatedly, once per model, against
+    the exact same already-confirmed connection) - the "Updated config/secrets" confirmation must
+    be suppressed in that case, unlike a plain standalone `infra model install` run."""
+    mock_install_with_progress.return_value = {"status": "OK"}
+
+    install(server=None, service_name="ollama", model_name="llama-3.1-8B", quiet=True)
+
+    assert mock_env_set.call_count == 2
+    assert mock_env_set.call_args_list[0].kwargs["quiet"] is True
+    assert mock_env_set.call_args_list[1].kwargs["quiet"] is True
+
+
+@mock.patch("deepfellow.infra.utils.connection.env_set")
+@mock.patch("deepfellow.infra.utils.model_install.echo")
+@mock.patch("deepfellow.infra.utils.model_install.install_with_progress")
+@mock.patch(
+    "deepfellow.infra.utils.model_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
 def test_install_raises_when_status_not_ok(
     mock_resolve: Mock,
     mock_install_with_progress: Mock,

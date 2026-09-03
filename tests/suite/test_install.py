@@ -57,6 +57,7 @@ def default_install_kwargs() -> dict:
         "admin_email": "admin@example.com",
         "admin_password": "Sup3r$ecret!",
         "force_install": False,
+        "resume": False,
         "infra_port": DF_INFRA_PORT,
         "infra_image": DF_INFRA_IMAGE,
         "infra_local_image": False,
@@ -91,19 +92,29 @@ def test_install_command_delegates_to_install_util(
 
 
 @mock.patch("deepfellow.suite.install.install_util")
+def test_install_command_forwards_resume_flag(
+    mock_install_util: Mock,
+    default_install_kwargs: dict,
+) -> None:
+    install_command(ctx=dummy_ctx(), **{**default_install_kwargs, "resume": True})
+
+    assert mock_install_util.call_args.kwargs["resume"] is True
+
+
+@mock.patch("deepfellow.suite.install.install_util")
 def test_install_command_computes_explicitly_provided_from_parameter_source(
     mock_install_util: Mock,
     default_install_kwargs: dict,
 ) -> None:
     """explicitly_provided must reflect ctx.get_parameter_source(), not merely be an empty set -
-    COMMANDLINE and ENVIRONMENT both count as explicit, DEFAULT doesn't - and only the fields that
-    participate in infra's/server's own template merging (infra_port, server_port, docker_network)
+    COMMANDLINE and ENVIRONMENT both count as explicit, DEFAULT doesn't - and only fields that are
+    actual suite install config flags (not e.g. admin_name, which has its own separate handling)
     are tracked at all."""
     ctx = dummy_ctx()
     ctx.get_parameter_source.side_effect = lambda name: {
         "infra_port": ParameterSource.COMMANDLINE,
         "docker_network": ParameterSource.ENVIRONMENT,
-        "infra_image": ParameterSource.COMMANDLINE,
+        "admin_name": ParameterSource.COMMANDLINE,
     }.get(name, ParameterSource.DEFAULT)
 
     install_command(ctx=ctx, **default_install_kwargs)
@@ -112,11 +123,12 @@ def test_install_command_computes_explicitly_provided_from_parameter_source(
 
 
 def test_explicitly_provided_fields_stay_within_infra_and_server_mergeable_fields() -> None:
-    """_EXPLICITLY_PROVIDED_FIELDS is a hand-maintained subset of infra's/server's own
-    mergeable_field_names(), not derived from them - if either upstream set ever drops "port" or
-    "docker_network" (e.g. a rename), install_util()'s mapping from suite's own field names onto
-    them would start silently treating an explicitly-passed flag as unrecognized. This pins the
-    assumption so that drift fails a test instead of failing silently at runtime."""
+    """ "port" and "docker_network" - the two infra's/server's own `_MERGEABLE_FIELDS` keys that
+    install_util() maps "infra_port"/"server_port"/"docker_network" onto for template-merge
+    precedence - must keep existing on the infra/server side, independent of how many other
+    suite-level flags _EXPLICITLY_PROVIDED_FIELDS also tracks for the config-ignored-warning use.
+    This pins the assumption so upstream drift (e.g. a rename) fails a test instead of failing
+    silently at runtime."""
     assert {"port", "docker_network"} <= infra_mergeable_field_names()
     assert {"port", "docker_network"} <= server_mergeable_field_names()
 
@@ -147,6 +159,7 @@ def test_install_command_reads_admin_credentials_from_env_vars(
     assert mock_install_util.call_args.kwargs["admin_email"] == "admin@example.com"
     assert mock_install_util.call_args.kwargs["admin_password"] == "Password1!"
     assert mock_install_util.call_args.kwargs["force_install"] is False
+    assert mock_install_util.call_args.kwargs["resume"] is False
 
 
 _ENVVAR_BOUND_OPTIONS = (

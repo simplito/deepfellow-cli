@@ -37,10 +37,34 @@ app = typer.Typer()
 # without reaching into that private module.
 _EXPLICIT_PARAMETER_SOURCE_NAMES = frozenset({"COMMANDLINE", "ENVIRONMENT"})
 
-# The only suite-level flags that also participate in either infra's or server's own
-# _MERGEABLE_FIELDS (template-value merging) - see install_util()'s docstring for how these map
-# onto infra's and server's own "port"/"docker_network" keys.
-_EXPLICITLY_PROVIDED_FIELDS = frozenset({"infra_port", "server_port", "docker_network"})
+# Every suite-level config flag whose parameter source is worth tracking - see install_util()'s
+# docstring for its two independent uses: mapping the "infra_port"/"server_port"/"docker_network"
+# subset onto infra's/server's own "port"/"docker_network" `_MERGEABLE_FIELDS` keys for
+# template-merge precedence, and warning (for any of them) when an explicitly-passed flag had no
+# effect because its install step was already done and skipped.
+_EXPLICITLY_PROVIDED_FIELDS = frozenset(
+    {
+        "infra_port",
+        "infra_image",
+        "infra_local_image",
+        "infra_directory",
+        "infra_docker_config",
+        "infra_storage",
+        "server_port",
+        "server_image",
+        "server_local_image",
+        "server_directory",
+        "docker_network",
+        "mongodb_port",
+        "mongodb_username",
+        "mongodb_password",
+        "falkordb_active",
+        "falkordb_url",
+        "falkordb_username",
+        "falkordb_password",
+        "otel_local",
+    }
+)
 
 
 def _resolve_server_directory(value: Path) -> Path:
@@ -77,6 +101,9 @@ def install(
     force_install: bool = typer.Option(
         False,
         help="Force a reinstall over an already-existing infra/server directories.",
+    ),
+    resume: bool = typer.Option(
+        False, "--resume", help="Continue a previous, incomplete `suite install` run instead of starting fresh."
     ),
     infra_port: int = typer.Option(
         DF_INFRA_PORT, envvar="DF_INFRA_PORT", help="Published port to serve the DeepFellow Infra from."
@@ -122,16 +149,20 @@ def install(
 ) -> None:
     """Provision a complete DeepFellow workspace: Infra, Server, admin user, and a ready-to-use workspace.
 
-    Runs, in one non-interactive-friendly pass: infra install (via the built-in `workspace`
-    template, which also starts infra and installs the ollama service plus chat/embedding/fast
-    models), server install (via the built-in `workspace` template, which also starts server and
-    creates the admin user), login, one call to the server's atomic workspace-creation endpoint
-    (organization "Workspace", project "Default", API key "app"), and a follow-up call granting the
-    created project access to the three models just installed.
+    Runs 12 granular steps, in order: infra install, infra start, infra service install (ollama),
+    infra model install (chat/embedding/fast), server install, server start, create admin, server
+    login, one call to the server's atomic workspace-creation endpoint (organization "Workspace",
+    project "Default", API key "app"), and a follow-up call granting the created project access to
+    the three models just installed.
 
     `suite install` itself exposes no `--template` option — it always uses each command's built-in
-    `workspace` template. This is a one-shot command: it does not track progress and cannot resume
-    after a partial failure.
+    `workspace` template. Progress is persisted after each step; if a step fails, re-run with
+    `--resume` to skip every already-completed step and continue from the first incomplete one.
+    Re-running without `--resume` over an unfinished previous run asks for confirmation before
+    discarding it and starting fresh (skipped by `--yes`, and defaulting to fresh in
+    `--non-interactive` mode); declining continues the previous run instead, exactly as `--resume`
+    would. Pass `--force-install` to reinstall over an already-existing infra/server directory
+    instead of being asked to confirm.
 
     Most `infra install`/`server install` options are reachable interactively through the prompts
     this command already triggers under the hood; the options above only cover values that have no
@@ -153,6 +184,7 @@ def install(
             admin_email=admin_email,
             admin_password=admin_password,
             force_install=force_install,
+            resume=resume,
             infra_port=infra_port,
             infra_image=infra_image,
             infra_local_image=infra_local_image,

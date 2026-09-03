@@ -31,7 +31,6 @@ from deepfellow.common.defaults import (
     DF_FALKORDB_URL,
     DF_INFRA_DIRECTORY,
     DF_INFRA_DOCKER_NETWORK,
-    DF_INFRA_URL,
     DF_MONGO_DB,
     DF_MONGO_PORT,
     DF_MONGO_URL,
@@ -986,7 +985,10 @@ def test_merge_template_config_explicit_cli_arg_wins_over_template_value():
 
 def test_merge_template_config_preserves_prior_env_value_over_template_value():
     """A nested _MERGEABLE_FIELDS path (e.g. vectordb_url) found in a prior install's .env must
-    block the template value, even though the CLI arg is not explicitly provided."""
+    block the template value, even though the CLI arg is not explicitly provided - and the prior
+    value itself must land in `merged`, not just block the template, so a downstream prompt marked
+    force_provided=True (because the key is in blocked_by_prior_env) returns the real prior value
+    instead of silently falling back to the CLI's own hardcoded default."""
     merged, from_template, blocked_by_prior_env = _merge_template_config(
         template_config={"vectordb_url": "http://template-vectordb:19530"},
         original_env_content={"df_vector_database": {"provider": {"url": "http://prior-vectordb:19530"}}},
@@ -994,9 +996,42 @@ def test_merge_template_config_preserves_prior_env_value_over_template_value():
         explicitly_provided=set(),
     )
 
-    assert merged == {"vectordb_url": DEFAULT_VECTOR_DATABASE["provider"]["url"]}
+    assert merged == {"vectordb_url": "http://prior-vectordb:19530"}
     assert from_template == set()
     assert blocked_by_prior_env == {"vectordb_url"}
+
+
+def test_merge_template_config_leaves_port_unrestored_when_blocked_by_prior_value():
+    """Unlike every other field, `port` must not be restored here even when blocked - it's already
+    been resolved to a real int by `_resolve_port()` before this function is ever called, and
+    restoring the prior .env's raw (string) value here would silently reintroduce the exact int
+    conversion `_resolve_port()` already did, with no error handling for a malformed value."""
+    merged, from_template, blocked_by_prior_env = _merge_template_config(
+        template_config={"port": 9001},
+        original_env_content={"df_server_port": "9000"},
+        values={"port": 9000},
+        explicitly_provided=set(),
+    )
+
+    assert merged == {"port": 9000}
+    assert from_template == set()
+    assert blocked_by_prior_env == {"port"}
+
+
+def test_merge_template_config_restores_prior_vectordb_type_as_raw_string():
+    """vectordb_type is stored in .env as a plain string, not a VectorDBTypeChoice - restoring it
+    here (like every other non-port field) intentionally leaves the raw string in `merged`;
+    converting it back to the enum is `resolve()`'s job, not this generic, type-agnostic merge."""
+    merged, from_template, blocked_by_prior_env = _merge_template_config(
+        template_config={"vectordb_type": VectorDBTypeChoice.milvus},
+        original_env_content={"df_vector_database": {"provider": {"type": "qdrant"}}},
+        values={"vectordb_type": VectorDBTypeChoice(DEFAULT_VECTOR_DATABASE_TYPE)},
+        explicitly_provided=set(),
+    )
+
+    assert merged == {"vectordb_type": "qdrant"}
+    assert from_template == set()
+    assert blocked_by_prior_env == {"vectordb_type"}
 
 
 def test_merge_template_config_skips_field_absent_from_template_config():
@@ -2517,13 +2552,13 @@ def test_install_preserves_prior_env_value_over_template_config(
     install(directory=tmp_path, template="workspace", force_install=True)
 
     network_prompt_kwargs = mock_echo.prompt.call_args_list[0][1]
-    assert network_prompt_kwargs["from_args"] == DF_INFRA_DOCKER_NETWORK
-    assert network_prompt_kwargs["force_provided"] is False
+    assert network_prompt_kwargs["from_args"] == "existing-net"
+    assert network_prompt_kwargs["force_provided"] is True
     assert network_prompt_kwargs["default"] == "existing-net"
 
     infra_call = mock_configure_infra.call_args
-    assert infra_call[0][1] == DF_INFRA_URL
-    assert infra_call[1]["force_provided_url"] is False
+    assert infra_call[0][1] == "http://existing-infra:8086"
+    assert infra_call[1]["force_provided_url"] is True
 
     warning_messages = [call.args[0] for call in mock_echo.warning.call_args_list]
     assert "Template's 'docker_network' config value is ignored because a prior install already configured it." in (
@@ -2577,13 +2612,13 @@ def test_install_preserves_prior_config_json_value_over_template_config(
     install(directory=tmp_path, template="workspace", force_install=True)
 
     network_prompt_kwargs = mock_echo.prompt.call_args_list[0][1]
-    assert network_prompt_kwargs["from_args"] == DF_INFRA_DOCKER_NETWORK
-    assert network_prompt_kwargs["force_provided"] is False
+    assert network_prompt_kwargs["from_args"] == "config-json-net"
+    assert network_prompt_kwargs["force_provided"] is True
     assert network_prompt_kwargs["default"] == "config-json-net"
 
     infra_call = mock_configure_infra.call_args
-    assert infra_call[0][1] == DF_INFRA_URL
-    assert infra_call[1]["force_provided_url"] is False
+    assert infra_call[0][1] == "http://config-json-infra:8086"
+    assert infra_call[1]["force_provided_url"] is True
     assert infra_call[0][2]["df_infra"]["url"] == "http://config-json-infra:8086"
 
     warning_messages = [call.args[0] for call in mock_echo.warning.call_args_list]
@@ -2591,6 +2626,51 @@ def test_install_preserves_prior_config_json_value_over_template_config(
         warning_messages
     )
     assert "Template's 'infra_url' config value is ignored because a prior install already configured it." in (
+        warning_messages
+    )
+
+
+@MOCK_RESOLVE_TEMPLATE
+@MOCK_SAVE_COMPOSE_FILE
+@MOCK_RUN
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@MOCK_ENSURE_NETWORK
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_install_preserves_prior_env_vectordb_type_over_template_config(
+    mock_echo,
+    mock_assert_docker,
+    mock_ensure_network,
+    mock_configure_mongo,
+    mock_configure_infra,
+    mock_configure_vector_db,
+    mock_configure_otel,
+    mock_run,
+    mock_save_compose_file,
+    mock_resolve_template,
+    tmp_path,
+):
+    """A prior install's vectordb_type is restored from .env as a plain string (see
+    _merge_template_config()) - resolve() must convert it back to a VectorDBTypeChoice before using
+    its `.value`, not just before checking `key in already_resolved`."""
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+    (tmp_path / ".env").write_text("DF_VECTOR_DATABASE__PROVIDER__TYPE=qdrant\n")
+    template_config = {"vectordb_type": VectorDBTypeChoice.milvus}
+    mock_resolve_template.return_value = {"config": template_config, "post_start_actions": []}
+
+    install(directory=tmp_path, template="workspace", force_install=True)
+
+    vectordb_call = mock_configure_vector_db.call_args
+    assert vectordb_call[0][3] == "qdrant"
+    assert vectordb_call[1]["force_provided_type"] is True
+
+    warning_messages = [call.args[0] for call in mock_echo.warning.call_args_list]
+    assert "Template's 'vectordb_type' config value is ignored because a prior install already configured it." in (
         warning_messages
     )
 

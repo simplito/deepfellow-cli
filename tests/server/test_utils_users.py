@@ -105,14 +105,30 @@ def test_create_admin_http_exception_strips_whitespace_from_server_message(mock_
 
 @mock.patch("deepfellow.server.utils.users.echo")
 @mock.patch("deepfellow.server.utils.users.run")
-def test_create_admin_already_exists_error_shows_specific_message(mock_run: mock.Mock, mock_echo: mock.Mock):
+def test_create_admin_already_exists_is_treated_as_success(mock_run: mock.Mock, mock_echo: mock.Mock):
     mock_run.side_effect = UserActionError("User with that email already exists")
 
-    with pytest.raises(typer.Exit):
-        create_admin(Path(), "name", "admin@example.com", "somepassword")
+    result = create_admin(Path(), "name", "admin@example.com", "somepassword")
 
-    assert mock_echo.error.call_count == 1
-    assert mock_echo.error.call_args == mock.call("Unable to create an admin: user with that email already exists")
+    assert result is False
+    assert mock_echo.error.call_count == 0
+    assert mock_echo.info.call_count == 1
+    assert mock_echo.info.call_args == mock.call("Admin account for admin@example.com already exists; skipping.")
+
+
+@mock.patch("deepfellow.server.utils.users.echo")
+@mock.patch("deepfellow.server.utils.users.run")
+def test_create_admin_silent_if_exists_suppresses_the_skipping_message(mock_run: mock.Mock, mock_echo: mock.Mock):
+    """The standalone `server create-admin` command passes silent_if_exists=True and reports its
+    own explicit failure instead - printing both back to back would read as one message implying
+    success immediately followed by a contradictory one implying failure."""
+    mock_run.side_effect = UserActionError("User with that email already exists")
+
+    result = create_admin(Path(), "name", "admin@example.com", "somepassword", silent_if_exists=True)
+
+    assert result is False
+    assert mock_echo.info.call_count == 0
+    assert mock_echo.error.call_count == 0
 
 
 @mock.patch("deepfellow.server.utils.users.echo")
@@ -144,10 +160,22 @@ def test_create_admin_generic_error_shows_generic_message(mock_run: mock.Mock, m
 def test_create_admin_missing_success_marker_shows_warning(mock_run: mock.Mock, mock_echo: mock.Mock):
     mock_run.return_value = "some unexpected output"
 
-    create_admin(Path(), "name", "admin@example.com", "somepassword")
+    result = create_admin(Path(), "name", "admin@example.com", "somepassword")
 
+    assert result is True
     assert mock_echo.success.call_count == 0
     assert mock_echo.warning.call_count == 1
+
+
+@mock.patch("deepfellow.server.utils.users.echo")
+@mock.patch("deepfellow.server.utils.users.run")
+def test_create_admin_success_returns_true(mock_run: mock.Mock, mock_echo: mock.Mock):
+    mock_run.return_value = "Admin created"
+
+    result = create_admin(Path(), "name", "admin@example.com", "somepassword")
+
+    assert result is True
+    assert mock_echo.success.call_count == 1
 
 
 @mock.patch("deepfellow.common.echo.Prompt.ask")
