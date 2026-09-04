@@ -27,6 +27,8 @@ from .ssl_on import app as ssl_on_app
 from .start import app as start_app
 from .status import app as status_app
 from .stop import app as stop_app
+from .tool import app as tool_app
+from .toolbox import app as toolbox_app
 from .uninstall import app as uninstall_app
 from .update import app as update_app
 
@@ -51,4 +53,6 @@ app.add_typer(login_app)
 app.add_typer(logout_app)
 app.add_typer(organization_app, name="organization", help="Manage Organizations.")
 app.add_typer(project_app, name="project", help="Manage Projects.")
+app.add_typer(toolbox_app, name="toolbox", help="Manage Toolboxes.")
+app.add_typer(tool_app, name="tool", help="Manage Tools within a Toolbox.")
 app.add_typer(prune_app)
