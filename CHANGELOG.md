@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 ### Added
+- `deepfellow server toolbox` (`create`/`list`/`get`/`update`/`delete`) and `deepfellow server tool` (`create`/`list`/`get`/`update`/`delete`, nested under a toolbox) — manage Toolboxes and the Tools within them via the DeepFellow Server's `/toolboxes` REST API. A tool's definition (`mcp`, `infra-mcp`, `custom-mcp`, `file_search`, `image_generation`, or `websearch`) is passed as JSON via `--config <path>` or piped on stdin. Both command groups take `project_id` and an optional `--organization-id`, mapped to the `OpenAI-Project`/`OpenAI-Organization` headers the server requires.
 - `deepfellow suite install` now tracks its progress across its 12 constituent steps (infra install, infra start, infra service install, 3x infra model install, server install, server start, create admin, server login, workspace creation, grant model access), persisting completion to a state file after each step. A `--resume` flag continues a previous, incomplete run from the first unfinished step instead of requiring manual recovery via individual `infra`/`server` subcommands — resolving the known limitation called out in the 0.31.0 entry for `suite install`.
 - `deepfellow suite install` now warns, once per run, that the admin password is being saved in plain text to its state file (so `--resume` can reuse it without re-prompting) and reminds the user it's removed automatically on full success, or should be removed by hand if the run is abandoned.
 
