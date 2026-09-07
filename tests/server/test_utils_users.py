@@ -14,7 +14,39 @@ import pytest
 import typer
 
 from deepfellow.common.validation import PASSWORD_REQUIREMENTS
-from deepfellow.server.utils.users import UserActionError, create_admin, reset_password
+from deepfellow.server.utils.users import (
+    UserActionError,
+    apply_admin,
+    create_admin,
+    reset_password,
+    resolve_admin_creds,
+)
+
+
+@mock.patch("deepfellow.common.echo.Prompt.ask")
+@mock.patch("deepfellow.server.utils.users.validate_email")
+@mock.patch("deepfellow.server.utils.users.run")
+def test_resolve_admin_creds_prompts_for_missing_name_and_triggers_no_docker_compose_call(
+    mock_run: mock.Mock, mock_validate_email: mock.Mock, mock_ask: mock.Mock
+):
+    mock_ask.return_value = "prompted-name"
+
+    name, email, password = resolve_admin_creds(None, "a@b.com", "Password1!")
+
+    assert (name, email, password) == ("prompted-name", "a@b.com", "Password1!")
+    assert mock_run.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.users.echo")
+@mock.patch("deepfellow.server.utils.users.run")
+def test_apply_admin_from_resolved_credentials_triggers_no_prompt(mock_run: mock.Mock, mock_echo: mock.Mock):
+    mock_run.return_value = "Admin created"
+
+    result = apply_admin(Path(), "name", "a@b.com", "Password1!")
+
+    assert result is True
+    assert mock_echo.prompt_until_valid.call_count == 0
+    assert "a@b.com" in mock_run.call_args_list[0][0][0]
 
 
 @mock.patch("deepfellow.common.echo.Prompt.ask")
