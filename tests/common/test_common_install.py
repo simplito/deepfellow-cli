@@ -154,6 +154,34 @@ def test_ensure_directory_skips_confirmation_when_force_install(mock_echo: Mock,
     assert mock_echo.confirm.call_count == 0
 
 
+@mock.patch("deepfellow.common.install.echo")
+def test_ensure_directory_overwrite_true_skips_prompt_and_proceeds(mock_echo: Mock, tmp_path: Path) -> None:
+    ensure_directory(tmp_path, overwrite=True)
+
+    assert mock_echo.warning.call_count == 0
+    assert mock_echo.confirm.call_count == 0
+    assert tmp_path.is_dir() is True
+
+
+@mock.patch("deepfellow.common.install.echo")
+def test_ensure_directory_overwrite_false_aborts_without_prompt(mock_echo: Mock, tmp_path: Path) -> None:
+    with pytest.raises(typer.Exit):
+        ensure_directory(tmp_path, overwrite=False)
+
+    assert mock_echo.warning.call_count == 0
+    assert mock_echo.confirm.call_count == 0
+
+
+@mock.patch("deepfellow.common.install.echo")
+def test_ensure_directory_overwrite_false_ignored_when_directory_missing(mock_echo: Mock, tmp_path: Path) -> None:
+    directory = tmp_path / "new_dir"
+
+    ensure_directory(directory, overwrite=False)
+
+    assert directory.is_dir() is True
+    assert mock_echo.confirm.call_count == 0
+
+
 @mock.patch("deepfellow.common.install.reraise_if_debug")
 @mock.patch("pathlib.Path.mkdir")
 @mock.patch("deepfellow.common.install.echo")

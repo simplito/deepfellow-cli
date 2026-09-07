@@ -909,6 +909,30 @@ def test_inspect_skips_newest_image_tag_lookup(
     assert mock_get_newest_image_tag.call_count == 0
 
 
+@mock.patch("deepfellow.common.install.echo")
+@MOCK_ASSERT_DOCKER
+def test_inspect_prompts_once_for_existing_directory_when_overwrite_not_resolved(
+    mock_assert_docker: Mock, mock_common_echo: Mock, tmp_path: Path
+) -> None:
+    mock_common_echo.confirm.return_value = True
+
+    inspect_util(directory=tmp_path, image="deepfellow-server:test", local_image=False, force_install=False)
+
+    assert mock_common_echo.confirm.call_count == 1
+
+
+@mock.patch("deepfellow.common.install.echo")
+@MOCK_ASSERT_DOCKER
+def test_inspect_does_not_prompt_when_overwrite_pre_resolved(
+    mock_assert_docker: Mock, mock_common_echo: Mock, tmp_path: Path
+) -> None:
+    inspect_util(
+        directory=tmp_path, image="deepfellow-server:test", local_image=False, force_install=False, overwrite=True
+    )
+
+    assert mock_common_echo.confirm.call_count == 0
+
+
 def test_get_nested_env_value_returns_value_at_multi_segment_path():
     result = _get_nested_env_value({"df_infra": {"url": "http://infra:8086"}}, ("df_infra", "url"))
 

@@ -78,12 +78,24 @@ def inspect(
     image: str,
     local_image: bool,
     template: str | None = None,
+    overwrite: bool | None = None,
 ) -> InstallContext:
     """Resolve --template, then do a Docker check, directory creation, and existing .env read-back.
 
     Resolves and validates `template` (via resolve_template()), if given, before touching Docker or
-    the filesystem, so a bad template fails fast without side effects. No prompts, no network/compose
-    writes.
+    the filesystem, so a bad template fails fast without side effects. No network/compose writes.
+    Prompts only if the target directory already exists, `force_install` is not set, and `overwrite`
+    was not already resolved by the caller - see `overwrite`.
+
+    Args:
+        directory: Directory to install into.
+        allow_rootful: Whether a rootful Docker socket is acceptable.
+        force_install: Skips the overwrite check/prompt entirely when set.
+        image: DeepFellow Infra docker image, before newest-tag resolution.
+        local_image: Whether a locally built docker image is used.
+        template: Optional built-in template name or path to a template YAML file.
+        overwrite: Pre-answered directory-overwrite decision, passed straight through to
+            `ensure_directory()`. Leave `None` to preserve today's inline prompt.
 
     Returns:
         InstallContext: Read-only values needed by :func:`resolve`.
@@ -101,7 +113,10 @@ def inspect(
 
     # Check if overriding existing installation
     ensure_directory(
-        directory, error_message="Unable to create DeepFellow Infra directory.", force_install=force_install
+        directory,
+        error_message="Unable to create DeepFellow Infra directory.",
+        force_install=force_install,
+        overwrite=overwrite,
     )
     newest_image_tag = get_newest_image_tag(DF_INFRA_IMAGE_HUB) if not local_image and image == DF_INFRA_IMAGE else None
 
