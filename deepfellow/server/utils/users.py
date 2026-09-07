@@ -23,16 +23,33 @@ class UserActionError(Exception):
     """Raised if create exception failes on docker."""
 
 
-def create_admin(
-    directory: Path, name: str | None, email: str | None, password: str | None, *, silent_if_exists: bool = False
-) -> bool:
-    """Create admin.
+def resolve_admin_creds(name: str | None, email: str | None, password: str | None) -> tuple[str, str, str]:
+    """Resolve admin credentials, prompting interactively for whichever are missing.
 
     Args:
-        directory: Server's install directory.
         name: Admin name. Prompted interactively if not given.
         email: Admin email. Prompted interactively if not given.
         password: Admin password. Prompted interactively if not given.
+
+    Returns:
+        The resolved (name, email, password) tuple. Performs no admin-creation action.
+    """
+    name = name or echo.prompt_until_valid("Provide admin name", validate_truthy)
+    email = email or echo.prompt_until_valid("Provide admin email", validate_email)
+    if not password:
+        echo.info(PASSWORD_REQUIREMENTS)
+    password = password or echo.prompt_until_valid("Provide admin password", validate_password, password=True)
+    return str(name), str(email), str(password)
+
+
+def apply_admin(directory: Path, name: str, email: str, password: str, *, silent_if_exists: bool = False) -> bool:
+    """Create the admin account from already-resolved credentials. Performs no prompting.
+
+    Args:
+        directory: Server's install directory.
+        name: Admin name.
+        email: Admin email.
+        password: Admin password.
         silent_if_exists: Suppress the "already exists; skipping" info message on a no-op. Used by
             the standalone `server create-admin` command, which reports its own explicit failure
             message instead - printing both back to back would read as one message implying
@@ -44,12 +61,6 @@ def create_admin(
         override (as opposed to a reused prior value) tell the two apart and warn if the override
         was ignored.
     """
-    name = name or echo.prompt_until_valid("Provide admin name", validate_truthy)
-    email = email or echo.prompt_until_valid("Provide admin email", validate_email)
-    if not password:
-        echo.info(PASSWORD_REQUIREMENTS)
-    password = password or echo.prompt_until_valid("Provide admin password", validate_password, password=True)
-
     response: str | None = None
     try:
         response = run(
@@ -63,9 +74,9 @@ def create_admin(
                     "./.venv/bin/python",
                     "-m",
                     "server.scripts.create_admin",
-                    str(name),
-                    str(email),
-                    str(password),
+                    name,
+                    email,
+                    password,
                 ]
             ),
             cwd=directory,
@@ -99,6 +110,25 @@ def create_admin(
     else:
         echo.warning("Admin creation script finished without confirming success; verify the admin account manually.")
     return True
+
+
+def create_admin(
+    directory: Path, name: str | None, email: str | None, password: str | None, *, silent_if_exists: bool = False
+) -> bool:
+    """Create admin.
+
+    Args:
+        directory: Server's install directory.
+        name: Admin name. Prompted interactively if not given.
+        email: Admin email. Prompted interactively if not given.
+        password: Admin password. Prompted interactively if not given.
+        silent_if_exists: See `apply_admin`.
+
+    Returns:
+        See `apply_admin`.
+    """
+    name, email, password = resolve_admin_creds(name, email, password)
+    return apply_admin(directory, name, email, password, silent_if_exists=silent_if_exists)
 
 
 def reset_password(directory: Path, email: str | None, password: str | None) -> None:
