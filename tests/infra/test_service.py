@@ -19,10 +19,13 @@ from deepfellow.infra.service.fields import fields
 from deepfellow.infra.service.install import install as install_command
 from deepfellow.infra.service.list import list as list_services
 from deepfellow.infra.utils.service_install import (
+    ServiceInstallSpec,
     _build_spec_from_api,
     _parse_set_args,
     _parse_spec,
     _resolve_oneof_choices,
+    apply_spec,
+    build_spec,
     install,
 )
 
@@ -252,6 +255,93 @@ def test_install_skips_when_service_already_installed(
     assert mock_echo.info.call_args == mock.call(f"Service '{name}' is already installed; skipping.")
     assert mock_echo.error.call_count == 0
     assert mock_echo.success.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.connection.env_set")
+@mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
+@mock.patch("deepfellow.infra.utils.service_install.get")
+@mock.patch(
+    "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
+def test_build_spec_performs_no_install_api_call(
+    mock_resolve: Mock,
+    mock_get: Mock,
+    mock_install_with_progress: Mock,
+    mock_env_set: Mock,
+    name: str,
+) -> None:
+    mock_get.return_value = {"spec": {"fields": []}}
+
+    result = build_spec(name=name, spec=None)
+
+    assert result == ServiceInstallSpec(server="http://infra:8086", api_key="test-key", spec={}, explicit_spec=False)
+    assert mock_install_with_progress.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.connection.env_set")
+@mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
+@mock.patch(
+    "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
+def test_build_spec_with_explicit_spec_skips_field_resolution(
+    mock_resolve: Mock,
+    mock_install_with_progress: Mock,
+    mock_env_set: Mock,
+    name: str,
+) -> None:
+    result = build_spec(name=name, spec='{"url": "http://host:11434"}')
+
+    assert result == ServiceInstallSpec(
+        server="http://infra:8086", api_key="test-key", spec={"url": "http://host:11434"}, explicit_spec=True
+    )
+    assert mock_install_with_progress.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.connection.env_set")
+@mock.patch("deepfellow.infra.utils.service_install.echo")
+@mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
+def test_apply_spec_performs_no_prompting(
+    mock_install_with_progress: Mock,
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    name: str,
+) -> None:
+    mock_install_with_progress.return_value = {"status": "OK"}
+    install_spec = ServiceInstallSpec(
+        server="http://infra:8086", api_key="test-key", spec={"url": "http://host:11434"}, explicit_spec=True
+    )
+
+    apply_spec(name, install_spec)
+
+    assert mock_install_with_progress.call_count == 1
+    assert mock_install_with_progress.call_args == mock.call(
+        "http://infra:8086/admin/services/name", "test-key", data={"spec": {"url": "http://host:11434"}}
+    )
+    assert mock_echo.prompt.call_count == 0
+    assert mock_echo.choice.call_count == 0
+    assert mock_echo.confirm.call_count == 0
+    assert mock_echo.success.call_count == 1
+
+
+@mock.patch("deepfellow.infra.utils.connection.env_set")
+@mock.patch("deepfellow.infra.utils.service_install.echo")
+@mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
+def test_apply_spec_skips_when_service_already_installed(
+    mock_install_with_progress: Mock,
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    name: str,
+) -> None:
+    response = Mock(
+        json=Mock(return_value={"error": {"message": f"Service {name} on default instance already installed"}})
+    )
+    mock_install_with_progress.side_effect = httpx.HTTPStatusError("TEST", request=Mock(), response=response)
+    install_spec = ServiceInstallSpec(server="http://infra:8086", api_key="test-key", spec={}, explicit_spec=True)
+
+    apply_spec(name, install_spec)
+
+    assert mock_echo.info.call_count == 1
+    assert mock_echo.info.call_args == mock.call(f"Service '{name}' is already installed; skipping.")
 
 
 def test_install_with_invalid_json_spec(name: str) -> None:
