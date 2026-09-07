@@ -179,8 +179,58 @@ def test_inspect_ensures_directory_with_force_install(
     inspect_util(directory=directory, allow_rootful=False, force_install=True, image=DF_INFRA_IMAGE, local_image=False)
 
     assert mock_ensure_directory.call_args == mock.call(
-        directory, error_message="Unable to create DeepFellow Infra directory.", force_install=True
+        directory, error_message="Unable to create DeepFellow Infra directory.", force_install=True, overwrite=None
     )
+
+
+@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
+@mock.patch("deepfellow.common.install.echo")
+@mock.patch("deepfellow.infra.utils.install.get_socket")
+@mock.patch("deepfellow.infra.utils.install.assert_docker")
+def test_inspect_prompts_once_for_existing_directory_when_overwrite_not_resolved(
+    mock_assert_docker: Mock,
+    mock_get_socket: Mock,
+    mock_echo: Mock,
+    mock_read_env_file_to_dict: Mock,
+    mock_get_newest_image_tag: Mock,
+    tmp_path: Path,
+) -> None:
+    mock_get_socket.return_value = "/var/run/docker.sock"
+    mock_read_env_file_to_dict.return_value = {}
+    mock_echo.confirm.return_value = True
+
+    inspect_util(directory=tmp_path, allow_rootful=False, force_install=False, image=DF_INFRA_IMAGE, local_image=False)
+
+    assert mock_echo.confirm.call_count == 1
+
+
+@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
+@mock.patch("deepfellow.common.install.echo")
+@mock.patch("deepfellow.infra.utils.install.get_socket")
+@mock.patch("deepfellow.infra.utils.install.assert_docker")
+def test_inspect_does_not_prompt_when_overwrite_pre_resolved(
+    mock_assert_docker: Mock,
+    mock_get_socket: Mock,
+    mock_echo: Mock,
+    mock_read_env_file_to_dict: Mock,
+    mock_get_newest_image_tag: Mock,
+    tmp_path: Path,
+) -> None:
+    mock_get_socket.return_value = "/var/run/docker.sock"
+    mock_read_env_file_to_dict.return_value = {}
+
+    inspect_util(
+        directory=tmp_path,
+        allow_rootful=False,
+        force_install=False,
+        image=DF_INFRA_IMAGE,
+        local_image=False,
+        overwrite=True,
+    )
+
+    assert mock_echo.confirm.call_count == 0
 
 
 @mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
@@ -520,7 +570,7 @@ def test_install_calls_ensure_directory(
     assert mock_ensure_dir.call_count == 1
     assert mock_ensure_dir.call_args == (
         (directory,),
-        {"error_message": mock.ANY, "force_install": True},
+        {"error_message": mock.ANY, "force_install": True, "overwrite": None},
     )
 
 

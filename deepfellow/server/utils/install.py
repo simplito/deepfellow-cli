@@ -177,12 +177,30 @@ def inspect(
     admin_name: str | None = None,
     admin_email: str | None = None,
     admin_password: str | None = None,
+    overwrite: bool | None = None,
 ) -> InstallContext:
     """Resolve --template, then do a Docker check, directory creation, and existing .env read-back.
 
     Resolves and validates `template` (via resolve_template()), if given, before touching Docker or
     the filesystem, so a bad template - or one that --non-interactive can't complete - fails fast
-    without side effects. No prompts, no network/compose writes.
+    without side effects. No network/compose writes. Prompts only if the target directory already
+    exists, `force_install` is not set, and `overwrite` was not already resolved by the caller - see
+    `overwrite`.
+
+    Args:
+        directory: Directory to install into.
+        image: DeepFellow Server docker image, before newest-tag resolution.
+        local_image: Whether a locally built docker image is used.
+        force_install: Skips the overwrite check/prompt entirely when set.
+        template: Optional built-in template name or path to a template YAML file.
+        admin_name: CLI-provided admin name override, if any (used for the non-interactive
+            post-start-action check).
+        admin_email: CLI-provided admin email override, if any (used for the non-interactive
+            post-start-action check).
+        admin_password: CLI-provided admin password override, if any (used for the non-interactive
+            post-start-action check).
+        overwrite: Pre-answered directory-overwrite decision, passed straight through to
+            `ensure_directory()`. Leave `None` to preserve today's inline prompt.
 
     Returns:
         InstallContext: Read-only values needed by :func:`resolve`.
@@ -200,7 +218,10 @@ def inspect(
 
     assert_docker()
     ensure_directory(
-        directory, error_message="Unable to create DeepFellow Server directory.", force_install=force_install
+        directory,
+        error_message="Unable to create DeepFellow Server directory.",
+        force_install=force_install,
+        overwrite=overwrite,
     )
     newest_image_tag = (
         get_newest_image_tag(DF_SERVER_IMAGE_HUB) if not local_image and image == DF_SERVER_IMAGE else None

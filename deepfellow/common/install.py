@@ -31,20 +31,35 @@ def ensure_directory(
     confirm_message: str | None = None,
     error_message: str | None = None,
     force_install: bool | None = None,
+    overwrite: bool | None = None,
 ) -> None:
-    """Check if overriding the existing installation and create directory if needed."""
+    """Check if overriding the existing installation and create directory if needed.
+
+    Args:
+        directory: Directory to create/reuse.
+        warning_message: Message shown when the directory already exists.
+        confirm_message: Confirm prompt shown when `overwrite` is not pre-resolved.
+        error_message: Message shown if directory creation fails.
+        force_install: Skips the overwrite check entirely when set.
+        overwrite: Pre-answered overwrite decision. `True` proceeds without prompting; `False`
+            raises `typer.Exit(1)` without prompting; `None` (default) preserves the existing
+            prompt behavior, including its non-interactive-mode messaging and fallback.
+    """
     confirm_message = confirm_message or "Should I override existing installation?"
     error_message = error_message or f"Unable to create directory {directory}."
     warning_message = warning_message or f"Directory {directory} already exists."
 
     if directory.is_dir() and not force_install:
-        echo.warning(warning_message)
-        if not is_interactive():
-            echo.info(
-                "Non-interactive mode is ON. To force a reinstall over the existing installation, pass "
-                f"--force-install, or remove the directory manually: rm -rf {directory}"
-            )
-        if not echo.confirm(confirm_message):
+        if overwrite is None:
+            echo.warning(warning_message)
+            if not is_interactive():
+                echo.info(
+                    "Non-interactive mode is ON. To force a reinstall over the existing installation, pass "
+                    f"--force-install, or remove the directory manually: rm -rf {directory}"
+                )
+            if not echo.confirm(confirm_message):
+                raise typer.Exit(1)
+        elif not overwrite:
             raise typer.Exit(1)
 
     try:
