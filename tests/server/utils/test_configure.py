@@ -28,7 +28,6 @@ from deepfellow.common.defaults import (
     DOCKER_COMPOSE_FALKORDB,
     DOCKER_COMPOSE_OTEL_COLLECTOR,
     MILVUS_DATABASE,
-    MONGO_DB_INIT_SH,
     QDRANT_DATABASE,
     SPARSE_EMBEDDING_MODEL,
     SPARSE_EMBEDDING_SIZE,
@@ -152,23 +151,21 @@ def test_configure_embedding_reconfigure_dense_prompts_default_from_existing_env
     )
 
 
-@mock.patch("deepfellow.server.utils.configure.save_compose_file")
 @mock.patch("deepfellow.server.utils.configure.load_compose_file", return_value={})
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_otel_no_otel_chosen(mock_echo, mock_load, mock_save, tmp_directory):
+def test_configure_otel_no_otel_chosen(mock_echo, mock_load, tmp_directory):
     mock_echo.confirm.return_value = False
 
     result = configure_otel(tmp_directory, None, None)
 
     assert result.envs == {}
     assert result.docker_compose == {}
-    assert mock_save.call_count == 0
+    assert result.collector_config is None
 
 
-@mock.patch("deepfellow.server.utils.configure.save_compose_file")
 @mock.patch("deepfellow.server.utils.configure.load_compose_file", return_value={})
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_otel_external_server_provided(mock_echo, mock_load, mock_save, tmp_directory):
+def test_configure_otel_external_server_provided(mock_echo, mock_load, tmp_directory):
     mock_echo.confirm.return_value = True
     mock_echo.prompt_until_valid.return_value = "http://otel.example.com:4317"
 
@@ -177,13 +174,12 @@ def test_configure_otel_external_server_provided(mock_echo, mock_load, mock_save
     assert result.envs["DF_OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://otel.example.com:4317"
     assert result.envs["DF_OTEL_TRACING_ENABLED"] == "true"
     assert result.docker_compose == {}
-    assert mock_save.call_count == 0
+    assert result.collector_config is None
 
 
-@mock.patch("deepfellow.server.utils.configure.save_compose_file")
 @mock.patch("deepfellow.server.utils.configure.load_compose_file", return_value={})
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_otel_local_run_debug_only(mock_echo, mock_load, mock_save, tmp_directory):
+def test_configure_otel_local_run_debug_only(mock_echo, mock_load, tmp_directory):
     # First confirm: "Do you have an Open Telemetry server ready?" -> False
     # Second confirm: "Do you want to run Open Telemetry from this machine?" -> True
     # Third confirm: "Do you want to export to Elasticsearch?" -> False
@@ -194,18 +190,16 @@ def test_configure_otel_local_run_debug_only(mock_echo, mock_load, mock_save, tm
     assert result.envs["DF_OTEL_EXPORTER_OTLP_ENDPOINT"] == DEFAULT_OTEL_URL
     assert result.envs["DF_OTEL_TRACING_ENABLED"] == "true"
     assert result.docker_compose == DOCKER_COMPOSE_OTEL_COLLECTOR
-    assert mock_save.call_count == 1
-    saved_config = mock_save.call_args[0][0]
-    assert "elasticsearch" not in saved_config.get("exporters", {})
-    assert "basicauth" not in saved_config.get("extensions", {})
-    for pipeline in saved_config["service"]["pipelines"].values():
+    assert result.collector_config is not None
+    assert "elasticsearch" not in result.collector_config.get("exporters", {})
+    assert "basicauth" not in result.collector_config.get("extensions", {})
+    for pipeline in result.collector_config["service"]["pipelines"].values():
         assert pipeline["exporters"] == ["debug"]
 
 
-@mock.patch("deepfellow.server.utils.configure.save_compose_file")
 @mock.patch("deepfellow.server.utils.configure.load_compose_file", return_value={})
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_otel_local_run_with_elasticsearch(mock_echo, mock_load, mock_save, tmp_directory):
+def test_configure_otel_local_run_with_elasticsearch(mock_echo, mock_load, tmp_directory):
     # First confirm: "Do you have an Open Telemetry server ready?" -> False
     # Second confirm: "Do you want to run Open Telemetry from this machine?" -> True
     # Third confirm: "Do you want to export to Elasticsearch?" -> True
@@ -222,59 +216,52 @@ def test_configure_otel_local_run_with_elasticsearch(mock_echo, mock_load, mock_
     assert result.envs["DF_OTEL_EXPORTER_OTLP_ENDPOINT"] == DEFAULT_OTEL_URL
     assert result.envs["DF_OTEL_TRACING_ENABLED"] == "true"
     assert result.docker_compose == DOCKER_COMPOSE_OTEL_COLLECTOR
-    assert mock_save.call_count == 1
-    saved_config = mock_save.call_args[0][0]
-    assert saved_config["exporters"]["elasticsearch"]["endpoint"] == "https://elastic:9200"
-    assert saved_config["exporters"]["elasticsearch"]["traces_index"] == "traces"
-    assert saved_config["extensions"]["basicauth"]["client_auth"]["username"] == "user"
-    assert saved_config["extensions"]["basicauth"]["client_auth"]["password"] == "pass"
-    for pipeline in saved_config["service"]["pipelines"].values():
+    assert result.collector_config is not None
+    assert result.collector_config["exporters"]["elasticsearch"]["endpoint"] == "https://elastic:9200"
+    assert result.collector_config["exporters"]["elasticsearch"]["traces_index"] == "traces"
+    assert result.collector_config["extensions"]["basicauth"]["client_auth"]["username"] == "user"
+    assert result.collector_config["extensions"]["basicauth"]["client_auth"]["password"] == "pass"
+    for pipeline in result.collector_config["service"]["pipelines"].values():
         assert "elasticsearch" in pipeline["exporters"]
         assert "debug" in pipeline["exporters"]
 
 
-@mock.patch("deepfellow.server.utils.configure.save_compose_file")
 @mock.patch("deepfellow.server.utils.configure.load_compose_file", return_value={})
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_otel_url_provided_skips_prompts(mock_echo, mock_load, mock_save, tmp_directory):
+def test_configure_otel_url_provided_skips_prompts(mock_echo, mock_load, tmp_directory):
     result = configure_otel(tmp_directory, "http://existing-otel:4317", None)
 
     assert result.envs["DF_OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://existing-otel:4317"
     assert mock_echo.confirm.call_count == 0
-    assert mock_save.call_count == 0
+    assert result.collector_config is None
 
 
-@mock.patch("deepfellow.server.utils.configure.save_compose_file")
 @mock.patch("deepfellow.server.utils.configure.load_compose_file", return_value={})
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_otel_url_provided_directly_is_validated(mock_echo, mock_load, mock_save, tmp_directory):
+def test_configure_otel_url_provided_directly_is_validated(mock_echo, mock_load, tmp_directory):
     """A caller passing otel_url directly (bypassing the interactive prompt, which validates
-    itself) still gets the URL validated, instead of it being silently written unchecked."""
+    itself) still gets the URL validated, instead of it being silently accepted unchecked."""
     with pytest.raises(typer.BadParameter):
         configure_otel(tmp_directory, "not-a-url", None)
 
-    assert mock_save.call_count == 0
 
-
-@mock.patch("deepfellow.server.utils.configure.save_compose_file")
 @mock.patch("deepfellow.server.utils.configure.load_compose_file", return_value={})
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_otel_local_run_debug_only_non_interactive_defaults(mock_echo, mock_load, mock_save, tmp_directory):
+def test_configure_otel_local_run_debug_only_non_interactive_defaults(mock_echo, mock_load, tmp_directory):
     # In non-interactive mode, echo.confirm uses defaults: False, True (config_file doesn't exist), False
     mock_echo.confirm.side_effect = [False, True, False]
 
     result = configure_otel(tmp_directory, None, None)
 
     assert result.docker_compose == DOCKER_COMPOSE_OTEL_COLLECTOR
-    saved_config = mock_save.call_args[0][0]
-    for pipeline in saved_config["service"]["pipelines"].values():
+    assert result.collector_config is not None
+    for pipeline in result.collector_config["service"]["pipelines"].values():
         assert pipeline["exporters"] == ["debug"]
 
 
-@mock.patch("deepfellow.server.utils.configure.save_compose_file")
 @mock.patch("deepfellow.server.utils.configure.load_compose_file", return_value={})
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_otel_local_flag_skips_prompts_debug_only(mock_echo, mock_load, mock_save, tmp_directory):
+def test_configure_otel_local_flag_skips_prompts_debug_only(mock_echo, mock_load, tmp_directory):
     result = configure_otel(tmp_directory, None, None, otel_local=True)
 
     assert result.docker_compose == DOCKER_COMPOSE_OTEL_COLLECTOR
@@ -283,31 +270,23 @@ def test_configure_otel_local_flag_skips_prompts_debug_only(mock_echo, mock_load
     assert mock_echo.confirm.call_count == 0
     assert mock_echo.prompt_until_valid.call_count == 0
     assert mock_load.call_count == 0
-    assert mock_save.call_count == 1
-    saved_config = mock_save.call_args[0][0]
-    assert mock_save.call_args == mock.call(
-        saved_config,
-        tmp_directory / "otel-collector-config.yaml",
-        quiet=True,
-        file_info="Open Telemetry collector configuration",
-    )
-    assert "elasticsearch" not in saved_config.get("exporters", {})
-    assert "basicauth" not in saved_config.get("extensions", {})
-    for pipeline in saved_config["service"]["pipelines"].values():
+    assert result.collector_config is not None
+    assert "elasticsearch" not in result.collector_config.get("exporters", {})
+    assert "basicauth" not in result.collector_config.get("extensions", {})
+    for pipeline in result.collector_config["service"]["pipelines"].values():
         assert pipeline["exporters"] == ["debug"]
 
 
-@mock.patch("deepfellow.server.utils.configure.save_compose_file")
 @mock.patch("deepfellow.server.utils.configure.load_compose_file", return_value={})
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_otel_flag_off_still_uses_prompt_flow(mock_echo, mock_load, mock_save, tmp_directory):
+def test_configure_otel_flag_off_still_uses_prompt_flow(mock_echo, mock_load, tmp_directory):
     mock_echo.confirm.side_effect = [False, False]
 
     result = configure_otel(tmp_directory, None, None)
 
     assert mock_echo.confirm.call_count == 2
     assert result.docker_compose == {}
-    assert mock_save.call_count == 0
+    assert result.collector_config is None
 
 
 @mock.patch("deepfellow.server.utils.configure.echo")
@@ -961,9 +940,7 @@ def test_configure_mongo_custom_prompts_all_fields(mock_echo, tmp_directory: Pat
 
 @mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value=None)
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_mongo_default_generates_missing_credentials_and_writes_init_script(
-    mock_echo, mock_resolve_volume, tmp_directory: Path
-):
+def test_configure_mongo_default_generates_missing_credentials(mock_echo, mock_resolve_volume, tmp_directory: Path):
     result = configure_mongo(tmp_directory, False, "", "")
 
     assert result["DF_MONGO_URL"] == DF_MONGO_URL
@@ -973,9 +950,9 @@ def test_configure_mongo_default_generates_missing_credentials_and_writes_init_s
     assert result["DF_MONGO_INITDB_ROOT_USERNAME"]
     assert result["DF_MONGO_INITDB_ROOT_PASSWORD"]
     assert result["DF_MONGO_PORT"] == "27017"
-    init_script = tmp_directory / "init-mongo.sh"
-    assert init_script.read_text() == MONGO_DB_INIT_SH
-    assert (init_script.stat().st_mode & 0o777) == 0o755
+    # init-mongo.sh is written by apply(), not here - see tests/server/test_install.py - so that
+    # resolving config has no filesystem side effect a self-healing repair could silently lose.
+    assert not (tmp_directory / "init-mongo.sh").exists()
     assert mock_echo.info.call_count == 1
 
 
@@ -1030,18 +1007,6 @@ def test_configure_mongo_default_treats_blank_env_admin_creds_as_missing(
     assert result["DF_MONGO_INITDB_ROOT_PASSWORD"]
 
 
-@mock.patch.object(Path, "write_text", side_effect=OSError("Permission denied"))
-@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value=None)
-@mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_mongo_default_raises_on_write_error(
-    mock_echo, mock_resolve_volume, mock_write_text, tmp_directory: Path
-):
-    with pytest.raises(typer.Exit):
-        configure_mongo(tmp_directory, False, "", "")
-
-    assert mock_echo.error.call_count == 1
-
-
 @mock.patch("deepfellow.server.utils.configure.remove_volume")
 @mock.patch("deepfellow.server.utils.configure.volume_exists", return_value=True)
 @mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value="server_mongo")
@@ -1076,8 +1041,7 @@ def test_configure_mongo_default_removes_volume_and_completes_when_user_confirms
     assert result["DF_MONGO_PASSWORD"]
     assert result["DF_MONGO_INITDB_ROOT_USERNAME"]
     assert result["DF_MONGO_INITDB_ROOT_PASSWORD"]
-    init_script = tmp_directory / "init-mongo.sh"
-    assert init_script.read_text() == MONGO_DB_INIT_SH
+    assert not (tmp_directory / "init-mongo.sh").exists()
 
 
 @mock.patch("deepfellow.server.utils.configure.volume_exists", return_value=False)

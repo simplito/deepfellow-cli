@@ -49,6 +49,7 @@ from deepfellow.common.defaults import (
     DOCKER_COMPOSE_SERVER_VECTOR_DB_ENVS,
     DOCKER_COMPOSE_SERVER_VECTOR_DB_MILVUS_ENVS,
     MILVUS_DATABASE,
+    MONGO_DB_INIT_SH,
     VectorDBTypeChoice,
 )
 from deepfellow.common.docker import (
@@ -725,6 +726,18 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
         volumes["mongo"] = None
         depends_on.update({"mongo": {"condition": "service_healthy"}})
 
+        # Written here, not by resolve()'s configure_mongo(), so a self-healing repair (which
+        # reuses a config already resolved earlier, without calling resolve() again) still
+        # recreates this bind-mount source instead of silently leaving Mongo without its
+        # create-user script.
+        init_mongo_path = config.directory / "init-mongo.sh"
+        try:
+            init_mongo_path.write_text(MONGO_DB_INIT_SH)
+            init_mongo_path.chmod(0o755)
+        except OSError as exc:
+            echo.error(f"Unable to write {init_mongo_path.as_posix()}: {exc}.")
+            reraise_if_debug(exc)
+
     environment = cast("list", compose_server["server"]["environment"])
     for api_endpoint_key in config.infra_env:
         environment.append(api_endpoint_key + "=${" + api_endpoint_key + "}")
@@ -732,6 +745,21 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
     if config.otel.docker_compose:
         services.update(deepcopy(config.otel.docker_compose))
         depends_on["otel-collector"] = {"condition": "service_started"}
+
+    if config.otel.collector_config is not None:
+        # Same rationale as init-mongo.sh above: written here so a self-healing repair recreates
+        # this bind-mount source too, instead of relying on resolve() having been called again.
+        otel_config_file = config.directory / "otel-collector-config.yaml"
+        save_compose_file(
+            config.otel.collector_config,
+            otel_config_file,
+            quiet=True,
+            file_info="Open Telemetry collector configuration",
+        )
+        echo.warning(
+            f"Open Telemetry configuration stored in file:\n{otel_config_file}\n"
+            "Please review its content before starting the DeepFellow Server."
+        )
 
     if config.falkordb.docker_compose:
         services.update(deepcopy(config.falkordb.docker_compose))

@@ -43,10 +43,16 @@ from deepfellow.common.docker import is_service_running
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get
 from deepfellow.common.exceptions import DockerNetworkError, InstallError, reraise_if_debug, translate_to_install_error
-from deepfellow.common.install import assert_docker, resolve_admin_kwargs, validate_non_interactive_admin_values
+from deepfellow.common.install import (
+    assert_docker,
+    ensure_directory,
+    resolve_admin_kwargs,
+    validate_non_interactive_admin_values,
+)
 from deepfellow.common.state import state
 from deepfellow.common.validation import PASSWORD_REQUIREMENTS, validate_email, validate_password, validate_truthy
 from deepfellow.infra.utils.docker import start_infra
+from deepfellow.infra.utils.install import InstallConfig as InfraInstallConfig
 from deepfellow.infra.utils.install import apply as infra_apply
 from deepfellow.infra.utils.install import inspect as infra_inspect
 from deepfellow.infra.utils.install import resolve as infra_resolve
@@ -55,7 +61,9 @@ from deepfellow.infra.utils.templates import dispatch_post_start_action as infra
 from deepfellow.server.organization.utils import Organization
 from deepfellow.server.project.api_key.utils import ApiKey
 from deepfellow.server.project.utils import Project, update_project
+from deepfellow.server.utils.configure import FalkorDBConfig, OtelConfig
 from deepfellow.server.utils.docker import start_server
+from deepfellow.server.utils.install import InstallConfig as ServerInstallConfig
 from deepfellow.server.utils.install import apply as server_apply
 from deepfellow.server.utils.install import inspect as server_inspect
 from deepfellow.server.utils.install import resolve as server_resolve
@@ -72,12 +80,17 @@ WORKSPACE_ORGANIZATION_NAME = "Workspace"
 WORKSPACE_PROJECT_NAME = "Default"
 WORKSPACE_API_KEY_NAME = "app"
 
-# Canonical step ids, persisted to the state file, and their display names. Steps 1-6 are what a
-# plain `infra install --template workspace` runs internally (config/apply, start, then ollama
-# service + 3 model installs); steps 7-9 are what `server install --template workspace` runs
-# internally (config/apply, start, then create-admin). suite install drives each individually -
-# instead of delegating wholesale to infra_install()/server_install() - so a failure at any point
-# (e.g. infra installs fine but fails to start) is trackable and resumable at that exact step.
+# Canonical step ids, persisted to the state file, and their display names. STEP_INFRA_CONFIG and
+# STEP_SERVER_CONFIG resolve infra's and server's configuration (every prompt each one has) before
+# any installation action runs - see _infra_config()/_server_config(). Steps 3-8 are what a plain
+# `infra install --template workspace` runs internally, minus its own now-separate config/resolve
+# phase (apply, start, then ollama service + 3 model installs); steps 9-11 are what
+# `server install --template workspace` runs internally, likewise minus its config phase (apply,
+# start, then create-admin). suite install drives each individually - instead of delegating
+# wholesale to infra_install()/server_install() - so a failure at any point (e.g. infra installs
+# fine but fails to start) is trackable and resumable at that exact step.
+STEP_INFRA_CONFIG = "infra_config"
+STEP_SERVER_CONFIG = "server_config"
 STEP_INFRA_INSTALL = "infra_install"
 STEP_INFRA_START = "infra_start"
 STEP_INFRA_SERVICE_INSTALL = "infra_service_install"
@@ -92,6 +105,8 @@ STEP_WORKSPACE_CREATION = "workspace_creation"
 STEP_GRANT_MODEL_ACCESS = "grant_model_access"
 
 STEPS: tuple[tuple[str, str], ...] = (
+    (STEP_INFRA_CONFIG, "infra configuration"),
+    (STEP_SERVER_CONFIG, "server configuration"),
     (STEP_INFRA_INSTALL, "infra install"),
     (STEP_INFRA_START, "infra start"),
     (STEP_INFRA_SERVICE_INSTALL, "infra service install (ollama)"),
@@ -148,12 +163,14 @@ def _step_position(step_id: str) -> tuple[int, str]:
 def _install_directory_intact(directory: Path) -> bool:
     """Cheap, local, non-interactive liveness signal for infra_install/server_install.
 
-    Unlike `is_service_running` for the *_start steps, this must never gate an always_run-style
-    re-execution: `infra_resolve()`/`server_resolve()` walk through ~10 interactive prompts/confirms
-    even when nothing would end up changing, so re-running them on every `--resume` is not
-    acceptable. This only decides whether a step already marked complete still counts as done; if
-    the directory or its `.env` are gone, the step is treated as not-done and its apply phase
-    genuinely re-runs (`ensure_directory()` already handles recreating a fully-deleted directory).
+    Unlike `is_service_running` for the *_start steps, this decides whether a step already marked
+    complete still counts as done - it must never gate an always_run-style re-execution, since the
+    apply steps it gates rewrite the compose file and re-pull the image every time they run, which
+    isn't free to redo on every `--resume` for no reason. If the directory or its `.env` are gone,
+    the step is treated as not-done and its apply phase genuinely re-runs, reapplying the config
+    already persisted by its own ask-phase step (`_infra_config()`/`_server_config()`) rather than
+    resolving (and re-prompting for) a fresh one - `_infra_install_apply()`/`_server_install_apply()`
+    themselves handle recreating a fully-deleted directory via `ensure_directory()`.
     """
     return directory.is_dir() and (directory / ".env").is_file()
 
@@ -173,10 +190,12 @@ def _warn_config_flags_ignored(
 ) -> None:
     """Warn when a config flag explicitly passed on this invocation had no effect.
 
-    That happens when `component`'s install step was already done and skipped outright. Mirrors
+    That happens when `component`'s config step (`STEP_INFRA_CONFIG`/`STEP_SERVER_CONFIG`) was
+    already done and skipped outright, reconstructing config from what an earlier run already
+    resolved rather than resolving it fresh - the only step these flags are ever read by. Mirrors
     `_server_create_admin`'s `admin_overridden` warning: an explicit --infra-port/
-    --infra-directory/etc. on a `--resume` run against an already-installed component is otherwise
-    silently ignored, same as an admin override against an already-existing account.
+    --infra-directory/etc. on a `--resume` run against an already-configured component is
+    otherwise silently ignored, same as an admin override against an already-existing account.
     """
     overridden = sorted(field for field in explicitly_provided if field in relevant_fields)
     if not overridden:
@@ -186,6 +205,25 @@ def _warn_config_flags_ignored(
     echo.warning(
         f"{flags} {verb} ignored: {component} is already installed for this run; its configuration is unchanged."
     )
+
+
+def _infra_config_on_skip(install_state: SuiteInstallState, explicitly_provided: Collection[str]) -> InfraInstallConfig:
+    """`on_skip` for `STEP_INFRA_CONFIG`: warn about any now-ineffective flag, then reconstruct.
+
+    A module-level function (not a closure inside `install()`) purely to keep `install()`'s own
+    cyclomatic complexity down - it's simple enough to take its two captured values as plain
+    arguments via `functools.partial` instead.
+    """
+    _warn_config_flags_ignored("infra", explicitly_provided, _INFRA_CONFIG_FIELDS)
+    return _infra_config_from_dict(install_state.infra_config)  # type: ignore[arg-type]
+
+
+def _server_config_on_skip(
+    install_state: SuiteInstallState, explicitly_provided: Collection[str]
+) -> ServerInstallConfig:
+    """`on_skip` for `STEP_SERVER_CONFIG` - see `_infra_config_on_skip()`."""
+    _warn_config_flags_ignored("server", explicitly_provided, _SERVER_CONFIG_FIELDS)
+    return _server_config_from_dict(install_state.server_config)  # type: ignore[arg-type]
 
 
 def _workspace_to_dict(workspace: Workspace) -> dict[str, Any]:
@@ -204,11 +242,13 @@ def _workspace_from_dict(data: dict[str, Any]) -> Workspace:
         InstallError: If `data` doesn't have the expected shape - e.g. corrupted by a crash
             mid-write, or the state file was hand-edited. Letting a bare
             KeyError/TypeError/AttributeError escape here would crash with an unhandled traceback
-            (unlike every other step's failure, which surfaces as a clean, catchable message) -
-            this is the one place suite install reconstructs an object straight from unvalidated,
-            persisted JSON. AttributeError is included because ApiKey.from_data() calls
-            data["api_key"].get(...) - a non-dict api_key (e.g. a string or null) raises
-            AttributeError there instead of TypeError/KeyError.
+            (unlike every other step's failure, which surfaces as a clean, catchable message) - one
+            of three places suite install reconstructs an object straight from unvalidated,
+            persisted JSON, alongside `_infra_config_from_dict()`/`_server_config_from_dict()`.
+            AttributeError is included because ApiKey.from_data() calls data["api_key"].get(...) -
+            a non-dict api_key (e.g. a string or null) raises AttributeError there instead of
+            TypeError/KeyError; the other two reconstructors need no such case - see their own
+            docstrings.
     """
     try:
         return Workspace(
@@ -223,8 +263,74 @@ def _workspace_from_dict(data: dict[str, Any]) -> Workspace:
         ) from exc
 
 
+def _infra_config_to_dict(config: InfraInstallConfig) -> dict[str, Any]:
+    """Serialize infra's resolved InstallConfig for persistence (Path fields become strings)."""
+    data = asdict(config)
+    data["directory"] = str(config.directory)
+    data["docker_config"] = str(config.docker_config)
+    data["storage_dir"] = str(config.storage_dir)
+    return data
+
+
+def _infra_config_from_dict(data: dict[str, Any]) -> InfraInstallConfig:
+    """Reconstruct infra's InstallConfig from a previously persisted `_infra_config_to_dict()` result.
+
+    Raises:
+        InstallError: If `data` doesn't have the expected shape - see `_workspace_from_dict()` for
+            why this is handled the same way (unvalidated, persisted JSON reconstructed directly
+            into a dataclass). Unlike `_workspace_from_dict()`, no `AttributeError` is possible
+            here - reconstruction is plain dataclass `**dict` unpacking with no `.get()`/attribute
+            access on an unvalidated sub-value, so malformed data always surfaces as `TypeError`
+            (or `KeyError`) instead.
+    """
+    try:
+        return InfraInstallConfig(
+            **{
+                **data,
+                "directory": Path(data["directory"]),
+                "docker_config": Path(data["docker_config"]),
+                "storage_dir": Path(data["storage_dir"]),
+            }
+        )
+    except (KeyError, TypeError) as exc:
+        raise InstallError(
+            "Suite install state file's persisted infra configuration is invalid or corrupted; remove "
+            f"{DF_SUITE_INSTALL_STATE_FILE} and re-run to start a fresh install."
+        ) from exc
+
+
+def _server_config_to_dict(config: ServerInstallConfig) -> dict[str, Any]:
+    """Serialize server's resolved InstallConfig for persistence (Path field becomes a string)."""
+    data = asdict(config)
+    data["directory"] = str(config.directory)
+    return data
+
+
+def _server_config_from_dict(data: dict[str, Any]) -> ServerInstallConfig:
+    """Reconstruct server's InstallConfig from a previously persisted `_server_config_to_dict()` result.
+
+    Raises:
+        InstallError: If `data` doesn't have the expected shape - see `_workspace_from_dict()` and
+            `_infra_config_from_dict()` for why `AttributeError` isn't caught here either.
+    """
+    try:
+        return ServerInstallConfig(
+            **{
+                **data,
+                "directory": Path(data["directory"]),
+                "otel": OtelConfig(**data["otel"]),
+                "falkordb": FalkorDBConfig(**data["falkordb"]),
+            }
+        )
+    except (KeyError, TypeError) as exc:
+        raise InstallError(
+            "Suite install state file's persisted server configuration is invalid or corrupted; remove "
+            f"{DF_SUITE_INSTALL_STATE_FILE} and re-run to start a fresh install."
+        ) from exc
+
+
 @translate_to_install_error
-def _infra_install_apply(
+def _infra_config(
     force_install: bool,
     *,
     port: int,
@@ -235,12 +341,19 @@ def _infra_install_apply(
     storage: Path,
     docker_network: str,
     explicitly_provided: Collection[str],
-) -> None:
-    """Infra's config/apply phase: write .env/compose and pull the image (no start, no post-start actions).
+) -> InfraInstallConfig:
+    """Infra's ask-phase: inspect() + resolve(), collecting every infra-side prompt. No apply.
 
     Mirrors `deepfellow.infra.utils.install.install()`'s own body for this phase, always with the
     built-in "workspace" template - suite install exposes no `--template` option of its own, but does
     forward the config-level flags (port, image, directory, ...) `infra install` itself accepts.
+    Decorated the same as every other step function - `translate_to_install_error` now propagates
+    a wrapped function's return value unchanged, so this ask-phase function's resolved config still
+    reaches its caller, while `DockerSocketNotFoundError`/`OSError`/`typer.BadParameter` raised
+    anywhere in `inspect()`/`resolve()` (e.g. from `get_socket()`, `ensure_directory()`) still get
+    translated to a clean `InstallError` right here - exactly like `_infra_install_apply` - instead
+    of only being caught much later by `install()`'s own decorator, bypassing `_run_step()`'s
+    per-step "Step N/TOTAL (name) failed: ..." message.
     """
     context = infra_inspect(
         directory=directory,
@@ -251,7 +364,7 @@ def _infra_install_apply(
         template="workspace",
     )
     docker_config = docker_config or directory / "docker-config.json"
-    config = infra_resolve(
+    return infra_resolve(
         context,
         port=port,
         image=image,
@@ -269,6 +382,20 @@ def _infra_install_apply(
         keep_metrics=None,
         explicitly_provided=explicitly_provided,
     )
+
+
+@translate_to_install_error
+def _infra_install_apply(config: InfraInstallConfig) -> None:
+    """Infra's apply-phase: write .env/compose and pull the image. No prompts - config already resolved.
+
+    Ensures `config.directory` exists (an idempotent no-op on a fresh install, where `_infra_config()`'s
+    own `inspect()` call already created it) so a self-healing repair - which reapplies the config
+    persisted by `_infra_config()` instead of re-resolving it - can recreate a directory that was
+    deleted out from under an already-completed install, without going through `inspect()`/`resolve()`
+    again (which would read a now-missing `.env` and mint a fresh `DF_INFRA_API_KEY`, silently
+    invalidating server's already-resolved config).
+    """
+    ensure_directory(config.directory, force_install=True)
     infra_apply(config, will_auto_start=True)
 
 
@@ -334,13 +461,13 @@ def _infra_model_install(model_name: str, directory: Path, quiet: bool) -> None:
 
 
 @translate_to_install_error
-def _server_install_apply(
+def _server_config(
+    infra_config: InfraInstallConfig,
     name: str,
     email: str,
     password: str,
     force_install: bool,
     *,
-    infra_directory: Path,
     port: int,
     image: str,
     local_image: bool,
@@ -355,22 +482,21 @@ def _server_install_apply(
     falkordb_password: str,
     otel_local: bool,
     explicitly_provided: Collection[str],
-) -> None:
-    """Server's config/apply phase: write .env/compose and pull the image (no start, no create-admin).
+) -> ServerInstallConfig:
+    """Server's ask-phase: inspect() + resolve(), collecting every server-side prompt. No apply.
 
     Mirrors `deepfellow.server.utils.install.install()`'s own body for this phase, always with the
     built-in "workspace" template - suite install exposes no `--template` option of its own, but does
     forward the config-level flags (port, image, directory, MongoDB/FalkorDB, ...) `server install`
-    itself accepts.
+    itself accepts. Unlike before this function existed, the infra API key comes straight from
+    infra's own already-resolved (not necessarily yet applied) config - not read back out of
+    infra's `.env` after infra's apply-phase has run - which is what lets this run before
+    `STEP_INFRA_INSTALL` rather than after it. See `_infra_config()` for why this is decorated.
     """
-    infra_api_key = env_get(infra_directory / ".env", "DF_INFRA_API_KEY")
-    if not infra_api_key:
-        raise InstallError(
-            f"DF_INFRA_API_KEY not found in {infra_directory / '.env'}; cannot configure Server-Infra auth."
-        )
-    # Always explicit: this key was just read from the infra suite itself installed, so it must
-    # never be silently outranked by a template's own "infra_api_key" - unlike port/docker_network,
-    # this isn't conditional on a suite CLI flag being passed, since suite is the one deciding it.
+    # Always explicit: this key was just resolved for the infra installation this suite run is
+    # about to perform, so it must never be silently outranked by a template's own
+    # "infra_api_key" - unlike port/docker_network, this isn't conditional on a suite CLI flag
+    # being passed, since suite is the one deciding it.
     explicitly_provided = set(explicitly_provided) | {"infra_api_key"}
 
     context = server_inspect(
@@ -383,14 +509,14 @@ def _server_install_apply(
         admin_email=email,
         admin_password=password,
     )
-    config = server_resolve(
+    return server_resolve(
         context,
         port=port,
         image=image,
         otel_url=None,
         otel_local=otel_local,
         infra_url=DF_INFRA_URL,
-        infra_api_key=infra_api_key,
+        infra_api_key=infra_config.api_key,
         docker_network=docker_network,
         mongodb_url=DF_MONGO_URL,
         mongodb_port=mongodb_port,
@@ -414,6 +540,18 @@ def _server_install_apply(
         dev=False,
         explicitly_provided=explicitly_provided,
     )
+
+
+@translate_to_install_error
+def _server_install_apply(config: ServerInstallConfig) -> None:
+    """Server's apply-phase: write .env/compose and pull the image. No prompts - config already resolved.
+
+    Ensures `config.directory` exists (an idempotent no-op on a fresh install, where
+    `_server_config()`'s own `inspect()` call already created it), so a self-healed server
+    directory is recreated without going through `inspect()`/`resolve()` again - which would
+    re-prompt for every server setting.
+    """
+    ensure_directory(config.directory, force_install=True)
     server_apply(config, will_auto_start=True)
 
 
@@ -538,10 +676,14 @@ def install(
 ) -> None:
     """Provision a complete DeepFellow workspace: Infra, Server, admin user, and a ready-to-use workspace.
 
-    Runs 12 granular steps, in order: infra install, infra start, infra service install (ollama),
-    infra model install (chat/embedding/fast), server install, server start, create admin, server
-    login, workspace creation, and grant model access. `suite install` itself exposes no
-    `--template` option - it always uses each command's built-in `workspace` template.
+    Runs 14 granular steps, in order: infra configuration, server configuration, infra install,
+    infra start, infra service install (ollama), infra model install (chat/embedding/fast), server
+    install, server start, create admin, server login, workspace creation, and grant model access.
+    The two configuration steps resolve every infra- and server-side prompt (directory-overwrite
+    decisions, DF_NAME, vector DB, MongoDB, FalkorDB, ...) before any of the later, purely
+    programmatic steps run - so a user answers every question once at the start instead of partway
+    through a long-running install. `suite install` itself exposes no `--template` option - it
+    always uses each command's built-in `workspace` template.
 
     Progress is persisted to a state file after each step succeeds. If a step fails, re-running
     with `--resume` skips every already-completed step and continues from the first incomplete one,
@@ -672,9 +814,10 @@ def install(
     install_state.admin = {"name": name, "email": email, "password": password}
     save_state(install_state)
     echo.warning(
-        f"The admin password is being saved in plain text to {DF_SUITE_INSTALL_STATE_FILE}, so "
-        "`--resume` can reuse it without re-prompting. It's removed automatically once this install "
-        "fully succeeds - if you abandon this run, remove it yourself."
+        f"The admin password, and once resolved, the full infra/server installation configuration, "
+        f"are being saved in plain text to {DF_SUITE_INSTALL_STATE_FILE}, so `--resume` can reuse "
+        "them without re-prompting. It's removed automatically once this install fully succeeds - "
+        "if you abandon this run, remove it yourself."
     )
 
     run_step = partial(_run_step, install_state)
@@ -690,17 +833,18 @@ def install(
     if "docker_network" in explicitly_provided:
         server_explicitly_provided.add("docker_network")
 
-    # A step already marked complete whose directory has since gone missing/incomplete (self-healing
-    # rerun, see is_done= below) must force through its own directory-exists guard for its own
-    # rebuild - distinct from --force-install, which is purely an explicit, user-requested override
-    # unrelated to this run's own prior progress.
-    infra_needs_repair = STEP_INFRA_INSTALL in install_state.completed_steps and not _install_directory_intact(
-        infra_directory
-    )
-    run_step(
-        STEP_INFRA_INSTALL,
-        lambda: _infra_install_apply(
-            force_install or infra_needs_repair,
+    # Both ask-phase steps run before any apply-phase step, so every infra and server prompt fires
+    # up front. Each is only ever run once: after it succeeds, `on_skip` reconstructs the same
+    # resolved config from persisted state on every later run (fresh or --resume) instead of
+    # re-resolving (re-prompting) - and, since this is also the only place an explicit --infra-*/
+    # --server-*/--mongodb-*/etc. flag could have taken effect, warns if one was passed anyway (it
+    # was silently ignored). A state file from before these two steps existed (no persisted
+    # `infra_config`/`server_config`) simply isn't "previously completed" for them, so they run
+    # (and prompt) once more here - a one-time fallback, not a special case to code for.
+    infra_config: InfraInstallConfig = run_step(
+        STEP_INFRA_CONFIG,
+        lambda: _infra_config(
+            force_install,
             port=infra_port,
             image=infra_image,
             local_image=infra_local_image,
@@ -710,8 +854,51 @@ def install(
             docker_network=docker_network,
             explicitly_provided=infra_explicitly_provided,
         ),
+        on_success=lambda cfg: setattr(install_state, "infra_config", _infra_config_to_dict(cfg)),
+        on_skip=partial(_infra_config_on_skip, install_state, explicitly_provided),
+    )
+    server_config: ServerInstallConfig = run_step(
+        STEP_SERVER_CONFIG,
+        lambda: _server_config(
+            infra_config,
+            name,
+            email,
+            password,
+            force_install,
+            port=server_port,
+            image=server_image,
+            local_image=server_local_image,
+            directory=server_directory,
+            docker_network=docker_network,
+            mongodb_port=mongodb_port,
+            mongodb_username=mongodb_username,
+            mongodb_password=mongodb_password,
+            falkordb_active=falkordb_active,
+            falkordb_url=falkordb_url,
+            falkordb_username=falkordb_username,
+            falkordb_password=falkordb_password,
+            otel_local=otel_local,
+            explicitly_provided=server_explicitly_provided,
+        ),
+        on_success=lambda cfg: setattr(install_state, "server_config", _server_config_to_dict(cfg)),
+        on_skip=partial(_server_config_on_skip, install_state, explicitly_provided),
+    )
+
+    # True when a step already marked complete has since gone missing/incomplete on disk
+    # (self-healing rerun). `_infra_install_apply()` itself needs no such flag - it always
+    # recreates the directory via `ensure_directory(..., force_install=True)`, prompt-free,
+    # reapplying the config already persisted above rather than re-resolving it, so
+    # DF_INFRA_API_KEY never regenerates on a repair - server's already-resolved config (which
+    # embeds that same key) is never silently invalidated by it. This flag's only remaining use is
+    # forcing STEP_INFRA_START to redo below, since a freshly-reapplied .env needs the container
+    # restarted to actually load it.
+    infra_needs_repair = STEP_INFRA_INSTALL in install_state.completed_steps and not _install_directory_intact(
+        infra_directory
+    )
+    run_step(
+        STEP_INFRA_INSTALL,
+        lambda: _infra_install_apply(infra_config),
         is_done=partial(_install_still_done, install_state, STEP_INFRA_INSTALL, infra_directory),
-        on_skip=lambda: _warn_config_flags_ignored("infra", explicitly_provided, _INFRA_CONFIG_FIELDS),
     )
     run_step(
         STEP_INFRA_START,
@@ -740,49 +927,22 @@ def install(
         always_run=True,
     )
 
-    # A self-healed infra (infra_needs_repair above) mints a brand-new DF_INFRA_API_KEY - see
-    # configure_uuid_key(), which only reuses an existing key when the directory it was reading
-    # from is still there. The server's own directory can be perfectly intact and still be holding
-    # that now-dead key, so it must never be treated as "still done" purely on its own liveness -
-    # both re-applying its config (to pick up the fresh key) and restarting its container (to
-    # actually load it - .env changes don't propagate into an already-running container) need to
-    # be forced through, not just the config write.
-    server_needs_repair = STEP_SERVER_INSTALL in install_state.completed_steps and (
-        infra_needs_repair or not _install_directory_intact(server_directory)
+    # Same as infra_needs_repair above, but purely about server's own directory integrity -
+    # repairing infra no longer regenerates DF_INFRA_API_KEY, so it no longer forces a server
+    # repair in turn. This flag's only remaining use is forcing STEP_SERVER_START to redo below.
+    server_needs_repair = STEP_SERVER_INSTALL in install_state.completed_steps and not _install_directory_intact(
+        server_directory
     )
     run_step(
         STEP_SERVER_INSTALL,
-        lambda: _server_install_apply(
-            name,
-            email,
-            password,
-            force_install or server_needs_repair,
-            infra_directory=infra_directory,
-            port=server_port,
-            image=server_image,
-            local_image=server_local_image,
-            directory=server_directory,
-            docker_network=docker_network,
-            mongodb_port=mongodb_port,
-            mongodb_username=mongodb_username,
-            mongodb_password=mongodb_password,
-            falkordb_active=falkordb_active,
-            falkordb_url=falkordb_url,
-            falkordb_username=falkordb_username,
-            falkordb_password=falkordb_password,
-            otel_local=otel_local,
-            explicitly_provided=server_explicitly_provided,
-        ),
-        is_done=lambda: (
-            not infra_needs_repair and _install_still_done(install_state, STEP_SERVER_INSTALL, server_directory)
-        ),
-        on_skip=lambda: _warn_config_flags_ignored("server", explicitly_provided, _SERVER_CONFIG_FIELDS),
+        lambda: _server_install_apply(server_config),
+        is_done=partial(_install_still_done, install_state, STEP_SERVER_INSTALL, server_directory),
     )
     run_step(
         STEP_SERVER_START,
         lambda: _server_start(server_directory),
         is_done=lambda: (
-            not infra_needs_repair and _start_still_done(install_state, STEP_SERVER_START, "server", server_directory)
+            not server_needs_repair and _start_still_done(install_state, STEP_SERVER_START, "server", server_directory)
         ),
     )
     # Always run: create_admin_util is idempotent (an existing-admin response is a clean no-op -

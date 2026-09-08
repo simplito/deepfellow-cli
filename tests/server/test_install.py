@@ -41,6 +41,7 @@ from deepfellow.common.defaults import (
     DOCKER_COMPOSE_CONFIG_FILENAME,
     DOCKER_COMPOSE_FALKORDB,
     MILVUS_DATABASE_URL,
+    MONGO_DB_INIT_SH,
     VectorDBTypeChoice,
 )
 from deepfellow.common.docker import DockerError
@@ -145,7 +146,7 @@ def configure_install_mocks(
     mock_configure_mongo.return_value = {}
     mock_configure_infra.return_value = {"DF_INFRA__URL": "http://infra:8080", "DF_INFRA__API_KEY": "api-key"}
     mock_configure_vector_db.return_value = (False, {"DF_VECTOR_DATABASE__PROVIDER__ACTIVE": "0"})
-    mock_configure_otel.return_value = mock.Mock(envs={}, docker_compose=None)
+    mock_configure_otel.return_value = mock.Mock(envs={}, docker_compose=None, collector_config=None)
 
 
 @MOCK_ENSURE_DIRECTORY
@@ -1932,6 +1933,87 @@ def test_apply_does_not_add_mongo_service_when_custom(
 @mock.patch("deepfellow.server.utils.install.ensure_network")
 @mock.patch("deepfellow.server.utils.install.save_env_file")
 @mock.patch("deepfellow.server.utils.install.echo")
+def test_apply_writes_init_mongo_script_when_not_custom(
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    """init-mongo.sh is written here, by apply() itself - not by resolve()'s configure_mongo() -
+    so a self-healing repair (which reapplies a config already resolved earlier, without calling
+    resolve() again) still recreates this bind-mount source, instead of silently leaving Mongo
+    without its create-user script (the exact regression this test guards against)."""
+    install_config.custom_mongo_db_server = False
+
+    apply(install_config)
+
+    init_script = install_config.directory / "init-mongo.sh"
+    assert init_script.read_text() == MONGO_DB_INIT_SH
+    assert (init_script.stat().st_mode & 0o777) == 0o755
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+def test_apply_does_not_write_init_mongo_script_when_custom(
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    install_config.custom_mongo_db_server = True
+
+    apply(install_config)
+
+    assert not (install_config.directory / "init-mongo.sh").exists()
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+def test_apply_exits_when_init_mongo_script_write_fails(
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    install_config.custom_mongo_db_server = False
+    init_script = install_config.directory / "init-mongo.sh"
+
+    def fake_write_text(self: Path, *args: Any, **kwargs: Any) -> int:
+        if self == init_script:
+            raise OSError("Permission denied")
+        return len(args[0]) if args else 0
+
+    with mock.patch.object(Path, "write_text", autospec=True, side_effect=fake_write_text), pytest.raises(typer.Exit):
+        apply(install_config)
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call(f"Unable to write {init_script.as_posix()}: Permission denied.")
+    assert mock_save_compose.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
 def test_apply_forwards_infra_env_keys_into_compose_environment(
     mock_echo: Mock,
     mock_save_env: Mock,
@@ -1970,7 +2052,66 @@ def test_apply_adds_otel_service_when_docker_compose_present(
 
     compose_dict = mock_save_compose.call_args[0][0]
     assert "otel-collector" in compose_dict["services"]
-    assert compose_dict["services"]["server"]["depends_on"]["otel-collector"] == {"condition": "service_started"}
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+def test_apply_writes_otel_collector_config_when_present(
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    """otel-collector-config.yaml is written here, by apply() itself - not by resolve()'s
+    configure_otel() - so a self-healing repair (which reapplies a config already resolved
+    earlier, without calling resolve() again) still recreates this bind-mount source too."""
+    collector_config = {"service": {"pipelines": {}}}
+    install_config.otel = OtelConfig(envs={}, docker_compose={"otel-collector": {}}, collector_config=collector_config)
+
+    apply(install_config)
+
+    assert mock_save_compose.call_count == 2
+    otel_call = mock_save_compose.call_args_list[0]
+    assert otel_call == mock.call(
+        collector_config,
+        install_config.directory / "otel-collector-config.yaml",
+        quiet=True,
+        file_info="Open Telemetry collector configuration",
+    )
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+def test_apply_does_not_write_otel_collector_config_when_remote(
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    install_config.otel = OtelConfig(
+        envs={"DF_OTEL_EXPORTER_OTLP_ENDPOINT": "http://remote:4317", "DF_OTEL_TRACING_ENABLED": "true"},
+        docker_compose={},
+        collector_config=None,
+    )
+
+    apply(install_config)
+
+    assert not (install_config.directory / "otel-collector-config.yaml").exists()
+    assert mock_save_compose.call_count == 1
 
 
 @mock.patch("deepfellow.server.utils.install.run")

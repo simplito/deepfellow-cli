@@ -119,3 +119,37 @@ def test_translate_to_install_error_preserves_signature_and_forwards_arguments()
 
     assert calls == [("/tmp/dir", True)]
     assert list(inspect.signature(install).parameters) == ["directory", "force"]
+
+
+def test_translate_to_install_error_propagates_return_value() -> None:
+    """Most decorated functions return None, but an ask-phase function (e.g. suite install's
+    _infra_config()) returns its resolved config, which its caller needs - this must not be
+    silently discarded the way it would be if the wrapper's own body didn't `return` it."""
+
+    @translate_to_install_error
+    def resolve() -> dict[str, str]:
+        return {"key": "value"}
+
+    assert resolve() == {"key": "value"}
+
+
+def test_translate_to_install_error_propagates_falsy_return_values() -> None:
+    """A naive implementation could accidentally special-case a falsy return (treating it like the
+    "no return statement" None every other decorated function relies on) - pin the exact value for
+    False, 0, and "" so that never quietly regresses."""
+
+    @translate_to_install_error
+    def returns_false() -> bool:
+        return False
+
+    @translate_to_install_error
+    def returns_zero() -> int:
+        return 0
+
+    @translate_to_install_error
+    def returns_empty_string() -> str:
+        return ""
+
+    assert returns_false() is False
+    assert returns_zero() == 0
+    assert returns_empty_string() == ""

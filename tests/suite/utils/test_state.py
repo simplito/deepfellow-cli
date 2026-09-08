@@ -173,3 +173,30 @@ def test_load_defaults_workspace_and_admin_when_absent(tmp_path: Path) -> None:
     assert result.workspace is None
     assert result.admin is None
     assert result.completed_steps == ["infra_install"]
+
+
+def test_load_defaults_infra_and_server_config_when_absent(tmp_path: Path) -> None:
+    """A state file written before infra_config/server_config existed (or a fresh install that
+    hasn't reached those steps yet) must default both to None, not raise."""
+    state_file = tmp_path / "suite_install_state.json"
+    state_file.write_text('{"completed_steps": ["infra_install"]}', encoding="utf-8")
+
+    result = load(state_file)
+
+    assert result is not None
+    assert result.infra_config is None
+    assert result.server_config is None
+
+
+def test_save_then_load_round_trips_infra_and_server_config(tmp_path: Path) -> None:
+    state_file = tmp_path / "suite_install_state.json"
+    install_state = SuiteInstallState(
+        completed_steps=["infra_config", "server_config"],
+        infra_config={"df_name": "deepfellow", "api_key": "infra-api-key"},
+        server_config={"port": 8080, "otel": {"envs": {}, "docker_compose": {}}},
+    )
+
+    save(install_state, state_file)
+    result = load(state_file)
+
+    assert result == install_state
