@@ -149,11 +149,15 @@ def install(
 ) -> None:
     """Provision a complete DeepFellow workspace: Infra, Server, admin user, and a ready-to-use workspace.
 
-    Runs 12 granular steps, in order: infra install, infra start, infra service install (ollama),
-    infra model install (chat/embedding/fast), server install, server start, create admin, server
-    login, one call to the server's atomic workspace-creation endpoint (organization "Workspace",
-    project "Default", API key "app"), and a follow-up call granting the created project access to
-    the three models just installed.
+    Runs 14 granular steps, in order: infra configuration, server configuration, infra install,
+    infra start, infra service install (ollama), infra model install (chat/embedding/fast), server
+    install, server start, create admin, server login, one call to the server's atomic
+    workspace-creation endpoint (organization "Workspace", project "Default", API key "app"), and
+    a follow-up call granting the created project access to the three models just installed. The
+    two configuration steps resolve and persist every infra and server prompt (directory-overwrite
+    decisions, DF_NAME, MongoDB, vector DB, OTel, FalkorDB, ...) before any of the later,
+    apply-only steps run, so all questions are answered once at the start instead of partway
+    through a long-running install.
 
     `suite install` itself exposes no `--template` option — it always uses each command's built-in
     `workspace` template. Progress is persisted after each step; if a step fails, re-run with

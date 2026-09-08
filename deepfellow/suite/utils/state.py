@@ -33,6 +33,15 @@ class SuiteInstallState:
     them instead of prompting again, while an explicit --admin-* flag on that later run still wins
     over the persisted value (see `resolve_admin_kwargs`).
 
+    `infra_config`/`server_config` hold infra's and server's fully-resolved `InstallConfig` (see
+    `_infra_config_to_dict()`/`_server_config_to_dict()` in `suite/utils/install.py`) once each
+    one's own ask-phase step succeeds - persisted so a later `--resume` run's apply-phase steps
+    reuse them instead of re-resolving (re-prompting), and so a self-healing repair of a damaged
+    directory reapplies the exact same configuration rather than resolving a fresh one. A state
+    file written before these fields existed simply has them as `None` - `load()` doesn't need to
+    special-case that, since a `None` config is indistinguishable from "not yet resolved" and the
+    corresponding step just runs (and re-prompts) once more, exactly as if it were a fresh install.
+
     No schema version field: this file only ever lives for the lifetime of one failed-and-resumed
     `suite install` attempt - `delete()` removes it on any full success, and `--resume` is never
     meant to reattach to a run from a different CLI version. A schema-shape change simply isn't a
@@ -42,6 +51,8 @@ class SuiteInstallState:
     completed_steps: list[str] = field(default_factory=list)
     workspace: dict[str, Any] | None = None
     admin: dict[str, str] | None = None
+    infra_config: dict[str, Any] | None = None
+    server_config: dict[str, Any] | None = None
 
 
 def load(state_file: Path = DF_SUITE_INSTALL_STATE_FILE) -> SuiteInstallState | None:
@@ -77,6 +88,8 @@ def load(state_file: Path = DF_SUITE_INSTALL_STATE_FILE) -> SuiteInstallState | 
         completed_steps=list(data.get("completed_steps") or []),
         workspace=data.get("workspace"),
         admin=data.get("admin"),
+        infra_config=data.get("infra_config"),
+        server_config=data.get("server_config"),
     )
 
 

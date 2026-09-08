@@ -31,7 +31,6 @@ from deepfellow.common.defaults import (
     DOCKER_COMPOSE_FALKORDB,
     DOCKER_COMPOSE_OTEL_COLLECTOR,
     MILVUS_DATABASE,
-    MONGO_DB_INIT_SH,
     OTEL_COLLECTOR_CONFIG,
     OTEL_COLLECTOR_CONFIG_DEBUG_ONLY,
     QDRANT_DATABASE,
@@ -44,7 +43,6 @@ from deepfellow.common.docker import (
     load_compose_file,
     remove_volume,
     resolve_compose_volume_name,
-    save_compose_file,
     volume_exists,
 )
 from deepfellow.common.echo import echo
@@ -547,15 +545,10 @@ def configure_mongo(
 
         mongo_config["DF_MONGO_PORT"] = str(mongo_port)
 
-        # Store the create user script
-        init_mongo_path = directory / "init-mongo.sh"
-        try:
-            init_mongo_path.write_text(MONGO_DB_INIT_SH)
-            init_mongo_path.chmod(0o755)
-        except OSError as exc:
-            echo.error(f"Unable to write {init_mongo_path.as_posix()}: {exc}.")
-            reraise_if_debug(exc)
-
+        # `init-mongo.sh` itself is written by apply() (from `custom_mongo_db_server=False` alone,
+        # the same signal apply() already uses to add the Mongo compose service) - not here, so
+        # that resolving config has no filesystem side effect a self-healing repair (which skips
+        # a config already resolved earlier) could otherwise silently lose. See MONGO_DB_INIT_SH.
         echo.info("A default MongoDB setup is created.")
 
     return mongo_config
@@ -565,6 +558,11 @@ def configure_mongo(
 class OtelConfig:
     envs: dict[str, Any]
     docker_compose: dict[str, Any]
+    collector_config: dict[str, Any] | None = None
+    """The actual `otel-collector-config.yaml` content to write, if a local collector was chosen -
+    `None` otherwise (a remote `otel_url` needs no local config file). Written by `apply()`, not
+    here, so resolving config has no filesystem side effect a self-healing repair (which skips a
+    config already resolved earlier) could otherwise silently lose."""
 
 
 def configure_otel(
@@ -572,11 +570,11 @@ def configure_otel(
 ) -> OtelConfig:
     """Configure Open Telemetry.
 
-    When ``otel_local`` is set, configure a local debug-only collector without any prompts:
-    add the otel-collector service to compose and write the debug-only collector config. The
-    written config matches the interactive "run locally" + "no Elasticsearch" path, but the
-    prompts and the post-write review warning are skipped. Mutual exclusion with ``otel_url``
-    is enforced by the caller (``install()``); when ``otel_local`` is set, ``otel_url`` is ignored.
+    When ``otel_local`` is set, configure a local debug-only collector without any prompts: add
+    the otel-collector service to compose and resolve the debug-only collector config (written by
+    `apply()`, not here). The resolved config matches the interactive "run locally" + "no
+    Elasticsearch" path, but the prompts are skipped. Mutual exclusion with ``otel_url`` is
+    enforced by the caller (``install()``); when ``otel_local`` is set, ``otel_url`` is ignored.
 
     Raises:
         typer.BadParameter: If ``otel_url`` is given directly (not via the interactive prompt,
@@ -585,6 +583,7 @@ def configure_otel(
     original_env = original_env or {}
     docker_compose = {}
     envs = {}
+    collector_config: dict[str, Any] | None = None
 
     if otel_url:
         validate_url(otel_url)
@@ -592,12 +591,10 @@ def configure_otel(
     config_file: Path = directory / "otel-collector-config.yaml"
 
     if otel_local:
-        debug_config = deepcopy(OTEL_COLLECTOR_CONFIG_DEBUG_ONLY)
-        save_compose_file(debug_config, config_file, quiet=True, file_info="Open Telemetry collector configuration")
-
         return OtelConfig(
             envs={"DF_OTEL_EXPORTER_OTLP_ENDPOINT": DEFAULT_OTEL_URL, "DF_OTEL_TRACING_ENABLED": "true"},
             docker_compose=DOCKER_COMPOSE_OTEL_COLLECTOR,
+            collector_config=deepcopy(OTEL_COLLECTOR_CONFIG_DEBUG_ONLY),
         )
 
     existing_otel_config: dict[str, Any] = load_compose_file(config_file)
@@ -641,17 +638,14 @@ def configure_otel(
                 )
             else:
                 otel_config = deepcopy(OTEL_COLLECTOR_CONFIG_DEBUG_ONLY)
-            save_compose_file(otel_config, config_file, quiet=True, file_info="Open Telemetry collector configuration")
-            echo.warning(
-                f"Open Telemetry configuration stored in file:\n{config_file}\n"
-                "Please review its content before starting the DeepFellow Server."
-            )
+            collector_config = otel_config
 
     envs = {"DF_OTEL_EXPORTER_OTLP_ENDPOINT": otel_url, "DF_OTEL_TRACING_ENABLED": "true"} if otel_url else {}
 
     return OtelConfig(
         envs=envs,
         docker_compose=docker_compose,
+        collector_config=collector_config,
     )
 
 

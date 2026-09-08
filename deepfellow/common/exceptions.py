@@ -11,13 +11,14 @@
 
 import functools
 from collections.abc import Callable
-from typing import NoReturn, ParamSpec
+from typing import NoReturn, ParamSpec, TypeVar
 
 import typer
 
 from deepfellow.common.state import state
 
 P = ParamSpec("P")
+R = TypeVar("R")
 
 
 class DockerSocketNotFoundError(Exception):
@@ -53,7 +54,7 @@ def reraise_if_debug(exc_info: Exception) -> NoReturn:
     raise typer.Exit(1) from exc_info
 
 
-def translate_to_install_error(func: Callable[P, None]) -> Callable[P, None]:
+def translate_to_install_error(func: Callable[P, R]) -> Callable[P, R]:
     """Make an install() core function safe to call outside a Click/Typer dispatch loop.
 
     ``typer.Exit`` and ``typer.BadParameter`` are only safe error signals inside a Click
@@ -71,12 +72,16 @@ def translate_to_install_error(func: Callable[P, None]) -> Callable[P, None]:
     echoed by its own raise site deeper in the call stack, so this decorator substitutes a
     generic placeholder message for the caller to echo once, instead of duplicating that
     specific reason.
+
+    Propagates the wrapped function's return value unchanged - most decorated functions return
+    ``None``, but an ask-phase function (e.g. suite install's ``_infra_config()``) returns its
+    resolved ``InstallConfig``, which its caller needs.
     """
 
     @functools.wraps(func)
-    def wrapper(*args: P.args, **kwargs: P.kwargs) -> None:
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         try:
-            func(*args, **kwargs)
+            return func(*args, **kwargs)
         except typer.BadParameter as exc:
             raise InstallError(str(exc)) from exc
         except typer.Exit as exc:
