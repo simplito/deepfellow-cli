@@ -15,7 +15,7 @@ import pytest
 import typer
 
 from deepfellow.infra.model.install import install as install_command
-from deepfellow.infra.utils.model_install import install
+from deepfellow.infra.utils.model_install import ModelInstallConnection, apply_install, install, resolve_connection
 
 
 @mock.patch("deepfellow.infra.utils.connection.env_set")
@@ -204,6 +204,43 @@ def test_install_reports_success_when_infra_reports_model_already_installed_as_o
     assert mock_echo.success.call_count == 1
     assert mock_echo.success.call_args == mock.call("Model llama-3.1-8B installed.")
     assert mock_echo.error.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.connection.env_set")
+@mock.patch("deepfellow.infra.utils.model_install.install_with_progress")
+@mock.patch(
+    "deepfellow.infra.utils.model_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
+def test_resolve_connection_performs_no_install_api_call(
+    mock_resolve: Mock,
+    mock_install_with_progress: Mock,
+    mock_env_set: Mock,
+) -> None:
+    result = resolve_connection(server=None)
+
+    assert result == ModelInstallConnection(server="http://infra:8086", api_key="test-key")
+    assert mock_install_with_progress.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.connection.env_set")
+@mock.patch("deepfellow.infra.utils.model_install.echo")
+@mock.patch("deepfellow.infra.utils.model_install.install_with_progress")
+def test_apply_install_performs_no_prompting(
+    mock_install_with_progress: Mock,
+    mock_echo: Mock,
+    mock_env_set: Mock,
+) -> None:
+    mock_install_with_progress.return_value = {"status": "OK"}
+    connection = ModelInstallConnection(server="http://infra:8086", api_key="test-key")
+
+    apply_install(service_name="ollama", model_name="llama-3.1-8B", connection=connection)
+
+    assert mock_install_with_progress.call_count == 1
+    assert mock_echo.prompt.call_count == 0
+    assert mock_echo.choice.call_count == 0
+    assert mock_echo.confirm.call_count == 0
+    assert mock_echo.success.call_count == 1
+    assert mock_echo.success.call_args == mock.call("Model llama-3.1-8B installed.")
 
 
 @mock.patch("deepfellow.infra.model.install.install_util")
