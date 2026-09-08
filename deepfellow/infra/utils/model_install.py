@@ -9,6 +9,8 @@
 
 """Install model core logic."""
 
+from dataclasses import dataclass
+
 import typer
 
 from deepfellow.common.echo import echo
@@ -17,24 +19,44 @@ from deepfellow.infra.utils.connection import call_infra, resolve_infra_connecti
 from deepfellow.infra.utils.progress import install_with_progress
 
 
-def install(
+@dataclass
+class ModelInstallConnection:
+    """Result of `resolve_connection`: everything `apply_install` needs to install the model."""
+
+    server: str
+    api_key: str
+
+
+def resolve_connection(server: str | None = None) -> ModelInstallConnection:
+    """Resolve the infra connection to use for a model install, performing no install API call.
+
+    Args:
+        server: Infra server URL. Resolved from config/prompt if not given.
+
+    Returns:
+        The resolved connection, ready to pass to `apply_install`.
+    """
+    server, api_key = resolve_infra_connection(server)
+    return ModelInstallConnection(server=server, api_key=api_key)
+
+
+def apply_install(
     service_name: str,
     model_name: str,
-    server: str | None = None,
+    connection: ModelInstallConnection,
     quiet: bool = False,
 ) -> None:
-    """Install model.
+    """Install a model by calling the install API with an already-resolved connection. Prompts nothing.
 
     Args:
         service_name: Name of the service the model belongs to (e.g. "ollama").
         model_name: Name of the model to install.
-        server: Infra server URL. Resolved from config/prompt if not given.
+        connection: The connection built by `resolve_connection`.
         quiet: Suppress the "Updated ..." confirmation when the resolved server/API key are
             re-persisted - e.g. suite install --resume calls this repeatedly (once per model) with
             the exact same, already-confirmed connection, so re-announcing it every time is noise.
     """
-    server, api_key = resolve_infra_connection(server)
-
+    server, api_key = connection.server, connection.api_key
     url = f"{server}/admin/services/{service_name}/models/_?model_id={model_name}"
 
     try:
@@ -59,3 +81,23 @@ def install(
         raise typer.Exit(1)
 
     echo.success(f"Model {model_name} installed.")
+
+
+def install(
+    service_name: str,
+    model_name: str,
+    server: str | None = None,
+    quiet: bool = False,
+) -> None:
+    """Install model.
+
+    Args:
+        service_name: Name of the service the model belongs to (e.g. "ollama").
+        model_name: Name of the model to install.
+        server: Infra server URL. Resolved from config/prompt if not given.
+        quiet: Suppress the "Updated ..." confirmation when the resolved server/API key are
+            re-persisted - e.g. suite install --resume calls this repeatedly (once per model) with
+            the exact same, already-confirmed connection, so re-announcing it every time is noise.
+    """
+    connection = resolve_connection(server)
+    apply_install(service_name, model_name, connection, quiet=quiet)
