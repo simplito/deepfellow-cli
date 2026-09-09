@@ -38,10 +38,15 @@ def _stream_response(
 ) -> Mock:
     response = Mock(name="response")
     response.status_code = status_code
+    response.is_error = status_code >= 400
     response.headers = {"content-type": content_type}
     response.iter_lines.return_value = lines or []
     response.json.return_value = json_body or {}
     response.request = Mock(name="request")
+    if response.is_error:
+        response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            f"{status_code}", request=response.request, response=response
+        )
     return response
 
 
@@ -197,6 +202,22 @@ def test_install_with_progress_raises_http_status_error_on_client_error(
 
     with pytest.raises(httpx.HTTPStatusError):
         install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert response.read.call_count == 1
+
+
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_reads_body_on_server_error_before_raising(
+    mock_stream: Mock,
+) -> None:
+    # Regression test: any error status - not only 400/401/403 - must have its body read while
+    # still inside the `httpx.stream` context, or `call_infra` crashes with `ResponseNotRead`
+    # trying to extract a message from the now-closed response.
+    response = _stream_response(status_code=422, json_body={"detail": "prefix already in use"})
+    mock_stream.return_value.__enter__.return_value = response
+
+    with pytest.raises(httpx.HTTPStatusError):
+        install_with_progress("http://infra:8086/admin/services/mcp/models/_", "test-key", data={"spec": {}})
 
     assert response.read.call_count == 1
 

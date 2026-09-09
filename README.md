@@ -110,7 +110,28 @@ deepfellow infra model uninstall                     # Remove a model
 deepfellow infra connect                             # Attach to a multi-node Mesh
 deepfellow infra disconnect                          # Disconnect from Mesh
 deepfellow infra env set                             # Set / unset env variable
+deepfellow infra mcp add                             # Register an MCP server from a client config JSON
+deepfellow infra mcp install                         # Install (start) a built-in or registered MCP server
+deepfellow infra mcp list                            # List provisioned MCP servers
+deepfellow infra mcp uninstall                       # Uninstall a provisioned MCP server
+deepfellow infra mcp remove                          # Delete a custom MCP server's registration
 deepfellow infra uninstall                           # Full removal
+```
+
+To use a built-in MCP server from Infra's catalog (e.g. `brave-search`), install it directly - `mcp install`
+prompts for any field the server needs (e.g. an API key), the same way the WebUI's install form does:
+
+```bash
+deepfellow infra mcp install brave-search
+```
+
+To bring your own MCP server instead, `mcp add` registers it from a standard MCP client config, passed via
+`--config <path>` or piped on stdin - then `mcp install` starts it:
+
+```bash
+echo '{"mcpServers": {"duckduckgo": {"command": "npx", "args": ["-y", "duckduckgo-mcp-server"]}}}' \
+  | deepfellow infra mcp add duckduckgo
+deepfellow infra mcp install duckduckgo
 ```
 
 ### Server

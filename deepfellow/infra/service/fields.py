@@ -17,40 +17,9 @@ from deepfellow.common.echo import echo
 from deepfellow.common.rest import make_request
 from deepfellow.common.validation import validate_server
 from deepfellow.infra.utils.connection import call_infra, resolve_infra_connection
+from deepfellow.infra.utils.fields import format_field, format_field_options, normalize_field_description
 
 app = typer.Typer()
-
-
-def _format_field_options(field: dict[str, Any]) -> str:
-    """Format the available options of a ``oneof`` field, e.g. ``available: GPU, CPU``.
-
-    Returns an empty string if the field carries no ``values`` list.
-    """
-    values = field.get("values") or []
-    if not values:
-        return ""
-
-    options = [value.get("value", str(value)) if isinstance(value, dict) else str(value) for value in values]
-    return f"available: {', '.join(options)}"
-
-
-def _format_field(field: dict[str, Any]) -> str:
-    """Format a single spec field as ``- {name}: {description} (default: {default})``.
-
-    For ``oneof`` fields (those carrying a ``values`` list), the available options are
-    appended so the user knows what values may be passed, e.g.
-    ``- hardware: Choose hardware: (default: GPU, available: GPU, CPU)``.
-    """
-    name = field.get("name")
-    description = field.get("description")
-    default = field.get("default")
-    detail = f"default: {default}"
-
-    options = _format_field_options(field)
-    if options:
-        detail += f", {options}"
-
-    return f"- {name}: {description} ({detail})"
 
 
 def _format_field_set(field: dict[str, Any]) -> str:
@@ -59,7 +28,7 @@ def _format_field_set(field: dict[str, Any]) -> str:
     E.g. ``--set hardware=<value>  (optional)  Choose hardware:  (default: GPU, available: GPU, CPU)``.
     """
     name = field.get("name")
-    description = field.get("description")
+    description = normalize_field_description(field.get("description"))
     required = field.get("required", False)
     default = field.get("default")
 
@@ -69,7 +38,7 @@ def _format_field_set(field: dict[str, Any]) -> str:
     details = []
     if default is not None:
         details.append(f"default: {default}")
-    options = _format_field_options(field)
+    options = format_field_options(field)
     if options:
         details.append(options)
     if details:
@@ -106,5 +75,5 @@ def fields(
         echo.info(f"Service '{name}' has no configuration fields.")
         return
 
-    formatter = _format_field_set if set_format else _format_field
+    formatter = _format_field_set if set_format else format_field
     echo.info("\n".join(formatter(field) for field in service_fields))

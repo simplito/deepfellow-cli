@@ -21,6 +21,7 @@ from deepfellow.common.validation import (
     validate_df_name,
     validate_email,
     validate_password,
+    validate_port,
     validate_server,
     validate_system,
     validate_truthy,
@@ -172,6 +173,29 @@ def test_validate_connection_string_raises_when_port_not_a_number() -> None:
 def test_validate_connection_string_raises_when_port_out_of_range(value: str) -> None:
     with pytest.raises(typer.BadParameter):
         validate_connection_string(value)
+
+
+@pytest.mark.parametrize("value", ["1", "8080", 1, 65535])
+def test_validate_port_valid(value: str | int) -> None:
+    result = validate_port(value)
+
+    assert result == int(value)
+
+
+def test_validate_port_raises_when_not_a_number() -> None:
+    with pytest.raises(typer.BadParameter):
+        validate_port("notaport")
+
+
+def test_validate_port_raises_when_none() -> None:
+    with pytest.raises(typer.BadParameter):
+        validate_port(None)
+
+
+@pytest.mark.parametrize("value", ["0", "65536"])
+def test_validate_port_raises_when_out_of_range(value: str) -> None:
+    with pytest.raises(typer.BadParameter):
+        validate_port(value)
 
 
 def test_validate_server_none_returns_none() -> None:

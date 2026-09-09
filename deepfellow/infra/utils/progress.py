@@ -73,10 +73,11 @@ def install_with_progress(
     echo.debug(f"POST (stream) {url} data={body}")
 
     with httpx.stream("POST", url, headers=headers, json=body, timeout=timeout) as response:
-        # Mirror rest.post()'s handling of 4xx before raising for status.
-        if response.status_code in (400, 401, 403):
+        # Any error status must be read here, inside the stream context - `call_infra` reads
+        # `exc.response.json()`/`.text` from the raised error to build its message, and once this
+        # `with` block exits the unread body is gone, raising `httpx.ResponseNotRead` instead.
+        if response.is_error:
             response.read()
-            _raise_http_status(response)
         response.raise_for_status()
 
         content_type = response.headers.get("content-type", "")
@@ -86,11 +87,6 @@ def install_with_progress(
             return response.json()
 
         return _consume_sse(response)
-
-
-def _raise_http_status(response: httpx.Response) -> None:
-    """Raise HTTPStatusError so call_infra can extract the {"detail": ...} message."""
-    raise httpx.HTTPStatusError(f"{response.status_code}", request=response.request, response=response)
 
 
 def _consume_sse(response: httpx.Response) -> dict[str, Any]:

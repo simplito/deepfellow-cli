@@ -104,6 +104,19 @@ def validate_connection_string(value: str | None) -> str | None:
     return value
 
 
+def validate_port(value: str | int | None) -> int:
+    """Validate value is a TCP port number between 1 and 65535."""
+    try:
+        port = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        raise typer.BadParameter("Invalid port - must be a number between 1 and 65535.") from exc
+
+    if not (1 <= port <= 65535):
+        raise typer.BadParameter("Invalid port - must be a number between 1 and 65535.")
+
+    return port
+
+
 def validate_server(value: str | None) -> str | None:
     """Validate the server entry. Strip the last slash."""
     if value is None:
