@@ -47,20 +47,25 @@ def _get_registry_token(registry: str, image_path: str) -> str | None:
         return None
 
 
-def get_newest_image_tag(hub: str) -> str:
-    """Return the full image reference with the newest semver tag from the registry.
+def list_image_tags(hub: str) -> list[str]:
+    """Return the image's available tags from the registry, newest semver first.
 
     Args:
         hub: Image hub without tag, e.g. ``registry.example.com/org/image``.
 
-    Falls back to :latest if the registry is unreachable or has no semver tags.
+    Returns an empty list if the registry is unreachable, anonymous auth fails, or it reports no
+    tags at all - never raises, since this is used to offer choices, not required data.
     """
-    registry, image_path = hub.split("/", 1)
+    parts = hub.split("/", 1)
+    if len(parts) != 2:
+        echo.debug(f"registry: cannot parse hub '{hub}' - no registry/path separator")
+        return []
+    registry, image_path = parts
 
     token = _get_registry_token(registry, image_path)
     if not token:
-        echo.warning(f"Failed obtaining the token for {hub}, falling back to latest.")
-        return f"{hub}:latest"
+        echo.debug(f"registry auth: no token obtained for {hub}")
+        return []
 
     try:
         headers = {"Authorization": f"Bearer {token}"}
@@ -71,12 +76,28 @@ def get_newest_image_tag(hub: str) -> str:
         )
         resp.raise_for_status()
         raw_tags: list[str] = resp.json().get("tags") or []
-    except Exception:
-        return f"{hub}:latest"
+    except Exception as exc:
+        echo.debug(f"registry tags request failed for {hub}: {exc}")
+        return []
 
-    semver_tags = [t for t in raw_tags if _parse_tag(t)]
+    semver_tags = sorted((t for t in raw_tags if _parse_tag(t)), key=lambda v: _parse_tag(v) or (0, 0, 0), reverse=True)
+    other_tags = sorted(t for t in raw_tags if not _parse_tag(t))
+    return semver_tags + other_tags
+
+
+def get_newest_image_tag(hub: str) -> str:
+    """Return the full image reference with the newest semver tag from the registry.
+
+    Args:
+        hub: Image hub without tag, e.g. ``registry.example.com/org/image``.
+
+    Falls back to :latest if the registry is unreachable or has no semver tags.
+    """
+    tags = list_image_tags(hub)
+    semver_tags = [t for t in tags if _parse_tag(t)]
     if not semver_tags:
+        if not tags:
+            echo.warning(f"Unable to fetch tags for {hub}, falling back to latest.")
         return f"{hub}:latest"
 
-    newest = max(semver_tags, key=lambda v: _parse_tag(v) or (0, 0, 0))
-    return f"{hub}:{newest}"
+    return f"{hub}:{semver_tags[0]}"

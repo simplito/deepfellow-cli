@@ -1155,7 +1155,7 @@ def test_read_config_json_settings_settings_not_a_dict_returns_empty_dict(tmp_pa
     assert result == {}
 
 
-def test_merge_config_json_into_env_prefixes_top_level_keys_with_df():
+def test_merge_config_json_into_env_prefixes_top_level_keys_with_df() -> None:
     env_content: EnvDict = {}
     config_json_settings = {"name": "infra", "infra_url": "http://infra:8086"}
 
@@ -1164,7 +1164,7 @@ def test_merge_config_json_into_env_prefixes_top_level_keys_with_df():
     assert result == {"df_name": "infra", "df_infra_url": "http://infra:8086"}
 
 
-def test_merge_config_json_into_env_config_json_wins_on_conflict():
+def test_merge_config_json_into_env_config_json_wins_on_conflict() -> None:
     env_content: EnvDict = {"df_infra_url": "http://stale-infra:8086"}
     config_json_settings = {"infra_url": "http://current-infra:8086"}
 
@@ -1173,7 +1173,7 @@ def test_merge_config_json_into_env_config_json_wins_on_conflict():
     assert result == {"df_infra_url": "http://current-infra:8086"}
 
 
-def test_merge_config_json_into_env_recurses_into_nested_dicts():
+def test_merge_config_json_into_env_recurses_into_nested_dicts() -> None:
     env_content: EnvDict = {"df_vector_database": {"provider": {"type": "milvus", "url": "http://stale-vdb:19530"}}}
     config_json_settings = {"vector_database": {"provider": {"url": "http://current-vdb:19530"}}}
 
@@ -1182,7 +1182,7 @@ def test_merge_config_json_into_env_recurses_into_nested_dicts():
     assert result == {"df_vector_database": {"provider": {"type": "milvus", "url": "http://current-vdb:19530"}}}
 
 
-def test_merge_config_json_into_env_keeps_env_only_fields_untouched():
+def test_merge_config_json_into_env_keeps_env_only_fields_untouched() -> None:
     env_content: EnvDict = {"df_server_port": 8000, "df_log_level": "DEBUG"}
     config_json_settings: dict[str, Any] = {}
 
@@ -1191,7 +1191,7 @@ def test_merge_config_json_into_env_keeps_env_only_fields_untouched():
     assert result == {"df_server_port": 8000, "df_log_level": "DEBUG"}
 
 
-def test_merge_config_json_into_env_scalar_overlay_replaces_env_dict_value():
+def test_merge_config_json_into_env_scalar_overlay_replaces_env_dict_value() -> None:
     env_content: EnvDict = {"df_infra": {"url": "http://stale-infra:8086"}}
     config_json_settings = {"infra": "not-a-dict-anymore"}
 
@@ -1200,7 +1200,7 @@ def test_merge_config_json_into_env_scalar_overlay_replaces_env_dict_value():
     assert result == {"df_infra": "not-a-dict-anymore"}
 
 
-def test_merge_config_json_into_env_stringifies_dict_overlay_over_env_string_value():
+def test_merge_config_json_into_env_stringifies_dict_overlay_over_env_string_value() -> None:
     """A field kept in .env as one flattened JSON-string blob (e.g. server's DF_PLUGINS_SETUP)
     still has its real, structured shape in config.json - a plain dict, not a string. Overwriting
     the .env-side string with that raw dict would leave every downstream reader (which still
@@ -1215,7 +1215,7 @@ def test_merge_config_json_into_env_stringifies_dict_overlay_over_env_string_val
     assert result == {"df_custom_blob": '{"nested": ["value"]}'}
 
 
-def test_merge_config_json_into_env_stringifies_plugins_setup_dict_from_config_json():
+def test_merge_config_json_into_env_stringifies_plugins_setup_dict_from_config_json() -> None:
     """Regression test for DFCLI-79: reinstalling over a server that has actually started at least
     once used to fail with "Invalid DF_PLUGINS_SETUP", because this exact field/shape combination
     left a real dict in place instead of a string."""

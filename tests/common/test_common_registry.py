@@ -12,7 +12,7 @@ from unittest.mock import Mock
 
 import httpx
 
-from deepfellow.common.registry import _parse_tag, get_newest_image_tag
+from deepfellow.common.registry import _parse_tag, get_newest_image_tag, list_image_tags
 
 HUB = "hub.example.com/org/image"
 IMAGE_PATH = "org/image"
@@ -146,6 +146,64 @@ def test_get_newest_image_tag_omits_service_param_when_missing_from_header(mock_
         params={"scope": f"repository:{IMAGE_PATH}:pull"},
         timeout=10,
     )
+
+
+@mock.patch("deepfellow.common.registry.echo")
+@mock.patch("deepfellow.common.registry.httpx.get")
+def test_get_newest_image_tag_warns_when_no_tags_available(mock_get: Mock, mock_echo: Mock) -> None:
+    probe = Mock(spec=httpx.Response)
+    probe.status_code = 401
+    probe.headers = {}  # no WWW-Authenticate -> no token -> list_image_tags returns []
+    mock_get.return_value = probe
+
+    result = get_newest_image_tag(HUB)
+
+    assert result == f"{HUB}:latest"
+    assert mock_echo.warning.call_count == 1
+    assert mock_echo.warning.call_args == mock.call(f"Unable to fetch tags for {HUB}, falling back to latest.")
+
+
+# --- list_image_tags ---
+
+
+@mock.patch("deepfellow.common.registry.httpx.get")
+def test_list_image_tags_returns_semver_first_then_others_sorted(mock_get: Mock) -> None:
+    mock_get.side_effect = [
+        _make_probe_response("https://auth.example.com/token"),
+        _make_token_response("tok"),
+        _make_tags_response(["0.24.0", "v0.27.0", "0.25.0", "latest", "abc123"]),
+    ]
+
+    result = list_image_tags(HUB)
+
+    assert result == ["v0.27.0", "0.25.0", "0.24.0", "abc123", "latest"]
+
+
+@mock.patch("deepfellow.common.registry.httpx.get")
+def test_list_image_tags_returns_empty_list_on_connection_error(mock_get: Mock) -> None:
+    mock_get.side_effect = httpx.ConnectError("unreachable")
+
+    result = list_image_tags(HUB)
+
+    assert result == []
+
+
+@mock.patch("deepfellow.common.registry.httpx.get")
+def test_list_image_tags_returns_empty_list_when_token_missing(mock_get: Mock) -> None:
+    probe = Mock(spec=httpx.Response)
+    probe.status_code = 401
+    probe.headers = {}
+    mock_get.return_value = probe
+
+    result = list_image_tags(HUB)
+
+    assert result == []
+
+
+def test_list_image_tags_returns_empty_list_for_host_less_image_name() -> None:
+    result = list_image_tags("nginx")
+
+    assert result == []
 
 
 @mock.patch("deepfellow.common.registry.httpx.get")

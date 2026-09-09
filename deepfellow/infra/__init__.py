@@ -18,6 +18,7 @@ from .env_command import app as env_app
 from .info import app as info_app
 from .install import app as install_app
 from .logs import app as logs_app
+from .mcp import app as mcp_app
 from .model import app as model_app
 from .prune import app as prune_app
 from .restart import app as restart_app
@@ -47,5 +48,6 @@ app.add_typer(disconnect_app)
 app.add_typer(env_app, name="env", help="Manage Infra environment variables.")
 app.add_typer(service_app, name="service", help="Manage DeepFellow Infra services.")
 app.add_typer(model_app, name="model", help="Manage DeepFellow Infra models.")
+app.add_typer(mcp_app, name="mcp", help="Manage MCP servers.")
 app.add_typer(logs_app)
 app.add_typer(prune_app)

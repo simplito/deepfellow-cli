@@ -7,7 +7,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any
 from unittest import mock
 from unittest.mock import Mock
 
@@ -18,16 +17,7 @@ import typer
 from deepfellow.infra.service.fields import fields
 from deepfellow.infra.service.install import install as install_command
 from deepfellow.infra.service.list import list as list_services
-from deepfellow.infra.utils.service_install import (
-    ServiceInstallSpec,
-    _build_spec_from_api,
-    _parse_set_args,
-    _parse_spec,
-    _resolve_oneof_choices,
-    apply_spec,
-    build_spec,
-    install,
-)
+from deepfellow.infra.utils.service_install import ServiceInstallSpec, apply_spec, build_spec, install
 
 
 @pytest.fixture(name="name")
@@ -349,7 +339,7 @@ def test_install_with_invalid_json_spec(name: str) -> None:
         install(name=name, spec="not-json")
 
 
-@mock.patch("deepfellow.infra.utils.service_install.echo")
+@mock.patch("deepfellow.infra.utils.fields.echo")
 def test_install_with_non_object_json_spec(mock_echo: Mock, name: str) -> None:
     with pytest.raises(typer.Exit):
         install(name=name, spec='["a", "b"]')
@@ -362,7 +352,7 @@ def test_install_with_non_object_json_spec(mock_echo: Mock, name: str) -> None:
 @mock.patch("deepfellow.infra.utils.service_install.echo")
 @mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.service_install.get")
-@mock.patch("deepfellow.infra.utils.service_install.is_interactive", return_value=False)
+@mock.patch("deepfellow.infra.utils.fields.is_interactive", return_value=False)
 @mock.patch(
     "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
 )
@@ -418,7 +408,7 @@ def test_install_claude_with_api_key(
 @mock.patch("deepfellow.infra.utils.service_install.echo")
 @mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.service_install.get")
-@mock.patch("deepfellow.infra.utils.service_install.is_interactive", return_value=False)
+@mock.patch("deepfellow.infra.utils.fields.is_interactive", return_value=False)
 @mock.patch(
     "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
 )
@@ -466,7 +456,7 @@ def test_install_google_with_api_key(
 @mock.patch("deepfellow.infra.utils.service_install.echo")
 @mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.service_install.get")
-@mock.patch("deepfellow.infra.utils.service_install.is_interactive", return_value=False)
+@mock.patch("deepfellow.infra.utils.fields.is_interactive", return_value=False)
 @mock.patch(
     "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
 )
@@ -514,7 +504,7 @@ def test_install_openai_with_api_key(
 @mock.patch("deepfellow.infra.utils.service_install.echo")
 @mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
 @mock.patch("deepfellow.infra.utils.service_install.get")
-@mock.patch("deepfellow.infra.utils.service_install.is_interactive", return_value=False)
+@mock.patch("deepfellow.infra.utils.fields.is_interactive", return_value=False)
 @mock.patch(
     "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
 )
@@ -574,270 +564,6 @@ def test_install_raises_when_spec_and_set_args_given_together(mock_echo: Mock, n
 
     assert mock_echo.error.call_count == 1
     assert mock_echo.error.call_args == mock.call("--spec and --set cannot be used together. Use one or the other.")
-
-
-def test_parse_spec_returns_empty_dict_when_none() -> None:
-    result: dict[str, Any] = _parse_spec(None)
-
-    assert result == {}
-
-
-def test_parse_set_args_parses_key_value_pairs() -> None:
-    result: dict[str, str] = _parse_set_args(["key=value", " spaced =trimmed"])
-
-    assert result == {"key": "value", "spaced": "trimmed"}
-
-
-@mock.patch("deepfellow.infra.utils.service_install.echo")
-def test_parse_set_args_raises_on_missing_equals_sign(mock_echo: Mock) -> None:
-    with pytest.raises(typer.Exit):
-        _parse_set_args(["invalid-item"])
-
-    assert mock_echo.error.call_count == 1
-    assert mock_echo.error.call_args == mock.call("Invalid --set value 'invalid-item'. Expected format: key=value")
-
-
-def test_resolve_oneof_choices_normalizes_mixed_values() -> None:
-    values: list[Any] = [{"value": "gpu"}, {"label": "no-value-key"}, "plain", 3]
-
-    result: list[str] = _resolve_oneof_choices(values)
-
-    assert result == ["gpu", "{'label': 'no-value-key'}", "plain", "3"]
-
-
-@mock.patch("deepfellow.infra.utils.service_install.echo")
-def test_build_spec_from_api_raises_when_field_missing_name(mock_echo: Mock) -> None:
-    fields_spec: list[dict[str, Any]] = [{"type": "text", "required": False}]
-
-    with pytest.raises(typer.Exit):
-        _build_spec_from_api(fields_spec, {}, None, prompt_all=False)
-
-    assert mock_echo.error.call_count == 1
-    assert mock_echo.error.call_args == mock.call(
-        "Malformed service spec: field missing 'name'. Please report this as a server bug."
-    )
-
-
-@mock.patch("deepfellow.infra.utils.service_install.echo")
-def test_build_spec_from_api_raises_when_field_missing_type(mock_echo: Mock) -> None:
-    fields_spec: list[dict[str, Any]] = [{"name": "url", "required": False}]
-
-    with pytest.raises(typer.Exit):
-        _build_spec_from_api(fields_spec, {}, None, prompt_all=False)
-
-    assert mock_echo.error.call_count == 1
-    assert mock_echo.error.call_args == mock.call(
-        "Malformed service spec: field 'url' missing 'type'. Please report as a server bug."
-    )
-
-
-@mock.patch("deepfellow.infra.utils.service_install.echo")
-def test_build_spec_from_api_prefers_set_value_over_prompt(mock_echo: Mock) -> None:
-    fields_spec: list[dict[str, Any]] = [
-        {"name": "hardware", "type": "oneof", "required": True, "default": "GPU", "values": ["GPU", "CPU"]}
-    ]
-
-    result = _build_spec_from_api(fields_spec, {"hardware": "CPU"}, None, prompt_all=False)
-
-    assert result == {"hardware": "CPU"}
-    assert mock_echo.choice.call_count == 0
-
-
-@mock.patch("deepfellow.infra.utils.service_install.is_interactive", return_value=False)
-@mock.patch("deepfellow.infra.utils.service_install.echo")
-def test_build_spec_from_api_raises_when_required_field_missing_in_non_interactive_mode(
-    mock_echo: Mock, mock_is_interactive: Mock
-) -> None:
-    fields_spec: list[dict[str, Any]] = [{"name": "token", "type": "text", "required": True, "default": None}]
-
-    with pytest.raises(typer.Exit):
-        _build_spec_from_api(fields_spec, {}, None, prompt_all=False)
-
-    assert mock_echo.error.call_count == 1
-    assert mock_echo.error.call_args == mock.call("Field 'token' is required. Use --set token=<value>")
-
-
-@mock.patch("deepfellow.infra.utils.service_install.echo")
-def test_build_spec_from_api_prompts_oneof_choice_when_required(mock_echo: Mock) -> None:
-    mock_echo.choice.return_value = "CPU"
-    fields_spec: list[dict[str, Any]] = [
-        {
-            "name": "hardware",
-            "type": "oneof",
-            "required": True,
-            "description": "Choose hardware",
-            "default": "GPU",
-            "values": [{"value": "GPU"}, {"value": "CPU"}],
-        }
-    ]
-
-    result = _build_spec_from_api(fields_spec, {}, None, prompt_all=False)
-
-    assert result == {"hardware": "CPU"}
-    assert mock_echo.choice.call_count == 1
-    assert mock_echo.choice.call_args == mock.call("Choose hardware", choices=["GPU", "CPU"], default="GPU")
-
-
-@mock.patch("deepfellow.infra.utils.service_install.echo")
-def test_build_spec_from_api_oneof_falls_back_to_first_choice_when_default_not_in_values(mock_echo: Mock) -> None:
-    mock_echo.choice.return_value = "GPU"
-    fields_spec: list[dict[str, Any]] = [
-        {
-            "name": "hardware",
-            "type": "oneof",
-            "required": True,
-            "description": "Choose hardware",
-            "default": "TPU",
-            "values": [{"value": "GPU"}, {"value": "CPU"}],
-        }
-    ]
-
-    _build_spec_from_api(fields_spec, {}, None, prompt_all=False)
-
-    assert mock_echo.choice.call_args == mock.call("Choose hardware", choices=["GPU", "CPU"], default="GPU")
-
-
-@mock.patch("deepfellow.infra.utils.service_install.echo")
-def test_build_spec_from_api_prompts_required_password_field(mock_echo: Mock) -> None:
-    mock_echo.prompt_until_valid.return_value = "secret-value"
-    fields_spec: list[dict[str, Any]] = [
-        {"name": "api_key", "type": "password", "required": True, "description": "API Key", "default": None}
-    ]
-
-    result = _build_spec_from_api(fields_spec, {}, None, prompt_all=False)
-
-    assert result == {"api_key": "secret-value"}
-    assert mock_echo.prompt_until_valid.call_count == 1
-    assert mock_echo.prompt_until_valid.call_args.args[0] == "API Key"
-    assert mock_echo.prompt_until_valid.call_args.kwargs["password"] is True
-    assert mock_echo.prompt_until_valid.call_args.kwargs["error_message"] == (
-        "'api_key' is required and cannot be empty. You can use --set api_key=value instead."
-    )
-
-
-@mock.patch("deepfellow.infra.utils.service_install.echo")
-def test_build_spec_from_api_exits_when_optional_password_left_empty_and_not_confirmed(mock_echo: Mock) -> None:
-    mock_echo.prompt.return_value = ""
-    mock_echo.confirm.return_value = False
-    fields_spec: list[dict[str, Any]] = [
-        {"name": "api_key", "type": "password", "required": False, "description": "API Key", "default": None}
-    ]
-
-    with pytest.raises(typer.Exit):
-        _build_spec_from_api(fields_spec, {}, None, prompt_all=True)
-
-    assert mock_echo.confirm.call_count == 1
-    assert mock_echo.confirm.call_args == mock.call("'api_key' is empty. Do you want to continue?")
-
-
-@mock.patch("deepfellow.infra.utils.service_install.echo")
-def test_build_spec_from_api_skips_optional_password_when_left_empty_and_confirmed(mock_echo: Mock) -> None:
-    mock_echo.prompt.return_value = ""
-    mock_echo.confirm.return_value = True
-    fields_spec: list[dict[str, Any]] = [
-        {"name": "api_key", "type": "password", "required": False, "description": "API Key", "default": None}
-    ]
-
-    result = _build_spec_from_api(fields_spec, {}, None, prompt_all=True)
-
-    assert result == {}
-
-
-@mock.patch("deepfellow.infra.utils.service_install.echo")
-def test_build_spec_from_api_adds_optional_password_when_value_given(mock_echo: Mock) -> None:
-    mock_echo.prompt.return_value = "typed-secret"
-    fields_spec: list[dict[str, Any]] = [
-        {"name": "api_key", "type": "password", "required": False, "description": "API Key", "default": None}
-    ]
-
-    result = _build_spec_from_api(fields_spec, {}, None, prompt_all=True)
-
-    assert result == {"api_key": "typed-secret"}
-    assert mock_echo.confirm.call_count == 0
-
-
-@mock.patch("deepfellow.infra.utils.service_install.echo")
-def test_build_spec_from_api_adds_text_field_value_when_provided(mock_echo: Mock) -> None:
-    mock_echo.prompt.return_value = "typed-url"
-    fields_spec: list[dict[str, Any]] = [
-        {"name": "api_url", "type": "text", "required": False, "description": "API URL", "default": None}
-    ]
-
-    result = _build_spec_from_api(fields_spec, {}, None, prompt_all=True)
-
-    assert result == {"api_url": "typed-url"}
-
-
-@mock.patch("deepfellow.infra.utils.service_install.echo")
-def test_build_spec_from_api_skips_optional_text_field_when_left_empty(mock_echo: Mock) -> None:
-    mock_echo.prompt.return_value = ""
-    fields_spec: list[dict[str, Any]] = [
-        {"name": "api_url", "type": "text", "required": False, "description": "API URL", "default": None}
-    ]
-
-    result = _build_spec_from_api(fields_spec, {}, None, prompt_all=True)
-
-    assert result == {}
-
-
-@mock.patch("deepfellow.infra.utils.service_install.echo")
-def test_build_spec_from_api_adds_required_text_field_even_when_value_is_empty(mock_echo: Mock) -> None:
-    mock_echo.prompt.return_value = ""
-    fields_spec: list[dict[str, Any]] = [
-        {"name": "name", "type": "text", "required": True, "description": "Name", "default": None}
-    ]
-
-    result = _build_spec_from_api(fields_spec, {}, None, prompt_all=False)
-
-    assert result == {"name": ""}
-
-
-@mock.patch("deepfellow.infra.utils.service_install.echo")
-def test_build_spec_from_api_adds_text_field_with_default_when_value_given(mock_echo: Mock) -> None:
-    mock_echo.prompt.return_value = "https://custom.example.com"
-    fields_spec: list[dict[str, Any]] = [
-        {
-            "name": "api_url",
-            "type": "text",
-            "required": False,
-            "description": "API URL",
-            "default": "https://default.example.com",
-        }
-    ]
-
-    result = _build_spec_from_api(fields_spec, {}, None, prompt_all=True)
-
-    assert result == {"api_url": "https://custom.example.com"}
-
-
-@mock.patch("deepfellow.infra.utils.service_install.echo")
-def test_build_spec_from_api_skips_text_field_with_default_when_prompt_returns_empty(mock_echo: Mock) -> None:
-    mock_echo.prompt.return_value = ""
-    fields_spec: list[dict[str, Any]] = [
-        {
-            "name": "api_url",
-            "type": "text",
-            "required": False,
-            "description": "API URL",
-            "default": "https://default.example.com",
-        }
-    ]
-
-    result = _build_spec_from_api(fields_spec, {}, None, prompt_all=True)
-
-    assert result == {}
-
-
-@mock.patch("deepfellow.infra.utils.service_install.echo")
-def test_build_spec_from_api_skips_optional_field_without_prompt_all(mock_echo: Mock) -> None:
-    fields_spec: list[dict[str, Any]] = [
-        {"name": "api_url", "type": "text", "required": False, "description": "API URL", "default": "https://x"}
-    ]
-
-    result = _build_spec_from_api(fields_spec, {}, None, prompt_all=False)
-
-    assert result == {}
-    assert mock_echo.prompt.call_count == 0
 
 
 @mock.patch("deepfellow.infra.service.install.install_util")
