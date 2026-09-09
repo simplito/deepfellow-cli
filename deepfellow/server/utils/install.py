@@ -10,9 +10,10 @@
 """Install server core logic."""
 
 import json
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from copy import deepcopy
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any, cast
 
@@ -70,7 +71,7 @@ from deepfellow.common.install import (
 )
 from deepfellow.common.registry import get_newest_image_tag
 from deepfellow.common.system import run
-from deepfellow.common.templates import InstallTemplate
+from deepfellow.common.templates import InstallTemplate, PostStartAction
 from deepfellow.server.utils.configure import (
     FalkorDBConfig,
     OtelConfig,
@@ -83,6 +84,7 @@ from deepfellow.server.utils.configure import (
 from deepfellow.server.utils.docker import start_server
 from deepfellow.server.utils.storage import config_json_exists
 from deepfellow.server.utils.templates import dispatch_post_start_action, resolve_template
+from deepfellow.server.utils.users import apply_admin, resolve_admin_creds
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
@@ -832,6 +834,130 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
 
 
 @translate_to_install_error
+def _prepare_post_start_action(action: PostStartAction) -> Callable[[], Any]:
+    """Run a post-start action's ask/build phase, returning its apply phase as a callable.
+
+    `server.create_admin`'s build phase only resolves admin credentials, prompting for whichever of
+    name/email/password the action didn't supply - unlike infra's service-spec field prompts, it
+    needs nothing from the already-started server, so it is hoisted here in full and only the
+    account creation itself is left to the returned callable. Any other action is deferred whole to
+    the returned callable and dispatched as one, exactly as before.
+
+    Args:
+        action: The post-start action to prepare, with its kwargs already finalized by the caller.
+
+    Returns:
+        A zero-argument callable performing `action`'s apply phase.
+
+    Raises:
+        InstallError: If the action's build phase fails (translated from typer.Exit and friends by
+            the decorator).
+    """
+    if action["function"] == "server.create_admin":
+        kwargs = dict(action["kwargs"])
+        name, email, password = resolve_admin_creds(
+            kwargs.pop("name", None), kwargs.pop("email", None), kwargs.pop("password", None)
+        )
+        apply_phase: Callable[[], Any] = partial(apply_admin, name=name, email=email, password=password, **kwargs)
+    else:
+        apply_phase = partial(dispatch_post_start_action, action)
+
+    # The apply pass reports one InstallError per action; without this, a typer.Exit raised by a
+    # worker called directly (rather than through dispatch_post_start_action, which translates it
+    # itself) would escape to install()'s own @translate_to_install_error and lose that context.
+    return translate_to_install_error(apply_phase)
+
+
+def _run_post_start_actions(
+    post_start_actions: list[PostStartAction],
+    directory: Path,
+    admin_name: str | None,
+    admin_email: str | None,
+    admin_password: str | None,
+) -> None:
+    """Run a template's post-start actions: every action's ask phase first, then every apply phase.
+
+    Args:
+        post_start_actions: The resolved template's post-start actions, run in list order. Their
+            kwargs are finalized in place (see the `server.create_admin` handling below).
+        directory: The directory actually installed to, forced onto every `server.create_admin`
+            action in place of whatever the template guessed.
+        admin_name: CLI-provided admin name override, if any.
+        admin_email: CLI-provided admin email override, if any.
+        admin_password: CLI-provided admin password override, if any.
+
+    Raises:
+        typer.Exit: If any action's build or apply phase fails. Under `--debug`, the originating
+            exception is re-raised instead.
+    """
+    total = len(post_start_actions)
+
+    # Ask-phase pass: this loop itself only finalizes each action's kwargs (no prompting) and then
+    # hands it to _prepare_post_start_action(), which does the asking - so every action is asked
+    # about before any of them is applied, and a failure partway through the apply pass below never
+    # wastes an answer the user has yet to give. Nothing asked for here needs the already-started
+    # server, unlike infra's service-spec field prompts, so this reaches full ask-before-apply.
+    apply_phases: list[Callable[[], Any]] = []
+    for index, action in enumerate(post_start_actions, start=1):
+        # A server.create_admin action's "directory" kwarg must target the directory actually
+        # installed to, not whatever a template guessed (the built-in "workspace" template bakes
+        # it to the default DF_SERVER_DIRECTORY, which is wrong whenever --directory overrides
+        # it). Scoped to server.create_admin, like _coerce_directory() and
+        # _validate_non_interactive_post_start_actions(), so a future action type without a
+        # "directory" kwarg isn't silently handed one it never asked for.
+        if action["function"] == "server.create_admin":
+            template_directory = action["kwargs"].get("directory")
+            if template_directory is not None and template_directory != directory:
+                echo.warning(
+                    f"Post-start action {index}/{total} ('{action['function']}') set its own "
+                    f"'directory' ({template_directory}); overriding it with the actually-installed "
+                    f"server's directory ({directory})."
+                )
+            action["kwargs"]["directory"] = directory
+            action["kwargs"].update(resolve_admin_kwargs(action["kwargs"], admin_name, admin_email, admin_password))
+        try:
+            apply_phases.append(_prepare_post_start_action(action))
+        except InstallError as exc:
+            echo.error(
+                f"Post-start action {index}/{total} ('{action['function']}') could not be prepared: {exc}\n"
+                "Server is already installed and running; no post-start action has run yet."
+            )
+            reraise_if_debug(exc)
+        except Exception as exc:
+            # See the apply pass below for why a second, broader handler is needed.
+            echo.error(
+                f"Post-start action {index}/{total} ('{action['function']}') could not be prepared "
+                f"due to an unexpected failure: {exc}\n"
+                "Server is already installed and running; no post-start action has run yet."
+            )
+            reraise_if_debug(exc)
+
+    # Apply-phase pass: no prompting left, only the actions' actual effects.
+    for index, (action, apply_phase) in enumerate(zip(post_start_actions, apply_phases, strict=True), start=1):
+        try:
+            apply_phase()
+        except InstallError as exc:
+            echo.error(
+                f"Post-start action {index}/{total} ('{action['function']}') failed: {exc}\n"
+                f"Server is already installed and running; {index - 1} of {total} action(s) "
+                "completed before this failure."
+            )
+            reraise_if_debug(exc)
+        except Exception as exc:
+            # An apply phase only translates typer.Exit/BadParameter/Docker/OSError failures
+            # into InstallError (see deepfellow.common.exceptions.translate_to_install_error);
+            # any other exception type propagates unmodified. Catch it here too, so a future
+            # post-start action that raises outside that translated set still gets the same
+            # operator-facing message instead of a bare traceback.
+            echo.error(
+                f"Post-start action {index}/{total} ('{action['function']}') failed unexpectedly: {exc}\n"
+                f"Server is already installed and running; {index - 1} of {total} action(s) "
+                "completed before this failure."
+            )
+            reraise_if_debug(exc)
+
+
+@translate_to_install_error
 def install(
     directory: Path = DF_SERVER_DIRECTORY,
     port: int = DF_SERVER_PORT,
@@ -929,42 +1055,4 @@ def install(
             echo.error(f"Failed to start server for template post start actions: {reason}")
             reraise_if_debug(exc)
 
-        # A server.create_admin action's "directory" kwarg must target the directory actually
-        # installed to, not whatever a template guessed (the built-in "workspace" template bakes
-        # it to the default DF_SERVER_DIRECTORY, which is wrong whenever --directory overrides
-        # it). Scoped to server.create_admin, like _coerce_directory() and
-        # _validate_non_interactive_post_start_actions(), so a future action type without a
-        # "directory" kwarg isn't silently handed one it never asked for.
-        total = len(post_start_actions)
-        for index, action in enumerate(post_start_actions, start=1):
-            if action["function"] == "server.create_admin":
-                template_directory = action["kwargs"].get("directory")
-                if template_directory is not None and template_directory != config.directory:
-                    echo.warning(
-                        f"Post-start action {index}/{total} ('{action['function']}') set its own "
-                        f"'directory' ({template_directory}); overriding it with the actually-installed "
-                        f"server's directory ({config.directory})."
-                    )
-                action["kwargs"]["directory"] = config.directory
-                action["kwargs"].update(resolve_admin_kwargs(action["kwargs"], admin_name, admin_email, admin_password))
-            try:
-                dispatch_post_start_action(action)
-            except InstallError as exc:
-                echo.error(
-                    f"Post-start action {index}/{total} ('{action['function']}') failed: {exc}\n"
-                    f"Server is already installed and running; {index - 1} of {total} action(s) "
-                    "completed before this failure."
-                )
-                reraise_if_debug(exc)
-            except Exception as exc:
-                # dispatch_post_start_action only translates typer.Exit/BadParameter/Docker/OSError
-                # failures into InstallError (see deepfellow.common.templates.dispatch_post_start_action);
-                # any other exception type propagates unmodified. Catch it here too, so a future
-                # post-start action that raises outside that translated set still gets the same
-                # operator-facing message instead of a bare traceback.
-                echo.error(
-                    f"Post-start action {index}/{total} ('{action['function']}') failed unexpectedly: {exc}\n"
-                    f"Server is already installed and running; {index - 1} of {total} action(s) "
-                    "completed before this failure."
-                )
-                reraise_if_debug(exc)
+        _run_post_start_actions(post_start_actions, config.directory, admin_name, admin_email, admin_password)

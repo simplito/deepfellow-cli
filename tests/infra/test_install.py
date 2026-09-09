@@ -9,10 +9,10 @@
 
 import inspect
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest import mock
 from unittest.mock import Mock
 
@@ -34,9 +34,20 @@ from deepfellow.common.docker import DockerError
 from deepfellow.common.exceptions import DockerNetworkError, InstallError
 from deepfellow.common.state import state
 from deepfellow.infra.install import install as install_command
-from deepfellow.infra.utils.install import InstallConfig, InstallContext, apply, install, mergeable_field_names, resolve
+from deepfellow.infra.utils.install import (
+    InstallConfig,
+    InstallContext,
+    _prepare_post_start_action,
+    apply,
+    install,
+    mergeable_field_names,
+    resolve,
+)
 from deepfellow.infra.utils.install import inspect as inspect_util
 from deepfellow.infra.utils.templates import BUILTIN_TEMPLATES
+
+if TYPE_CHECKING:
+    from deepfellow.common.templates import PostStartAction
 
 
 @pytest.fixture
@@ -2216,6 +2227,10 @@ class InstallMocks:
     resolve_template: Mock
     start_infra: Mock
     dispatch_post_start_action: Mock
+    resolve_model_connection: Mock
+    apply_model_install: Mock
+    build_service_spec: Mock
+    apply_service_spec: Mock
     get_newest_image_tag: Mock
 
 
@@ -2239,6 +2254,10 @@ def install_mocks() -> Iterator[InstallMocks]:
         "resolve_template": "deepfellow.infra.utils.install.resolve_template",
         "start_infra": "deepfellow.infra.utils.install.start_infra",
         "dispatch_post_start_action": "deepfellow.infra.utils.install.dispatch_post_start_action",
+        "resolve_model_connection": "deepfellow.infra.utils.install.resolve_model_connection",
+        "apply_model_install": "deepfellow.infra.utils.install.apply_model_install",
+        "build_service_spec": "deepfellow.infra.utils.install.build_service_spec",
+        "apply_service_spec": "deepfellow.infra.utils.install.apply_service_spec",
         "get_newest_image_tag": "deepfellow.infra.utils.install.get_newest_image_tag",
     }
     patchers = {name: mock.patch(target) for name, target in targets.items()}
@@ -2668,10 +2687,77 @@ def test_install_starts_infra_and_dispatches_post_start_actions_in_order(
 
     assert install_mocks.start_infra.call_count == 1
     assert install_mocks.start_infra.call_args == mock.call(tmp_path)
-    assert install_mocks.dispatch_post_start_action.call_args_list == [mock.call(actions[0]), mock.call(actions[1])]
+    # Both a service install and a model install are split into a hoisted build phase
+    # (build_service_spec()/resolve_model_connection()) and an apply phase
+    # (apply_service_spec()/apply_model_install()) - dispatch_post_start_action is only the
+    # fallback for an action kind with no hoisted split, so it's never called here.
+    assert install_mocks.dispatch_post_start_action.call_count == 0
+    assert install_mocks.build_service_spec.call_args_list == [
+        mock.call("ollama", server=f"http://localhost:{DF_INFRA_PORT}")
+    ]
+    assert install_mocks.apply_service_spec.call_args_list == [
+        mock.call("ollama", install_mocks.build_service_spec.return_value, quiet=False)
+    ]
+    assert install_mocks.apply_model_install.call_args_list == [
+        mock.call(
+            connection=install_mocks.resolve_model_connection.return_value,
+            service_name="ollama",
+            model_name="gemma4:e4b",
+        )
+    ]
     assert actions[0]["kwargs"]["server"] == f"http://localhost:{DF_INFRA_PORT}"
     assert actions[1]["kwargs"]["server"] == f"http://localhost:{DF_INFRA_PORT}"
     assert install_mocks.echo.warning.call_count == 0
+
+
+def test_prepare_post_start_action_falls_back_to_dispatch_for_an_unhoisted_action(
+    install_mocks: InstallMocks,
+) -> None:
+    # Both currently-registered action kinds (infra.service.install, infra.model.install) are
+    # hoisted above, so this fallback can't be reached through install() with a real, registry-
+    # validated template - it exists only as a safety net for a future action type added to the
+    # registry without a matching hoist branch here. Exercised directly since install()'s own
+    # template validation makes it otherwise unreachable.
+    action: PostStartAction = {"function": "infra.some_future_action", "kwargs": {"foo": "bar"}}
+
+    apply_phase = _prepare_post_start_action(action)
+    apply_phase()
+
+    assert install_mocks.dispatch_post_start_action.call_args_list == [mock.call(action)]
+
+
+def test_install_resolves_every_post_start_prompt_before_any_apply_phase(
+    install_mocks: InstallMocks, tmp_path: Path
+) -> None:
+    # DFCLI-92: the post-start-actions loop asks first and applies second, for every action kind -
+    # a service install's spec-field prompt (build_service_spec) and a model install's connection
+    # prompt (resolve_model_connection) must both fire before the first apply phase of *any*
+    # action in the loop.
+    _setup_echo(install_mocks.echo)
+    install_mocks.read_env_file_to_dict.return_value = {}
+    actions: list[dict[str, Any]] = [
+        {"function": "infra.service.install", "kwargs": {"name": "ollama"}},
+        {"function": "infra.model.install", "kwargs": {"service_name": "ollama", "model_name": "gemma4:e4b"}},
+        {"function": "infra.model.install", "kwargs": {"service_name": "ollama", "model_name": "qwen3.5:4b"}},
+    ]
+    install_mocks.resolve_template.return_value = {"config": {}, "post_start_actions": actions}
+    calls: list[str] = []
+
+    def record(label: str, return_value: Any = None) -> Callable[..., Any]:
+        def recorder(*_args: Any, **_kwargs: Any) -> Any:
+            calls.append(label)
+            return return_value
+
+        return recorder
+
+    install_mocks.build_service_spec.side_effect = record("ask:service", mock.Mock(explicit_spec=False))
+    install_mocks.resolve_model_connection.side_effect = record("ask:model")
+    install_mocks.apply_service_spec.side_effect = record("apply:service")
+    install_mocks.apply_model_install.side_effect = record("apply:model")
+
+    install(directory=tmp_path, template="workspace")
+
+    assert calls == ["ask:service", "ask:model", "ask:model", "apply:service", "apply:model", "apply:model"]
 
 
 def test_install_overwrites_and_warns_about_a_template_supplied_server(
@@ -2750,7 +2836,7 @@ def test_install_raises_install_error_when_post_start_action_fails(install_mocks
         "config": {},
         "post_start_actions": [{"function": "infra.model.install", "kwargs": {}}],
     }
-    install_mocks.dispatch_post_start_action.side_effect = InstallError("bad kwargs")
+    install_mocks.apply_model_install.side_effect = InstallError("bad kwargs")
 
     with pytest.raises(InstallError):
         install(directory=tmp_path, template="workspace")
@@ -2762,14 +2848,122 @@ def test_install_raises_install_error_when_post_start_action_fails(install_mocks
     ) in error_messages
 
 
+def test_install_raises_install_error_when_a_post_start_action_build_phase_fails(
+    install_mocks: InstallMocks, tmp_path: Path
+) -> None:
+    # A build phase failing has its own message: nothing has been applied yet, so reporting a
+    # count of completed actions (as the apply pass does) would be misleading.
+    _setup_echo(install_mocks.echo)
+    install_mocks.read_env_file_to_dict.return_value = {}
+    install_mocks.resolve_template.return_value = {
+        "config": {},
+        "post_start_actions": [{"function": "infra.model.install", "kwargs": {}}],
+    }
+    install_mocks.resolve_model_connection.side_effect = typer.Exit(1)
+
+    with pytest.raises(InstallError):
+        install(directory=tmp_path, template="workspace")
+
+    error_messages = [call.args[0] for call in install_mocks.echo.error.call_args_list]
+    assert (
+        "Post-start action 1/1 ('infra.model.install') could not be prepared: "
+        "Installation failed; see console output above for details.\n"
+        "Infra is already installed and running; no post-start action has run yet."
+    ) in error_messages
+    assert install_mocks.apply_model_install.call_count == 0
+    assert install_mocks.dispatch_post_start_action.call_count == 0
+
+
+def test_install_raises_install_error_when_a_post_start_action_build_phase_fails_outside_translated_set(
+    install_mocks: InstallMocks, tmp_path: Path
+) -> None:
+    # translate_to_install_error only translates typer.Exit/BadParameter/Docker/OSError failures
+    # into InstallError; any other exception type (like a plain ValueError here) must still be
+    # reported with the same operator-facing "could not be prepared" message, not a bare traceback.
+    _setup_echo(install_mocks.echo)
+    install_mocks.read_env_file_to_dict.return_value = {}
+    install_mocks.resolve_template.return_value = {
+        "config": {},
+        "post_start_actions": [{"function": "infra.model.install", "kwargs": {}}],
+    }
+    install_mocks.resolve_model_connection.side_effect = ValueError("unexpected failure")
+
+    with pytest.raises(InstallError):
+        install(directory=tmp_path, template="workspace")
+
+    error_messages = [call.args[0] for call in install_mocks.echo.error.call_args_list]
+    assert (
+        "Post-start action 1/1 ('infra.model.install') could not be prepared due to an unexpected "
+        "failure: unexpected failure\n"
+        "Infra is already installed and running; no post-start action has run yet."
+    ) in error_messages
+    assert install_mocks.apply_model_install.call_count == 0
+    assert install_mocks.dispatch_post_start_action.call_count == 0
+
+
+def test_install_raises_install_error_when_a_post_start_action_fails_outside_translated_set(
+    install_mocks: InstallMocks, tmp_path: Path
+) -> None:
+    # Same as above, but for a failure raised by the apply phase itself rather than the build phase.
+    _setup_echo(install_mocks.echo)
+    install_mocks.read_env_file_to_dict.return_value = {}
+    install_mocks.resolve_template.return_value = {
+        "config": {},
+        "post_start_actions": [{"function": "infra.model.install", "kwargs": {}}],
+    }
+    install_mocks.apply_model_install.side_effect = ValueError("unexpected failure")
+
+    with pytest.raises(InstallError):
+        install(directory=tmp_path, template="workspace")
+
+    error_messages = [call.args[0] for call in install_mocks.echo.error.call_args_list]
+    assert (
+        "Post-start action 1/1 ('infra.model.install') failed unexpectedly: unexpected failure\n"
+        "Infra is already installed and running; 0 of 1 action(s) completed before this failure."
+    ) in error_messages
+
+
+def test_install_runs_no_apply_phase_when_a_later_actions_ask_phase_fails(
+    install_mocks: InstallMocks, tmp_path: Path
+) -> None:
+    # DFCLI-92's core guarantee: the ask phase for every action runs to completion before the
+    # apply phase for any action starts. If the first action's ask phase already fired
+    # successfully - it's connected, the user has already been prompted - a failure asking the
+    # *second* action must still prevent the *first* action's apply phase from running, since that
+    # apply phase's own side effects (e.g. installing a model) haven't been promised to the user
+    # yet. A regression back to interleaved per-action ask-then-apply would let the first action's
+    # apply phase slip through here.
+    _setup_echo(install_mocks.echo)
+    install_mocks.read_env_file_to_dict.return_value = {}
+    actions = [
+        {"function": "infra.model.install", "kwargs": {"service_name": "ollama", "model_name": "gemma4:e4b"}},
+        {"function": "infra.model.install", "kwargs": {"service_name": "ollama", "model_name": "qwen3.5:4b"}},
+    ]
+    install_mocks.resolve_template.return_value = {"config": {}, "post_start_actions": actions}
+    install_mocks.resolve_model_connection.side_effect = ["connection", typer.Exit(1)]
+
+    with pytest.raises(InstallError):
+        install(directory=tmp_path, template="workspace")
+
+    error_messages = [call.args[0] for call in install_mocks.echo.error.call_args_list]
+    assert (
+        "Post-start action 2/2 ('infra.model.install') could not be prepared: "
+        "Installation failed; see console output above for details.\n"
+        "Infra is already installed and running; no post-start action has run yet."
+    ) in error_messages
+    assert install_mocks.apply_model_install.call_count == 0
+    assert install_mocks.dispatch_post_start_action.call_count == 0
+
+
 def test_install_names_the_failing_action_when_the_second_of_three_fails(
     install_mocks: InstallMocks, tmp_path: Path
 ) -> None:
     # Regression test: a mid-list failure must name which action failed and how many already
-    # completed, not a message identical to every other action's failure. InstallError is the
-    # only failure mode dispatch_post_start_action can ever raise here (it's decorated with
-    # @translate_to_install_error, which unconditionally converts typer.Exit into InstallError
-    # before it escapes) - so that's what's simulated, not typer.Exit.
+    # completed, not a message identical to every other action's failure. InstallError is what's
+    # simulated here (not typer.Exit) because apply_service_spec and apply_model_install are the
+    # mocked seams, and both already report their own failures as InstallError in production; a
+    # raw typer.Exit or other exception raised by either would still be caught (see the
+    # "_outside_translated_set" tests above), just reported with different wording.
     _setup_echo(install_mocks.echo)
     install_mocks.read_env_file_to_dict.return_value = {}
     actions = [
@@ -2778,7 +2972,7 @@ def test_install_names_the_failing_action_when_the_second_of_three_fails(
         {"function": "infra.model.install", "kwargs": {"service_name": "ollama", "model_name": "qwen3.5:4b"}},
     ]
     install_mocks.resolve_template.return_value = {"config": {}, "post_start_actions": actions}
-    install_mocks.dispatch_post_start_action.side_effect = [None, InstallError("model not found"), None]
+    install_mocks.apply_model_install.side_effect = [InstallError("model not found"), None]
 
     with pytest.raises(InstallError):
         install(directory=tmp_path, template="workspace")
@@ -2788,7 +2982,9 @@ def test_install_names_the_failing_action_when_the_second_of_three_fails(
         "Post-start action 2/3 ('infra.model.install') failed: model not found\n"
         "Infra is already installed and running; 1 of 3 action(s) completed before this failure."
     ) in error_messages
-    assert install_mocks.dispatch_post_start_action.call_count == 2
+    assert install_mocks.dispatch_post_start_action.call_count == 0
+    assert install_mocks.apply_service_spec.call_count == 1
+    assert install_mocks.apply_model_install.call_count == 1
 
 
 def test_install_raises_install_error_when_start_infra_exits(install_mocks: InstallMocks, tmp_path: Path) -> None:

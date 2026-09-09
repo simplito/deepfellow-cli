@@ -86,6 +86,8 @@ MOCK_CONFIGURE_ECHO = mock.patch("deepfellow.server.utils.configure.echo")
 MOCK_RESOLVE_TEMPLATE = mock.patch("deepfellow.server.utils.install.resolve_template")
 MOCK_START_SERVER = mock.patch("deepfellow.server.utils.install.start_server")
 MOCK_DISPATCH_POST_START_ACTION = mock.patch("deepfellow.server.utils.install.dispatch_post_start_action")
+MOCK_RESOLVE_ADMIN_CREDS = mock.patch("deepfellow.server.utils.install.resolve_admin_creds")
+MOCK_APPLY_ADMIN = mock.patch("deepfellow.server.utils.install.apply_admin")
 
 
 def dummy_ctx() -> Mock:
@@ -2907,6 +2909,7 @@ def test_install_restores_prior_port_when_template_omits_port(
     assert env_vars["DF_SERVER_PORT"] == "9500"
 
 
+@MOCK_APPLY_ADMIN
 @MOCK_DISPATCH_POST_START_ACTION
 @MOCK_START_SERVER
 @MOCK_SAVE_COMPOSE_FILE
@@ -2930,6 +2933,7 @@ def test_install_end_to_end_with_real_builtin_workspace_template(
     mock_save_compose_file,
     mock_start_server,
     mock_dispatch_post_start_action,
+    mock_apply_admin,
     tmp_path,
 ):
     """Every other template test mocks resolve_template() with a synthetic config, so the real
@@ -2957,21 +2961,16 @@ def test_install_end_to_end_with_real_builtin_workspace_template(
 
     assert mock_start_server.call_count == 1
     assert mock_start_server.call_args == mock.call(tmp_path)
-    assert mock_dispatch_post_start_action.call_args_list == [
-        mock.call(
-            {
-                "function": "server.create_admin",
-                "kwargs": {
-                    "directory": tmp_path,
-                    "name": "Admin User",
-                    "email": "admin@example.com",
-                    "password": "Password1!",
-                },
-            }
-        )
+    # A server.create_admin action is split into resolve_admin_creds() (no prompting here: every
+    # credential came from a CLI flag) and apply_admin(), so it never reaches the generic dispatch.
+    assert mock_dispatch_post_start_action.call_count == 0
+    assert mock_apply_admin.call_args_list == [
+        mock.call(directory=tmp_path, name="Admin User", email="admin@example.com", password="Password1!")
     ]
 
 
+@MOCK_APPLY_ADMIN
+@MOCK_RESOLVE_ADMIN_CREDS
 @MOCK_DISPATCH_POST_START_ACTION
 @MOCK_START_SERVER
 @MOCK_RESOLVE_TEMPLATE
@@ -2999,12 +2998,15 @@ def test_install_dispatches_post_start_actions_overriding_directory(
     mock_resolve_template,
     mock_start_server,
     mock_dispatch_post_start_action,
+    mock_resolve_admin_creds,
+    mock_apply_admin,
     tmp_path,
 ):
     configure_install_mocks(
         mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
     )
     mock_env_get.return_value = None
+    mock_resolve_admin_creds.return_value = ("resolved", "resolved@example.com", "Resolved12345!")
     actions = [
         {
             "function": "server.create_admin",
@@ -3021,7 +3023,8 @@ def test_install_dispatches_post_start_actions_overriding_directory(
 
     assert mock_start_server.call_count == 1
     assert mock_start_server.call_args == mock.call(tmp_path)
-    assert mock_dispatch_post_start_action.call_args_list == [mock.call(actions[0]), mock.call(actions[1])]
+    assert mock_dispatch_post_start_action.call_count == 0
+    assert mock_apply_admin.call_count == 2
     assert actions[0]["kwargs"]["directory"] == tmp_path
     assert actions[1]["kwargs"]["directory"] == tmp_path
     assert mock_echo.warning.call_count == 1
@@ -3029,6 +3032,77 @@ def test_install_dispatches_post_start_actions_overriding_directory(
     assert "Post-start action 2/2 ('server.create_admin') set its own 'directory'" in warning_message
 
 
+@MOCK_APPLY_ADMIN
+@MOCK_RESOLVE_ADMIN_CREDS
+@MOCK_DISPATCH_POST_START_ACTION
+@MOCK_START_SERVER
+@MOCK_RESOLVE_TEMPLATE
+@MOCK_ENV_GET
+@MOCK_SAVE_COMPOSE_FILE
+@MOCK_RUN
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@MOCK_ENSURE_NETWORK
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_install_resolves_every_admin_credential_before_creating_any_admin_account(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_ensure_network: Mock,
+    mock_configure_mongo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    mock_run: Mock,
+    mock_save_compose_file: Mock,
+    mock_env_get: Mock,
+    mock_resolve_template: Mock,
+    mock_start_server: Mock,
+    mock_dispatch_post_start_action: Mock,
+    mock_resolve_admin_creds: Mock,
+    mock_apply_admin: Mock,
+    tmp_path: Path,
+) -> None:
+    """DFCLI-92: the post-start-actions loop asks first and applies second. Unlike infra's
+    service-spec field prompts, nothing here depends on the already-started server, so every
+    action's credential prompting must precede every account creation."""
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+    mock_env_get.return_value = None
+    actions = [
+        {
+            "function": "server.create_admin",
+            "kwargs": {"directory": tmp_path, "name": None, "email": None, "password": None},
+        },
+        {
+            "function": "server.create_admin",
+            "kwargs": {"directory": tmp_path, "name": None, "email": None, "password": None},
+        },
+    ]
+    mock_resolve_template.return_value = {"config": {}, "post_start_actions": actions}
+    calls: list[str] = []
+
+    def record_ask(*_args: Any, **_kwargs: Any) -> tuple[str, str, str]:
+        calls.append("ask")
+        return ("resolved", "resolved@example.com", "Resolved12345!")
+
+    def record_apply(*_args: Any, **_kwargs: Any) -> bool:
+        calls.append("apply")
+        return True
+
+    mock_resolve_admin_creds.side_effect = record_ask
+    mock_apply_admin.side_effect = record_apply
+
+    install(directory=tmp_path, template="workspace", force_install=True)
+
+    assert calls == ["ask", "ask", "apply", "apply"]
+    assert mock_dispatch_post_start_action.call_count == 0
+
+
+@MOCK_APPLY_ADMIN
 @MOCK_DISPATCH_POST_START_ACTION
 @MOCK_START_SERVER
 @MOCK_RESOLVE_TEMPLATE
@@ -3056,6 +3130,7 @@ def test_install_injects_cli_admin_flags_into_create_admin_action(
     mock_resolve_template,
     mock_start_server,
     mock_dispatch_post_start_action,
+    mock_apply_admin,
     tmp_path,
 ):
     """--admin-name/--admin-email/--admin-password must land in the dispatched action's kwargs,
@@ -3084,6 +3159,9 @@ def test_install_injects_cli_admin_flags_into_create_admin_action(
     assert actions[0]["kwargs"]["name"] == "szymon"
     assert actions[0]["kwargs"]["email"] == "szymon@szymon.pl"
     assert actions[0]["kwargs"]["password"] == "Admin12345!"
+    assert mock_apply_admin.call_args_list == [
+        mock.call(directory=tmp_path, name="szymon", email="szymon@szymon.pl", password="Admin12345!")
+    ]
 
 
 @MOCK_DISPATCH_POST_START_ACTION
@@ -3231,6 +3309,8 @@ def test_install_start_server_typer_exit_raises_install_error(
     assert mock_dispatch_post_start_action.call_count == 0
 
 
+@MOCK_APPLY_ADMIN
+@MOCK_RESOLVE_ADMIN_CREDS
 @MOCK_DISPATCH_POST_START_ACTION
 @MOCK_START_SERVER
 @MOCK_RESOLVE_TEMPLATE
@@ -3256,11 +3336,14 @@ def test_install_post_start_action_failure_raises_install_error(
     mock_resolve_template,
     mock_start_server,
     mock_dispatch_post_start_action,
+    mock_resolve_admin_creds,
+    mock_apply_admin,
     tmp_path,
 ):
     configure_install_mocks(
         mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
     )
+    mock_resolve_admin_creds.return_value = ("resolved", "resolved@example.com", "Resolved12345!")
     actions = [
         {
             "function": "server.create_admin",
@@ -3268,7 +3351,7 @@ def test_install_post_start_action_failure_raises_install_error(
         }
     ]
     mock_resolve_template.return_value = {"config": {}, "post_start_actions": actions}
-    mock_dispatch_post_start_action.side_effect = InstallError("bad kwargs")
+    mock_apply_admin.side_effect = InstallError("bad kwargs")
 
     with pytest.raises(InstallError):
         install(directory=tmp_path, template="workspace", force_install=True)
@@ -3280,6 +3363,120 @@ def test_install_post_start_action_failure_raises_install_error(
     ) in error_messages
 
 
+@MOCK_APPLY_ADMIN
+@MOCK_RESOLVE_ADMIN_CREDS
+@MOCK_DISPATCH_POST_START_ACTION
+@MOCK_START_SERVER
+@MOCK_RESOLVE_TEMPLATE
+@MOCK_SAVE_COMPOSE_FILE
+@MOCK_RUN
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@MOCK_ENSURE_NETWORK
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_install_post_start_action_build_phase_failure_raises_install_error(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_ensure_network: Mock,
+    mock_configure_mongo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    mock_run: Mock,
+    mock_save_compose_file: Mock,
+    mock_resolve_template: Mock,
+    mock_start_server: Mock,
+    mock_dispatch_post_start_action: Mock,
+    mock_resolve_admin_creds: Mock,
+    mock_apply_admin: Mock,
+    tmp_path: Path,
+) -> None:
+    """A build phase failing has its own message: nothing has been applied yet, so reporting a
+    count of completed actions (as the apply pass does) would be misleading."""
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+    actions = [
+        {
+            "function": "server.create_admin",
+            "kwargs": {"directory": tmp_path, "name": None, "email": None, "password": None},
+        }
+    ]
+    mock_resolve_template.return_value = {"config": {}, "post_start_actions": actions}
+    mock_resolve_admin_creds.side_effect = typer.Exit(1)
+
+    with pytest.raises(InstallError):
+        install(directory=tmp_path, template="workspace", force_install=True)
+
+    error_messages = [call.args[0] for call in mock_echo.error.call_args_list]
+    assert (
+        "Post-start action 1/1 ('server.create_admin') could not be prepared: "
+        "Installation failed; see console output above for details.\n"
+        "Server is already installed and running; no post-start action has run yet."
+    ) in error_messages
+    assert mock_apply_admin.call_count == 0
+
+
+@MOCK_APPLY_ADMIN
+@MOCK_RESOLVE_ADMIN_CREDS
+@MOCK_DISPATCH_POST_START_ACTION
+@MOCK_START_SERVER
+@MOCK_RESOLVE_TEMPLATE
+@MOCK_SAVE_COMPOSE_FILE
+@MOCK_RUN
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@MOCK_ENSURE_NETWORK
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_install_post_start_action_build_phase_failure_outside_translated_set_still_raises_install_error(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_ensure_network: Mock,
+    mock_configure_mongo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    mock_run: Mock,
+    mock_save_compose_file: Mock,
+    mock_resolve_template: Mock,
+    mock_start_server: Mock,
+    mock_dispatch_post_start_action: Mock,
+    mock_resolve_admin_creds: Mock,
+    mock_apply_admin: Mock,
+    tmp_path: Path,
+) -> None:
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+    actions = [
+        {
+            "function": "server.create_admin",
+            "kwargs": {"directory": tmp_path, "name": None, "email": None, "password": None},
+        }
+    ]
+    mock_resolve_template.return_value = {"config": {}, "post_start_actions": actions}
+    mock_resolve_admin_creds.side_effect = ValueError("unexpected failure")
+
+    with pytest.raises(InstallError):
+        install(directory=tmp_path, template="workspace", force_install=True)
+
+    error_messages = [call.args[0] for call in mock_echo.error.call_args_list]
+    assert (
+        "Post-start action 1/1 ('server.create_admin') could not be prepared due to an unexpected "
+        "failure: unexpected failure\n"
+        "Server is already installed and running; no post-start action has run yet."
+    ) in error_messages
+    assert mock_apply_admin.call_count == 0
+
+
+@MOCK_APPLY_ADMIN
+@MOCK_RESOLVE_ADMIN_CREDS
 @MOCK_DISPATCH_POST_START_ACTION
 @MOCK_START_SERVER
 @MOCK_RESOLVE_TEMPLATE
@@ -3305,11 +3502,14 @@ def test_install_post_start_action_failure_outside_translated_set_still_raises_i
     mock_resolve_template: Mock,
     mock_start_server: Mock,
     mock_dispatch_post_start_action: Mock,
+    mock_resolve_admin_creds: Mock,
+    mock_apply_admin: Mock,
     tmp_path: Path,
 ) -> None:
     configure_install_mocks(
         mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
     )
+    mock_resolve_admin_creds.return_value = ("resolved", "resolved@example.com", "Resolved12345!")
     actions = [
         {
             "function": "server.create_admin",
@@ -3317,7 +3517,7 @@ def test_install_post_start_action_failure_outside_translated_set_still_raises_i
         }
     ]
     mock_resolve_template.return_value = {"config": {}, "post_start_actions": actions}
-    mock_dispatch_post_start_action.side_effect = ValueError("unexpected failure")
+    mock_apply_admin.side_effect = ValueError("unexpected failure")
 
     with pytest.raises(InstallError):
         install(directory=tmp_path, template="workspace", force_install=True)
@@ -3329,6 +3529,8 @@ def test_install_post_start_action_failure_outside_translated_set_still_raises_i
     ) in error_messages
 
 
+@MOCK_APPLY_ADMIN
+@MOCK_RESOLVE_ADMIN_CREDS
 @MOCK_DISPATCH_POST_START_ACTION
 @MOCK_START_SERVER
 @MOCK_RESOLVE_TEMPLATE
@@ -3354,11 +3556,14 @@ def test_install_stops_dispatching_post_start_actions_after_first_failure(
     mock_resolve_template: Mock,
     mock_start_server: Mock,
     mock_dispatch_post_start_action: Mock,
+    mock_resolve_admin_creds: Mock,
+    mock_apply_admin: Mock,
     tmp_path: Path,
 ) -> None:
     configure_install_mocks(
         mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
     )
+    mock_resolve_admin_creds.return_value = ("resolved", "resolved@example.com", "Resolved12345!")
     actions = [
         {
             "function": "server.create_admin",
@@ -3370,17 +3575,84 @@ def test_install_stops_dispatching_post_start_actions_after_first_failure(
         },
     ]
     mock_resolve_template.return_value = {"config": {}, "post_start_actions": actions}
-    mock_dispatch_post_start_action.side_effect = [InstallError("bad kwargs"), None]
+    mock_apply_admin.side_effect = [InstallError("bad kwargs"), None]
 
     with pytest.raises(InstallError):
         install(directory=tmp_path, template="workspace", force_install=True)
 
-    assert mock_dispatch_post_start_action.call_count == 1
+    # Both actions were asked about up front, but the apply pass stops at the first failure.
+    assert mock_resolve_admin_creds.call_count == 2
+    assert mock_apply_admin.call_count == 1
     error_messages = [call.args[0] for call in mock_echo.error.call_args_list]
     assert (
         "Post-start action 1/2 ('server.create_admin') failed: bad kwargs\n"
         "Server is already installed and running; 0 of 2 action(s) completed before this failure."
     ) in error_messages
+
+
+@MOCK_APPLY_ADMIN
+@MOCK_RESOLVE_ADMIN_CREDS
+@MOCK_DISPATCH_POST_START_ACTION
+@MOCK_START_SERVER
+@MOCK_RESOLVE_TEMPLATE
+@MOCK_SAVE_COMPOSE_FILE
+@MOCK_RUN
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@MOCK_ENSURE_NETWORK
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_install_runs_no_apply_phase_when_a_later_actions_ask_phase_fails(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_ensure_network: Mock,
+    mock_configure_mongo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    mock_run: Mock,
+    mock_save_compose_file: Mock,
+    mock_resolve_template: Mock,
+    mock_start_server: Mock,
+    mock_dispatch_post_start_action: Mock,
+    mock_resolve_admin_creds: Mock,
+    mock_apply_admin: Mock,
+    tmp_path: Path,
+) -> None:
+    """DFCLI-92's core guarantee: the ask phase for every action runs to completion before the
+    apply phase for any action starts. If the first action's ask phase already fired
+    successfully, a failure asking the *second* action must still prevent the *first* action's
+    apply phase from running - its side effects (creating an admin account) haven't been promised
+    to the user yet. A regression back to interleaved per-action ask-then-apply would let the
+    first action's apply phase slip through here."""
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+    actions = [
+        {
+            "function": "server.create_admin",
+            "kwargs": {"directory": tmp_path, "name": "a", "email": "b", "password": "c"},
+        },
+        {
+            "function": "server.create_admin",
+            "kwargs": {"directory": tmp_path, "name": None, "email": None, "password": None},
+        },
+    ]
+    mock_resolve_template.return_value = {"config": {}, "post_start_actions": actions}
+    mock_resolve_admin_creds.side_effect = [("a", "b", "c"), typer.Exit(1)]
+
+    with pytest.raises(InstallError):
+        install(directory=tmp_path, template="workspace", force_install=True)
+
+    error_messages = [call.args[0] for call in mock_echo.error.call_args_list]
+    assert (
+        "Post-start action 2/2 ('server.create_admin') could not be prepared: "
+        "Installation failed; see console output above for details.\n"
+        "Server is already installed and running; no post-start action has run yet."
+    ) in error_messages
+    assert mock_apply_admin.call_count == 0
 
 
 def test_install_help_lists_every_builtin_template_name() -> None:
