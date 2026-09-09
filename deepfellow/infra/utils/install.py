@@ -11,9 +11,10 @@
 
 import random
 import string
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from copy import deepcopy
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any, cast
 
@@ -54,9 +55,13 @@ from deepfellow.common.install import assert_docker, ensure_directory
 from deepfellow.common.registry import get_newest_image_tag
 from deepfellow.common.state import state
 from deepfellow.common.system import run
-from deepfellow.common.templates import InstallTemplate
+from deepfellow.common.templates import InstallTemplate, PostStartAction
 from deepfellow.common.validation import validate_df_name, validate_url
 from deepfellow.infra.utils.docker import start_infra
+from deepfellow.infra.utils.model_install import apply_install as apply_model_install
+from deepfellow.infra.utils.model_install import resolve_connection as resolve_model_connection
+from deepfellow.infra.utils.service_install import apply_spec as apply_service_spec
+from deepfellow.infra.utils.service_install import build_spec as build_service_spec
 from deepfellow.infra.utils.templates import dispatch_post_start_action, resolve_template
 
 
@@ -578,6 +583,118 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:
 
 
 @translate_to_install_error
+def _prepare_post_start_action(action: PostStartAction) -> Callable[[], None]:
+    """Run whatever of a post-start action's ask/build phase can run now, returning its apply phase.
+
+    `infra.model.install`'s build phase only resolves an infra connection (which may prompt for a
+    URL and/or an admin API key), and `infra.service.install`'s build phase resolves that same
+    connection plus the service's install spec (which may prompt for individual spec fields, driven
+    by a field list fetched from the already-running infra's API) - both are hoisted here, leaving
+    only the install API call itself in the returned callable. Every other (currently hypothetical)
+    action is deferred whole to the returned callable and dispatched as one, exactly as before.
+
+    Args:
+        action: The post-start action to prepare, with its kwargs already finalized by the caller.
+
+    Returns:
+        A zero-argument callable performing `action`'s apply phase.
+
+    Raises:
+        InstallError: If the action's build phase fails (translated from typer.Exit and friends by
+            the decorator). Any other exception type raised by the build phase propagates unmodified.
+    """
+    if action["function"] == "infra.model.install":
+        kwargs = dict(action["kwargs"])
+        connection = resolve_model_connection(kwargs.pop("server", None))
+        apply_phase: Callable[[], None] = partial(apply_model_install, connection=connection, **kwargs)
+    elif action["function"] == "infra.service.install":
+        kwargs = dict(action["kwargs"])
+        name = kwargs.pop("name")
+        quiet = kwargs.pop("quiet", False)
+        install_spec = build_service_spec(name, **kwargs)
+        apply_phase = partial(apply_service_spec, name, install_spec, quiet=quiet or not install_spec.explicit_spec)
+    else:
+        apply_phase = partial(dispatch_post_start_action, action)
+
+    # The apply pass reports one InstallError per action; without this, a typer.Exit raised by a
+    # worker called directly (rather than through dispatch_post_start_action, which translates it
+    # itself) would escape to install()'s own @translate_to_install_error and lose that context.
+    return translate_to_install_error(apply_phase)
+
+
+def _run_post_start_actions(post_start_actions: list[PostStartAction], infra_port: int) -> None:
+    """Run a template's post-start actions: every action's ask phase first, then every apply phase.
+
+    Args:
+        post_start_actions: The resolved template's post-start actions, run in list order. Their
+            kwargs are finalized in place (see the "server" injection below).
+        infra_port: The port infra was actually installed on, used to build the localhost URL every
+            action is pointed at.
+
+    Raises:
+        typer.Exit: If any action's build or apply phase fails.
+    """
+    infra_localhost_url = f"http://localhost:{infra_port}"
+    total = len(post_start_actions)
+
+    # Ask-phase pass: this loop itself only finalizes each action's kwargs (no prompting) and then
+    # hands it to _prepare_post_start_action(), which does the asking - so everything that can be
+    # asked up front is, before any action's apply phase runs, and a failure partway through the
+    # apply pass below never wastes an answer the user has yet to give. See
+    # _prepare_post_start_action() for the one action kind whose build phase can't be hoisted.
+    apply_phases: list[Callable[[], None]] = []
+    for index, action in enumerate(post_start_actions, start=1):
+        template_server = action["kwargs"].get("server")
+        if template_server is not None and template_server != infra_localhost_url:
+            echo.warning(
+                f"Post-start action {index}/{total} ('{action['function']}') set its own "
+                f"'server' ({template_server!r}); overriding it with the actually-installed "
+                f"infra's address ({infra_localhost_url!r})."
+            )
+        action["kwargs"]["server"] = infra_localhost_url
+        try:
+            apply_phases.append(_prepare_post_start_action(action))
+        except InstallError as exc:
+            echo.error(
+                f"Post-start action {index}/{total} ('{action['function']}') could not be prepared: {exc}\n"
+                "Infra is already installed and running; no post-start action has run yet."
+            )
+            raise typer.Exit(1) from exc
+        except Exception as exc:
+            # See the apply pass below for why a second, broader handler is needed.
+            echo.error(
+                f"Post-start action {index}/{total} ('{action['function']}') could not be prepared "
+                f"due to an unexpected failure: {exc}\n"
+                "Infra is already installed and running; no post-start action has run yet."
+            )
+            raise typer.Exit(1) from exc
+
+    # Apply-phase pass: no prompting left, only the actions' actual effects.
+    for index, (action, apply_phase) in enumerate(zip(post_start_actions, apply_phases, strict=True), start=1):
+        try:
+            apply_phase()
+        except InstallError as exc:
+            echo.error(
+                f"Post-start action {index}/{total} ('{action['function']}') failed: {exc}\n"
+                f"Infra is already installed and running; {index - 1} of {total} action(s) "
+                "completed before this failure."
+            )
+            raise typer.Exit(1) from exc
+        except Exception as exc:
+            # An apply phase only translates typer.Exit/BadParameter/Docker/OSError failures
+            # into InstallError (see deepfellow.common.exceptions.translate_to_install_error);
+            # any other exception type propagates unmodified. Catch it here too, so a future
+            # post-start action that raises outside that translated set still gets the same
+            # operator-facing message instead of a bare traceback.
+            echo.error(
+                f"Post-start action {index}/{total} ('{action['function']}') failed unexpectedly: {exc}\n"
+                f"Infra is already installed and running; {index - 1} of {total} action(s) "
+                "completed before this failure."
+            )
+            raise typer.Exit(1) from exc
+
+
+@translate_to_install_error
 def install(
     directory: Path = DF_INFRA_DIRECTORY,
     port: int = DF_INFRA_PORT,
@@ -647,26 +764,4 @@ def install(
         # The CLI process runs outside Docker, so post-start actions must reach infra via
         # localhost on the port actually resolved above - never a template-supplied "server",
         # which could only ever guess at that port.
-        infra_localhost_url = f"http://localhost:{config.infra_port}"
-        total = len(post_start_actions)
-        for index, action in enumerate(post_start_actions, start=1):
-            template_server = action["kwargs"].get("server")
-            if template_server is not None and template_server != infra_localhost_url:
-                echo.warning(
-                    f"Post-start action {index}/{total} ('{action['function']}') set its own "
-                    f"'server' ({template_server!r}); overriding it with the actually-installed "
-                    f"infra's address ({infra_localhost_url!r})."
-                )
-            action["kwargs"]["server"] = infra_localhost_url
-            try:
-                dispatch_post_start_action(action)
-            except InstallError as exc:
-                # dispatch_post_start_action is decorated with @translate_to_install_error, which
-                # unconditionally converts any typer.Exit it raises into InstallError - so
-                # InstallError is the only failure mode reachable here, ever.
-                echo.error(
-                    f"Post-start action {index}/{total} ('{action['function']}') failed: {exc}\n"
-                    f"Infra is already installed and running; {index - 1} of {total} action(s) "
-                    "completed before this failure."
-                )
-                raise typer.Exit(1) from exc
+        _run_post_start_actions(post_start_actions, config.infra_port)
