@@ -593,13 +593,9 @@ def test_install_command_delegates_to_install_util(
 
 @mock.patch("deepfellow.infra.service.list.echo")
 @mock.patch("deepfellow.infra.service.list.make_request")
-@mock.patch("deepfellow.infra.service.list.cast")
-@mock.patch("deepfellow.infra.service.list.read_env_file")
-@mock.patch("deepfellow.infra.service.list.env_set")
+@mock.patch("deepfellow.infra.service.list.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_list_displays_services(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
+    mock_resolve: Mock,
     mock_make_request: Mock,
     mock_echo: Mock,
 ) -> None:
@@ -635,13 +631,9 @@ def test_list_displays_services(
 
 @mock.patch("deepfellow.infra.service.list.echo")
 @mock.patch("deepfellow.infra.service.list.make_request")
-@mock.patch("deepfellow.infra.service.list.cast")
-@mock.patch("deepfellow.infra.service.list.read_env_file")
-@mock.patch("deepfellow.infra.service.list.env_set")
+@mock.patch("deepfellow.infra.service.list.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_list_with_no_installed_services(
-    mock_env_set: Mock,
-    mock_read_env_file: Mock,
-    mock_cast: Mock,
+    mock_resolve: Mock,
     mock_make_request: Mock,
     mock_echo: Mock,
 ) -> None:
