@@ -25,12 +25,13 @@ class Project:
     custom_endpoints: list[str] | Literal["all"]
     mcp_prefixes: list[str] | Literal["all"]
     created_at: float
+    webhook_url: str | None = None
 
     def created_at_to_str(self) -> str:
         """Convert created_at to a localized date string."""
         return datetime_to_str(self.created_at)
 
-    def as_dict(self) -> dict[str, str | list[str]]:
+    def as_dict(self) -> dict[str, str | list[str] | None]:
         """Dictionary representation of Organization."""
         return {
             "name": self.name,
@@ -40,6 +41,7 @@ class Project:
             "models": self.models,
             "custom_endpoints": self.custom_endpoints,
             "mcp_prefixes": self.mcp_prefixes,
+            "webhook_url": self.webhook_url,
         }
 
     def __str__(self) -> str:

@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+### Fixed
+- `deepfellow suite install` (and `server install --template`) no longer crashes with an unhandled `TypeError` during the workspace-creation step against a server that returns a `webhook_url` field on project objects - the CLI's `Project` model now accounts for it.
+
 ## [0.33.0] - 2026-09-11
 ### Added
 - `deepfellow server toolbox` (`create`/`list`/`get`/`update`/`delete`) and `deepfellow server tool` (`create`/`list`/`get`/`update`/`delete`, nested under a toolbox) — manage Toolboxes and the Tools within them via the DeepFellow Server's `/toolboxes` REST API. A tool's definition (`mcp`, `infra-mcp`, `custom-mcp`, `file_search`, `image_generation`, or `websearch`) is passed as JSON via `--config <path>` or piped on stdin. Both command groups take `project_id` and an optional `--organization-id`, mapped to the `OpenAI-Project`/`OpenAI-Organization` headers the server requires.
