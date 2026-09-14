@@ -7,7 +7,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from pathlib import Path
 from unittest import mock
 from unittest.mock import Mock
 
@@ -15,34 +14,14 @@ import httpx
 import pytest
 import typer
 
-from deepfellow.common.state import state
 from deepfellow.infra.model.uninstall import uninstall
-
-
-@pytest.fixture
-def config_file() -> Mock:
-    return Mock(name="config-file")
-
-
-@pytest.fixture
-def secrets_file() -> Mock:
-    m = Mock(spec=Path, name="secrets-file")
-    m.is_file.return_value = True
-    return m
-
-
-@pytest.fixture(autouse=True)
-def default_state(config_file: Mock, secrets_file: Mock) -> None:
-    state.cli_config = {"df_infra_external_url": "http://infra:8086"}
-    state.cli_config_file = config_file
-    state.cli_secrets_file = secrets_file
 
 
 @mock.patch("deepfellow.infra.utils.connection.echo")
 @mock.patch("deepfellow.infra.model.uninstall.make_request")
-@mock.patch("deepfellow.infra.model.uninstall.read_env_file", return_value={"DF_INFRA_ADMIN_API_KEY": "test-key"})
+@mock.patch("deepfellow.infra.model.uninstall.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_uninstall_raises_on_connect_error(
-    mock_read_env_file: Mock,
+    mock_resolve: Mock,
     mock_make_request: Mock,
     mock_echo: Mock,
 ) -> None:
@@ -57,75 +36,66 @@ def test_uninstall_raises_on_connect_error(
     )
 
 
-@mock.patch("deepfellow.infra.model.uninstall.env_set")
 @mock.patch("deepfellow.infra.model.uninstall.make_request", return_value={"status": "OK"})
-@mock.patch("deepfellow.infra.model.uninstall.read_env_file", return_value={"DF_INFRA_ADMIN_API_KEY": "test-key"})
-@mock.patch("deepfellow.infra.model.uninstall.echo")
-def test_uninstall_prompts_for_server_until_valid_when_not_configured(
-    mock_echo: Mock,
-    mock_read_env_file: Mock,
+@mock.patch("deepfellow.infra.model.uninstall.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
+def test_uninstall_resolves_connection_and_calls_api_with_resolved_values(
+    mock_resolve: Mock,
     mock_make_request: Mock,
-    mock_env_set: Mock,
 ) -> None:
-    state.cli_config = {}
-    mock_echo.prompt.side_effect = [typer.BadParameter("bad"), "http://prompted:8086"]
+    uninstall(server="http://infra:8086", service_name="ollama", model_name="llama-3.1-8B", purge=True)
 
-    uninstall(server=None, service_name="ollama", model_name="llama-3.1-8B", purge=False)
-
-    assert mock_echo.prompt.call_count == 2
-    assert mock_echo.error.call_count == 1
-    assert mock_echo.error.call_args == mock.call("Invalid Deepfellow Infra address. Please try again.")
-    assert mock_echo.success.call_count == 1
-
-
-@mock.patch("deepfellow.infra.model.uninstall.env_set")
-@mock.patch("deepfellow.infra.model.uninstall.make_request", return_value={"status": "OK"})
-@mock.patch("deepfellow.infra.model.uninstall.read_env_file", return_value={"DF_INFRA_ADMIN_API_KEY": "test-key"})
-@mock.patch("deepfellow.infra.model.uninstall.echo")
-def test_uninstall_persists_server_when_changed_from_config(
-    mock_echo: Mock,
-    mock_read_env_file: Mock,
-    mock_make_request: Mock,
-    mock_env_set: Mock,
-    config_file: Mock,
-) -> None:
-    uninstall(server="http://new:8086", service_name="ollama", model_name="llama-3.1-8B", purge=False)
-
-    assert mock_env_set.call_count == 1
-    assert mock_env_set.call_args == mock.call(
-        config_file, "DF_INFRA_EXTERNAL_URL", "http://new:8086", should_raise=False
+    assert mock_resolve.call_count == 1
+    assert mock_resolve.call_args == mock.call("http://infra:8086")
+    assert mock_make_request.call_args == mock.call(
+        method="DELETE",
+        url="http://infra:8086/admin/services/ollama/models/_?model_id=llama-3.1-8B",
+        token="test-key",
+        data={"purge": True},
+        err_msg="Unable to uninstall Model.",
+        reraise=True,
     )
 
 
-@mock.patch("deepfellow.infra.model.uninstall.env_set")
+@mock.patch("deepfellow.infra.utils.connection.persist_infra_connection")
 @mock.patch("deepfellow.infra.model.uninstall.make_request", return_value={"status": "OK"})
-@mock.patch("deepfellow.infra.model.uninstall.read_env_file", return_value={})
-@mock.patch("deepfellow.infra.model.uninstall.echo")
-def test_uninstall_prompts_for_api_key_when_missing_from_secrets(
-    mock_echo: Mock,
-    mock_read_env_file: Mock,
+@mock.patch("deepfellow.infra.model.uninstall.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
+def test_uninstall_persists_connection_only_after_successful_request(
+    mock_resolve: Mock,
     mock_make_request: Mock,
-    mock_env_set: Mock,
-    secrets_file: Mock,
+    mock_persist: Mock,
 ) -> None:
-    mock_echo.prompt.return_value = "prompted-key"
-
     uninstall(server="http://infra:8086", service_name="ollama", model_name="llama-3.1-8B", purge=False)
 
-    assert mock_echo.prompt.call_count == 1
-    assert mock_echo.prompt.call_args == mock.call("Provide Infra Admin API Key", password=True)
-    assert mock_env_set.call_args == mock.call(
-        secrets_file, "DF_INFRA_ADMIN_API_KEY", "prompted-key", should_raise=False
-    )
+    assert mock_persist.call_count == 1
+    assert mock_persist.call_args == mock.call("http://infra:8086", "test-key", quiet=False)
 
 
-@mock.patch("deepfellow.infra.model.uninstall.make_request", return_value={"status": "FAILED"})
-@mock.patch("deepfellow.infra.model.uninstall.read_env_file", return_value={"DF_INFRA_ADMIN_API_KEY": "test-key"})
-@mock.patch("deepfellow.infra.model.uninstall.echo")
-def test_uninstall_raises_when_status_not_ok(
-    mock_echo: Mock,
-    mock_read_env_file: Mock,
+@mock.patch("deepfellow.infra.utils.connection.persist_infra_connection")
+@mock.patch("deepfellow.infra.model.uninstall.make_request")
+@mock.patch("deepfellow.infra.model.uninstall.resolve_infra_connection", return_value=("http://bad:8086", "bad-key"))
+def test_uninstall_does_not_persist_connection_when_request_fails(
+    mock_resolve: Mock,
     mock_make_request: Mock,
+    mock_persist: Mock,
+) -> None:
+    response = Mock(json=Mock(return_value={"error": {"message": "Unauthorized"}}))
+    mock_make_request.side_effect = httpx.HTTPStatusError("TEST", request=Mock(), response=response)
+
+    with pytest.raises(typer.Exit):
+        uninstall(server="http://bad:8086", service_name="ollama", model_name="llama-3.1-8B", purge=False)
+
+    assert mock_persist.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.connection.persist_infra_connection")
+@mock.patch("deepfellow.infra.model.uninstall.echo")
+@mock.patch("deepfellow.infra.model.uninstall.make_request", return_value={"status": "FAILED"})
+@mock.patch("deepfellow.infra.model.uninstall.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
+def test_uninstall_raises_when_status_not_ok(
+    mock_resolve: Mock,
+    mock_make_request: Mock,
+    mock_echo: Mock,
+    mock_persist: Mock,
 ) -> None:
     with pytest.raises(typer.Exit):
         uninstall(server="http://infra:8086", service_name="ollama", model_name="llama-3.1-8B", purge=False)
@@ -135,24 +105,17 @@ def test_uninstall_raises_when_status_not_ok(
     assert mock_echo.success.call_count == 0
 
 
-@mock.patch("deepfellow.infra.model.uninstall.make_request", return_value={"status": "OK"})
-@mock.patch("deepfellow.infra.model.uninstall.read_env_file", return_value={"DF_INFRA_ADMIN_API_KEY": "test-key"})
+@mock.patch("deepfellow.infra.utils.connection.persist_infra_connection")
 @mock.patch("deepfellow.infra.model.uninstall.echo")
+@mock.patch("deepfellow.infra.model.uninstall.make_request", return_value={"status": "OK"})
+@mock.patch("deepfellow.infra.model.uninstall.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_uninstall_success(
-    mock_echo: Mock,
-    mock_read_env_file: Mock,
+    mock_resolve: Mock,
     mock_make_request: Mock,
+    mock_echo: Mock,
+    mock_persist: Mock,
 ) -> None:
     uninstall(server="http://infra:8086", service_name="ollama", model_name="llama-3.1-8B", purge=True)
 
-    assert mock_make_request.call_count == 1
-    assert mock_make_request.call_args == mock.call(
-        method="DELETE",
-        url="http://infra:8086/admin/services/ollama/models/_?model_id=llama-3.1-8B",
-        token="test-key",
-        data={"purge": True},
-        err_msg="Unable to uninstall Model.",
-        reraise=True,
-    )
     assert mock_echo.success.call_count == 1
     assert mock_echo.success.call_args == mock.call("Model llama-3.1-8B uninstalled.")
