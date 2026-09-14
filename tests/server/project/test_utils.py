@@ -48,7 +48,7 @@ def test_created_at_to_str_returns_formatted_date(mock_datetime_to_str: Mock):
 def test_as_dict_returns_all_fields() -> None:
     project = Project(**project_data())
 
-    result: dict[str, str | list[str]] = project.as_dict()
+    result: dict[str, str | list[str] | None] = project.as_dict()
 
     assert result["name"] == "Project Name"
     assert result["id"] == "project-id"
