@@ -25,7 +25,7 @@ deepfellow --help
 ### Universal installer (works anywhere)
 
 ```bash
-curl -sSL https://install.deepfellow.com | bash
+curl -sSL https://deepfellow.ai/install.sh | bash
 deepfellow --help
 ```
 
@@ -70,19 +70,36 @@ pipx install git+https://github.com/seemplito/deepfellow-cli.git
 For systems without uv or pipx, use our universal installer:
 
 ```bash
-curl -sSL https://install.deepfellow.com | bash
+curl -sSL https://deepfellow.ai/install.sh | bash
 ```
+
+**Windows (via WSL):** the CLI requires WSL — it is not supported on native Windows. From PowerShell:
+
+```powershell
+irm https://deepfellow.ai/install.ps1 | iex
+```
+
+This checks for WSL (installing it if missing) and then runs the same universal installer inside your WSL distribution.
+
+Some minimal WSL distributions (e.g. a fresh Ubuntu image) don't ship `uv`, `pipx`, or even `pip` out of the box.
+If the installer fails with `Error: No package manager found`, open your WSL distribution (`wsl`) and install `uv` first:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Restart your WSL shell (or run `source ~/.bashrc`) so `uv` is on `PATH`, then re-run the installer.
 
 **Review before installing:**
 
 ```bash
-curl -sSL https://install.deepfellow.com | less
+curl -sSL https://deepfellow.ai/install.sh | less
 ```
 
 **Custom installation directory:**
 
 ```bash
-curl -sSL https://install.deepfellow.com | bash -s -- --prefix ~/.local
+curl -sSL https://deepfellow.ai/install.sh | bash -s -- --prefix ~/.local
 ```
 
 ### 🐍 pip (Traditional)
@@ -125,7 +142,7 @@ pipx upgrade deepfellow-cli
 ### Universal installer
 
 ```bash
-curl -sSL https://install.deepfellow.com | bash -s -- --upgrade
+curl -sSL https://deepfellow.ai/install.sh | bash -s -- --upgrade
 ```
 
 ## Uninstalling

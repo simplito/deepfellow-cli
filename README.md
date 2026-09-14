@@ -27,6 +27,14 @@ Privacy-First AI Infrastructure Framework — deploy and manage private AI on yo
 curl https://deepfellow.ai/install.sh | bash
 ```
 
+**Windows:** the CLI runs under [WSL](https://learn.microsoft.com/windows/wsl/install), not natively. From PowerShell:
+
+```powershell
+irm https://deepfellow.ai/install.ps1 | iex
+```
+
+This installs WSL if needed, then runs the installer inside it.
+
 Verify with `deepfellow --help`.
 
 To uninstall:
