@@ -263,11 +263,35 @@ def is_service_running(service: str, cwd: Path) -> bool:
     return result is not None and len(result.splitlines()) > 1
 
 
+def is_service_running_or_raise(service: str, cwd: Path) -> bool:
+    """Check if a Compose service is running, distinguishing confirmed absence from a `docker compose ps` failure.
+
+    Unlike `is_service_running()`, raises `DockerError` instead of silently returning `False` when
+    `docker compose ps` itself fails - for a caller about to make a destructive, one-way decision
+    (e.g. skip a volume-copy safety check) based on "this service isn't running", treating an
+    unrelated command failure the same as confirmed-not-running would make that decision silently,
+    and wrongly, on bad information.
+
+    Raises:
+        DockerError: If `docker compose ps` fails for a reason other than a clean, parseable result.
+    """
+    result = run(
+        ["docker", "compose", "ps", service, "--status", "running"],
+        cwd=cwd,
+        raises=DockerError,
+        capture_output=True,
+    )
+    return result is not None and len(result.splitlines()) > 1
+
+
 def volume_exists(name: str) -> bool:
     """Check if a Docker volume with the given name exists.
 
     False means "not detected", not "definitely absent" - a failed inspect (daemon down,
-    permissions, wrong context) is reported the same way as a missing volume.
+    permissions, wrong context) is reported the same way as a missing volume. Do not use this at a
+    destructive decision point (e.g. deciding whether it's safe to wipe or overwrite something
+    because a volume "doesn't exist") - use `volume_exists_or_raise()` there instead, so a
+    transient inspect failure can't be silently mistaken for confirmed absence.
 
     https://docs.docker.com/reference/cli/docker/volume/inspect/
     """
@@ -276,6 +300,31 @@ def volume_exists(name: str) -> bool:
     except DockerError as e:
         echo.debug(e)
         return False
+
+    return True
+
+
+def volume_exists_or_raise(name: str) -> bool:
+    """Check if a Docker volume exists, distinguishing confirmed absence from an inspect failure.
+
+    Unlike `volume_exists()`, only returns `False` when Docker itself confirms the volume is
+    absent ("No such volume" in `docker volume inspect`'s stderr). Any other failure (daemon down,
+    permissions, wrong Docker context) raises `DockerError` instead of silently reporting "not
+    found" - for a caller about to make a destructive, one-way decision (skip a migration, wipe a
+    volume) based on "this volume doesn't exist", treating an unrelated inspect failure the same
+    as confirmed absence would make that decision silently, and wrongly, on bad information.
+
+    https://docs.docker.com/reference/cli/docker/volume/inspect/
+
+    Raises:
+        DockerError: If the inspect failed for a reason other than the volume not existing.
+    """
+    try:
+        run(["docker", "volume", "inspect", name], capture_output=True, raises=DockerError)
+    except DockerError as e:
+        if "no such volume" in str(e).lower():
+            return False
+        raise
 
     return True
 

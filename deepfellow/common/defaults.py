@@ -207,21 +207,40 @@ DOCKER_COMPOSE_MILVUS = {
             "retries": 3,
         },
     },
-    "minio": {
-        "container_name": "minio",
-        "image": "minio/minio:RELEASE.2024-12-18T13-15-44Z",
-        "environment": [
-            "MINIO_ACCESS_KEY=minioadmin",
-            "MINIO_SECRET_KEY=minioadmin",
+    "seaweedfs": {
+        "container_name": "seaweedfs",
+        # minio/minio has removed most historical release tags from Docker Hub, so we use
+        # SeaweedFS's S3 gateway as an S3-compatible drop-in replacement for Milvus' object storage.
+        "image": "chrislusf/seaweedfs:3.97",
+        "volumes": [
+            "seaweedfs:/data",
+            "./seaweedfs_s3_config.json:/etc/seaweedfs/s3_config.json",
         ],
-        "expose": ["9001", "9000"],
-        "volumes": ["minio:/minio_data"],
-        "command": 'minio server /minio_data --console-address ":9001"',
+        "command": "server -dir=/data -s3 -s3.port=9000 -s3.config=/etc/seaweedfs/s3_config.json",
+        "expose": ["9000", "9333"],
         "healthcheck": {
-            "test": "curl -f http://localhost:9000/minio/health/live",
-            "interval": "60s",
-            "timeout": "30s",
-            "retries": 3,
+            # The master process (port 9333) answers within a second of startup - well before a
+            # volume server has registered and the S3 gateway can actually serve writes, so
+            # `depends_on: service_healthy` elsewhere would release too early. `/dir/assign` only
+            # succeeds once a writable volume exists, which is a much closer proxy for "the S3
+            # write path is actually usable" than master liveness alone. That alone isn't enough
+            # though: verified live that `/dir/assign` succeeds ~1s after startup while the S3
+            # listener on :9000 (what Milvus actually connects to) doesn't accept connections until
+            # ~24s in - so also probe :9000 directly. With `SEAWEEDFS_S3_CONFIG` below (no
+            # "Anonymous" identity), an unauthenticated GET on :9000 gets a 403, not a 2xx - and
+            # this image's wget (BusyBox, not GNU) exits 1 for both a 403 and a refused connection,
+            # so a bare exit-code check can't tell "not listening yet" from "listening but denied".
+            # `-S` prints the response status line on stderr the moment a real HTTP response comes
+            # back (even a 403) - verified live that only a connection refusal produces no such
+            # line - so grep for it instead of trusting wget's exit code for this probe.
+            "test": (
+                "wget -q -O- http://127.0.0.1:9333/dir/assign | grep -q '\"fid\"' && "
+                "(wget -q -T2 -S -O /dev/null http://127.0.0.1:9000/ 2>&1 | grep -q 'HTTP/1.1')"
+            ),
+            "interval": "10s",
+            "start_period": "30s",
+            "timeout": "10s",
+            "retries": 6,
         },
     },
     "milvus": {
@@ -231,7 +250,7 @@ DOCKER_COMPOSE_MILVUS = {
         "security_opt": ["seccomp:unconfined"],
         "environment": [
             "ETCD_ENDPOINTS=etcd:2379",
-            "MINIO_ADDRESS=minio:9000",
+            "MINIO_ADDRESS=seaweedfs:9000",
             "MQ_TYPE=woodpecker",
         ],
         "volumes": ["milvus:/var/lib/milvus"],
@@ -245,10 +264,36 @@ DOCKER_COMPOSE_MILVUS = {
         "expose": ["19530", "9091"],
         "depends_on": {
             "etcd": {"condition": "service_healthy"},
-            "minio": {"condition": "service_healthy"},
+            "seaweedfs": {"condition": "service_healthy"},
         },
     },
 }
+
+# Milvus' own bundled config always authenticates against its object storage with these defaults,
+# so every fresh (non-legacy) SeaweedFS install must keep matching identities here - Milvus' config
+# is not customized per-install. `minio_migration.py` also relies on these two constants: the
+# migration's own temporary destination container is loaded with this exact identity file, so `mc
+# mirror`'s destination alias must authenticate with these credentials, not the old MinIO's real
+# ones (which the source alias uses instead).
+SEAWEEDFS_S3_ACCESS_KEY = "minioadmin"
+SEAWEEDFS_S3_SECRET_KEY = "minioadmin"
+
+SEAWEEDFS_S3_CONFIG = f"""
+{{
+  "identities": [
+    {{
+      "name": "{SEAWEEDFS_S3_ACCESS_KEY}",
+      "credentials": [
+        {{
+          "accessKey": "{SEAWEEDFS_S3_ACCESS_KEY}",
+          "secretKey": "{SEAWEEDFS_S3_SECRET_KEY}"
+        }}
+      ],
+      "actions": ["Admin", "Read", "Write"]
+    }}
+  ]
+}}
+"""
 
 MONGO_DB_INIT_SH = """
 #!/bin/bash

@@ -40,6 +40,7 @@ from deepfellow.common.defaults import (
     DF_SERVER_STORAGE_DIRECTORY,
     DOCKER_COMPOSE_CONFIG_FILENAME,
     DOCKER_COMPOSE_FALKORDB,
+    DOCKER_COMPOSE_MILVUS,
     MILVUS_DATABASE_URL,
     MONGO_DB_INIT_SH,
     VectorDBTypeChoice,
@@ -65,6 +66,7 @@ from deepfellow.server.utils.install import (
     resolve,
 )
 from deepfellow.server.utils.install import inspect as inspect_util
+from deepfellow.server.utils.minio_migration import MIGRATION_SKIPPED_LABEL, MIGRATION_SKIPPED_LABEL_CONFIRMED
 from deepfellow.server.utils.templates import BUILTIN_TEMPLATES, VALID_CONFIG_KEYS
 
 runner = CliRunner()
@@ -1829,8 +1831,740 @@ def test_apply_creates_default_milvus_service_when_vectordb_active_and_not_custo
     compose_dict = mock_save_compose.call_args[0][0]
     assert "milvus" in compose_dict["services"]
     assert "etcd" in compose_dict["services"]
-    assert "minio" in compose_dict["services"]
+    assert "seaweedfs" in compose_dict["services"]
+    assert "seaweedfs" in compose_dict["volumes"]
+    assert "minio" not in compose_dict["services"]
     assert compose_dict["services"]["server"]["depends_on"]["milvus"] == {"condition": "service_healthy"}
+    assert compose_dict["services"]["milvus"]["depends_on"]["seaweedfs"] == {"condition": "service_healthy"}
+    assert (install_config.directory / "seaweedfs_s3_config.json").exists()
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+def test_apply_does_not_write_seaweedfs_s3_config_when_custom_vector_db(
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    install_config.is_vectordb_active = True
+    install_config.is_custom_vector_db_server = True
+    install_config.vectordb_type = "milvus"
+
+    apply(install_config)
+
+    assert not (install_config.directory / "seaweedfs_s3_config.json").exists()
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+def test_apply_exits_when_seaweedfs_s3_config_write_fails(
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    install_config.is_vectordb_active = True
+    install_config.is_custom_vector_db_server = False
+    install_config.vectordb_type = "milvus"
+    s3_config_path = install_config.directory / "seaweedfs_s3_config.json"
+
+    def fake_write_text(self: Path, *args: Any, **kwargs: Any) -> int:
+        if self == s3_config_path:
+            raise OSError("Permission denied")
+        return len(args[0]) if args else 0
+
+    with mock.patch.object(Path, "write_text", autospec=True, side_effect=fake_write_text), pytest.raises(typer.Exit):
+        apply(install_config)
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call(f"Unable to write {s3_config_path.as_posix()}: Permission denied.")
+    assert mock_save_compose.call_count == 0
+
+
+_OLD_MINIO_SERVICE = {
+    "container_name": "minio",
+    "image": "minio/minio:RELEASE.2024-12-18T13-15-44Z",
+    "environment": ["MINIO_ACCESS_KEY=minioadmin", "MINIO_SECRET_KEY=minioadmin"],
+    "expose": ["9001", "9000"],
+    "volumes": ["minio:/minio_data"],
+    "command": 'minio server /minio_data --console-address ":9001"',
+}
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+@mock.patch("deepfellow.server.utils.install.find_legacy_minio_service", return_value=_OLD_MINIO_SERVICE)
+def test_apply_keeps_existing_minio_service_when_resolve_chose_to_keep(
+    mock_find_legacy: Mock,
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    """apply() only acts on resolve()'s keep/migrate decision - it never prompts itself."""
+    install_config.is_vectordb_active = True
+    install_config.is_custom_vector_db_server = False
+    install_config.vectordb_type = "milvus"
+    install_config.legacy_minio_service = _OLD_MINIO_SERVICE
+    install_config.keep_legacy_minio = True
+    install_config.legacy_minio_keep_confirmed = True
+
+    apply(install_config)
+
+    compose_dict = mock_save_compose.call_args[0][0]
+    minio_service = compose_dict["services"]["minio"]
+    assert minio_service["image"] == _OLD_MINIO_SERVICE["image"]
+    assert minio_service["pull_policy"] == "never"
+    # `resolve()` captured this as a deliberate, confirmed decision - both labels are written (see
+    # `MIGRATION_SKIPPED_LABEL_CONFIRMED`).
+    assert minio_service["labels"] == [MIGRATION_SKIPPED_LABEL, MIGRATION_SKIPPED_LABEL_CONFIRMED]
+    assert "seaweedfs" not in compose_dict["services"]
+    assert "seaweedfs" not in compose_dict["volumes"]
+    assert "minio" in compose_dict["volumes"]
+    assert compose_dict["services"]["milvus"]["depends_on"]["minio"] == {"condition": "service_healthy"}
+    assert "seaweedfs" not in compose_dict["services"]["milvus"]["depends_on"]
+    assert "MINIO_ADDRESS=minio:9000" in compose_dict["services"]["milvus"]["environment"]
+    assert not (install_config.directory / "seaweedfs_s3_config.json").exists()
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+@mock.patch("deepfellow.server.utils.install.find_legacy_minio_service", return_value=None)
+def test_apply_keeps_fresh_seaweedfs_default_when_legacy_minio_already_migrated_on_disk(
+    mock_find_legacy: Mock,
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    """A stale `keep_legacy_minio=True` from a replayed config must not resurrect an old MinIO
+    service once compose.yaml on disk shows it's already been migrated (or hand-edited) away."""
+    install_config.is_vectordb_active = True
+    install_config.is_custom_vector_db_server = False
+    install_config.vectordb_type = "milvus"
+    install_config.legacy_minio_service = _OLD_MINIO_SERVICE
+    install_config.keep_legacy_minio = True
+
+    apply(install_config)
+
+    compose_dict = mock_save_compose.call_args[0][0]
+    seaweedfs_service = compose_dict["services"]["seaweedfs"]
+    assert seaweedfs_service["image"] == DOCKER_COMPOSE_MILVUS["seaweedfs"]["image"]
+    assert "pull_policy" not in seaweedfs_service
+    assert "minio" not in compose_dict["services"]
+    assert mock_echo.warning.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+@mock.patch("deepfellow.server.utils.install.ensure_no_orphaned_migration_volume")
+@mock.patch("deepfellow.server.utils.install.find_legacy_minio_service", return_value=_OLD_MINIO_SERVICE)
+def test_apply_exits_when_keeping_minio_but_a_migration_temp_volume_was_left_orphaned(
+    mock_find_legacy: Mock,
+    mock_ensure_no_orphaned: Mock,
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    """Keeping MinIO must not silently point it at a volume a failed migration attempt already wiped."""
+    install_config.is_vectordb_active = True
+    install_config.is_custom_vector_db_server = False
+    install_config.vectordb_type = "milvus"
+    install_config.legacy_minio_service = _OLD_MINIO_SERVICE
+    install_config.keep_legacy_minio = True
+    mock_ensure_no_orphaned.side_effect = DockerError("temp volume left behind")
+
+    with pytest.raises(typer.Exit):
+        apply(install_config)
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call(
+        "Unable to keep the existing MinIO container: temp volume left behind"
+    )
+    assert mock_save_compose.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+@mock.patch("deepfellow.server.utils.install.migrate_minio_data_to_seaweedfs")
+@mock.patch("deepfellow.server.utils.install.ensure_legacy_minio_not_running")
+@mock.patch("deepfellow.server.utils.install.find_legacy_minio_service", return_value=_OLD_MINIO_SERVICE)
+def test_apply_migrates_existing_minio_data_when_resolve_chose_to_migrate(
+    mock_find_legacy: Mock,
+    mock_ensure_not_running: Mock,
+    mock_migrate: Mock,
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    install_config.is_vectordb_active = True
+    install_config.is_custom_vector_db_server = False
+    install_config.vectordb_type = "milvus"
+    install_config.legacy_minio_service = _OLD_MINIO_SERVICE
+    install_config.keep_legacy_minio = False
+
+    apply(install_config)
+
+    assert mock_ensure_not_running.call_count == 1
+    assert mock_ensure_not_running.call_args == mock.call(install_config.directory, _OLD_MINIO_SERVICE, force=True)
+    assert mock_migrate.call_count == 1
+    assert mock_migrate.call_args == mock.call(
+        install_config.directory, install_config.docker_network, _OLD_MINIO_SERVICE
+    )
+    compose_dict = mock_save_compose.call_args[0][0]
+    assert compose_dict["services"]["seaweedfs"]["image"] == DOCKER_COMPOSE_MILVUS["seaweedfs"]["image"]
+    assert (install_config.directory / "seaweedfs_s3_config.json").exists()
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+@mock.patch("deepfellow.server.utils.install.migrate_minio_data_to_seaweedfs")
+@mock.patch("deepfellow.server.utils.install.ensure_legacy_minio_not_running")
+@mock.patch("deepfellow.server.utils.install.find_legacy_minio_service", return_value=_OLD_MINIO_SERVICE)
+def test_apply_exits_when_minio_migration_fails(
+    mock_find_legacy: Mock,
+    mock_ensure_not_running: Mock,
+    mock_migrate: Mock,
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    install_config.is_vectordb_active = True
+    install_config.is_custom_vector_db_server = False
+    install_config.vectordb_type = "milvus"
+    install_config.legacy_minio_service = _OLD_MINIO_SERVICE
+    install_config.keep_legacy_minio = False
+    mock_migrate.side_effect = DockerError("mc mirror failed")
+
+    with pytest.raises(typer.Exit):
+        apply(install_config)
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call("Failed to migrate MinIO data to SeaweedFS: mc mirror failed")
+    assert mock_save_compose.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+@mock.patch("deepfellow.server.utils.install.migrate_minio_data_to_seaweedfs")
+@mock.patch("deepfellow.server.utils.install.ensure_legacy_minio_not_running")
+@mock.patch("deepfellow.server.utils.install.find_legacy_minio_service", return_value=_OLD_MINIO_SERVICE)
+def test_apply_exits_when_legacy_minio_started_running_again_before_the_migration_copy(
+    mock_find_legacy: Mock,
+    mock_ensure_not_running: Mock,
+    mock_migrate: Mock,
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    """`resolve()` checks this once, but `apply()` can run independently later (e.g. on a `--resume`
+    replay) while the old MinIO container has since been started again - the destructive volume copy
+    must not proceed against a volume something is actively writing to."""
+    install_config.is_vectordb_active = True
+    install_config.is_custom_vector_db_server = False
+    install_config.vectordb_type = "milvus"
+    install_config.legacy_minio_service = _OLD_MINIO_SERVICE
+    install_config.keep_legacy_minio = False
+    mock_ensure_not_running.side_effect = DockerError("MinIO container is running")
+
+    with pytest.raises(typer.Exit):
+        apply(install_config)
+
+    assert mock_migrate.call_count == 0
+    # `force=True`: a stale `MIGRATION_SKIPPED_LABEL` left over from an earlier, non-carried-forward
+    # "keep" decision must never let this skip the running check now that migration is certain.
+    assert mock_ensure_not_running.call_args == mock.call(install_config.directory, _OLD_MINIO_SERVICE, force=True)
+    assert mock_echo.error.call_args == mock.call(
+        "Failed to migrate MinIO data to SeaweedFS: MinIO container is running"
+    )
+    assert mock_save_compose.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+@mock.patch("deepfellow.server.utils.install.migrate_minio_data_to_seaweedfs")
+@mock.patch("deepfellow.server.utils.minio_migration.is_service_running_or_raise", return_value=True)
+@mock.patch("deepfellow.server.utils.install.find_legacy_minio_service")
+def test_apply_blocks_migration_on_a_running_container_even_with_a_stale_skip_label(
+    mock_find_legacy: Mock,
+    mock_is_running: Mock,
+    mock_migrate: Mock,
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    """Exercises the real `ensure_legacy_minio_not_running()` (not mocked out) to prove `force=True`
+    actually defeats its `MIGRATION_SKIPPED_LABEL` shortcut - a base-label-only container (kept via a
+    prior `--non-interactive` default, never confirmed) can legitimately end up migrated this run,
+    and must not silently skip the running check just because that stale label is still there."""
+    stale_labeled_service = {**_OLD_MINIO_SERVICE, "labels": [MIGRATION_SKIPPED_LABEL]}
+    mock_find_legacy.return_value = stale_labeled_service
+    install_config.is_vectordb_active = True
+    install_config.is_custom_vector_db_server = False
+    install_config.vectordb_type = "milvus"
+    install_config.legacy_minio_service = stale_labeled_service
+    install_config.keep_legacy_minio = False
+
+    with pytest.raises(typer.Exit):
+        apply(install_config)
+
+    assert mock_is_running.call_count == 1
+    assert mock_migrate.call_count == 0
+    assert mock_save_compose.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+@mock.patch("deepfellow.server.utils.install.find_legacy_minio_service", return_value=_OLD_MINIO_SERVICE)
+def test_apply_does_not_persist_confirmed_label_when_kept_via_non_interactive_default(
+    mock_find_legacy: Mock,
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    """A `--non-interactive` install falling back to keeping MinIO must not permanently disable the
+    migration prompt for every later *interactive* install too - only `MIGRATION_SKIPPED_LABEL` (the
+    "still running is expected" signal) is written, not `MIGRATION_SKIPPED_LABEL_CONFIRMED`."""
+    install_config.is_vectordb_active = True
+    install_config.is_custom_vector_db_server = False
+    install_config.vectordb_type = "milvus"
+    install_config.legacy_minio_service = _OLD_MINIO_SERVICE
+    install_config.keep_legacy_minio = True
+    state.non_interactive = True
+    try:
+        apply(install_config)
+    finally:
+        state.non_interactive = False
+
+    compose_dict = mock_save_compose.call_args[0][0]
+    labels = compose_dict["services"]["minio"]["labels"]
+    assert labels == [MIGRATION_SKIPPED_LABEL]
+    assert MIGRATION_SKIPPED_LABEL_CONFIRMED not in labels
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+@mock.patch("deepfellow.server.utils.install.find_legacy_minio_service")
+def test_apply_keeps_confirmed_label_non_interactively_when_already_confirmed(
+    mock_find_legacy: Mock,
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    """An already-confirmed decision from a previous run must not be un-confirmed just because this
+    particular replay happens to run non-interactively (e.g. a `--resume`)."""
+    already_confirmed_service = {
+        **_OLD_MINIO_SERVICE,
+        "labels": [MIGRATION_SKIPPED_LABEL, MIGRATION_SKIPPED_LABEL_CONFIRMED],
+    }
+    mock_find_legacy.return_value = already_confirmed_service
+    install_config.is_vectordb_active = True
+    install_config.is_custom_vector_db_server = False
+    install_config.vectordb_type = "milvus"
+    install_config.legacy_minio_service = already_confirmed_service
+    install_config.keep_legacy_minio = True
+    state.non_interactive = True
+    try:
+        apply(install_config)
+    finally:
+        state.non_interactive = False
+
+    compose_dict = mock_save_compose.call_args[0][0]
+    labels = compose_dict["services"]["minio"]["labels"]
+    assert labels == [MIGRATION_SKIPPED_LABEL, MIGRATION_SKIPPED_LABEL_CONFIRMED]
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+@mock.patch("deepfellow.server.utils.install.find_legacy_minio_service", return_value=_OLD_MINIO_SERVICE)
+def test_apply_persists_confirmed_label_from_resume_config_even_when_apply_itself_runs_non_interactively(
+    mock_find_legacy: Mock,
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    """`apply()` can run in a separate process invocation on a persisted, replayed config (e.g.
+    `suite install --resume --non-interactive`) after the *original* keep decision was made
+    interactively in an earlier `resolve()`. `state.non_interactive` at apply()-time no longer
+    reflects that - the confirmation must come from `config.legacy_minio_keep_confirmed`, captured
+    when the decision was actually made, or a genuine interactive "keep" would be silently
+    downgraded to the non-sticky default just because the resume happened to run non-interactively.
+    """
+    install_config.is_vectordb_active = True
+    install_config.is_custom_vector_db_server = False
+    install_config.vectordb_type = "milvus"
+    install_config.legacy_minio_service = _OLD_MINIO_SERVICE
+    install_config.keep_legacy_minio = True
+    install_config.legacy_minio_keep_confirmed = True
+    state.non_interactive = True
+    try:
+        apply(install_config)
+    finally:
+        state.non_interactive = False
+
+    compose_dict = mock_save_compose.call_args[0][0]
+    labels = compose_dict["services"]["minio"]["labels"]
+    assert labels == [MIGRATION_SKIPPED_LABEL, MIGRATION_SKIPPED_LABEL_CONFIRMED]
+
+
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@mock.patch("deepfellow.server.utils.install.should_keep_existing_minio")
+@mock.patch("deepfellow.server.utils.install.ensure_legacy_minio_not_running")
+@mock.patch("deepfellow.server.utils.install.find_legacy_minio_service")
+@MOCK_ECHO
+def test_resolve_asks_keep_or_migrate_decision_when_legacy_minio_found(
+    mock_echo: Mock,
+    mock_find_legacy: Mock,
+    mock_ensure_not_running: Mock,
+    mock_should_keep: Mock,
+    mock_configure_mongo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    tmp_path: Path,
+) -> None:
+    """The keep/migrate decision (and any prompt it needs) is made in resolve(), not apply() -
+    apply() is documented, and relied upon, as prompt-free."""
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+    mock_configure_vector_db.return_value = (
+        False,
+        {"DF_VECTOR_DATABASE__PROVIDER__ACTIVE": "1", "DF_VECTOR_DATABASE__PROVIDER__TYPE": "milvus"},
+    )
+    mock_find_legacy.return_value = _OLD_MINIO_SERVICE
+    mock_should_keep.return_value = True
+    context = InstallContext(
+        resolved_template=None,
+        directory=tmp_path,
+        newest_image_tag=None,
+        original_env_content={},
+        log_level="INFO",
+        plugins_setup="{}",
+    )
+    kwargs = install_kwargs(tmp_path)
+    del kwargs["directory"]
+    del kwargs["force_install"]
+    del kwargs["template"]
+    del kwargs["admin_name"]
+    del kwargs["admin_email"]
+    del kwargs["admin_password"]
+
+    config = resolve(context, **kwargs)
+
+    assert mock_ensure_not_running.call_count == 1
+    assert mock_ensure_not_running.call_args == mock.call(tmp_path, _OLD_MINIO_SERVICE)
+    assert mock_should_keep.call_count == 1
+    assert config.legacy_minio_service == _OLD_MINIO_SERVICE
+    assert config.keep_legacy_minio is True
+    # Not run with `--non-interactive` and no pre-existing `_CONFIRMED` label - this is a genuine,
+    # deliberate decision (an interactive confirm) and must be captured as confirmed.
+    assert config.legacy_minio_keep_confirmed is True
+
+
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@mock.patch("deepfellow.server.utils.install.should_keep_existing_minio")
+@mock.patch("deepfellow.server.utils.install.ensure_legacy_minio_not_running")
+@mock.patch("deepfellow.server.utils.install.find_legacy_minio_service")
+@MOCK_ECHO
+def test_resolve_leaves_migration_unconfirmed_when_migrate_is_chosen(
+    mock_echo: Mock,
+    mock_find_legacy: Mock,
+    mock_ensure_not_running: Mock,
+    mock_should_keep: Mock,
+    mock_configure_mongo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    tmp_path: Path,
+) -> None:
+    """`legacy_minio_keep_confirmed` only ever means anything for a "keep" decision - choosing to
+    migrate instead must leave it `False`."""
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+    mock_configure_vector_db.return_value = (
+        False,
+        {"DF_VECTOR_DATABASE__PROVIDER__ACTIVE": "1", "DF_VECTOR_DATABASE__PROVIDER__TYPE": "milvus"},
+    )
+    mock_find_legacy.return_value = _OLD_MINIO_SERVICE
+    mock_should_keep.return_value = False
+    context = InstallContext(
+        resolved_template=None,
+        directory=tmp_path,
+        newest_image_tag=None,
+        original_env_content={},
+        log_level="INFO",
+        plugins_setup="{}",
+    )
+    kwargs = install_kwargs(tmp_path)
+    del kwargs["directory"]
+    del kwargs["force_install"]
+    del kwargs["template"]
+    del kwargs["admin_name"]
+    del kwargs["admin_email"]
+    del kwargs["admin_password"]
+
+    config = resolve(context, **kwargs)
+
+    assert config.keep_legacy_minio is False
+    assert config.legacy_minio_keep_confirmed is False
+
+
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@mock.patch("deepfellow.server.utils.install.should_keep_existing_minio")
+@mock.patch("deepfellow.server.utils.install.ensure_legacy_minio_not_running")
+@mock.patch("deepfellow.server.utils.install.find_legacy_minio_service")
+@MOCK_ECHO
+def test_resolve_does_not_mark_the_non_interactive_default_keep_decision_as_confirmed(
+    mock_echo: Mock,
+    mock_find_legacy: Mock,
+    mock_ensure_not_running: Mock,
+    mock_should_keep: Mock,
+    mock_configure_mongo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    tmp_path: Path,
+) -> None:
+    """A `--non-interactive` install that falls back to keeping MinIO made no real choice - it must
+    not be captured as a confirmed decision, or `apply()` would persist a permanent skip-prompt
+    label from an unattended default nobody actually chose."""
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+    mock_configure_vector_db.return_value = (
+        False,
+        {"DF_VECTOR_DATABASE__PROVIDER__ACTIVE": "1", "DF_VECTOR_DATABASE__PROVIDER__TYPE": "milvus"},
+    )
+    mock_find_legacy.return_value = _OLD_MINIO_SERVICE
+    mock_should_keep.return_value = True
+    context = InstallContext(
+        resolved_template=None,
+        directory=tmp_path,
+        newest_image_tag=None,
+        original_env_content={},
+        log_level="INFO",
+        plugins_setup="{}",
+    )
+    kwargs = install_kwargs(tmp_path)
+    del kwargs["directory"]
+    del kwargs["force_install"]
+    del kwargs["template"]
+    del kwargs["admin_name"]
+    del kwargs["admin_email"]
+    del kwargs["admin_password"]
+
+    state.non_interactive = True
+    try:
+        config = resolve(context, **kwargs)
+    finally:
+        state.non_interactive = False
+
+    assert config.keep_legacy_minio is True
+    assert config.legacy_minio_keep_confirmed is False
+
+
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@mock.patch("deepfellow.server.utils.install.ensure_legacy_minio_not_running")
+@mock.patch("deepfellow.server.utils.install.find_legacy_minio_service")
+@MOCK_ECHO
+def test_resolve_skips_legacy_minio_check_when_no_legacy_service_found(
+    mock_echo: Mock,
+    mock_find_legacy: Mock,
+    mock_ensure_not_running: Mock,
+    mock_configure_mongo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    tmp_path: Path,
+) -> None:
+    """A fresh SeaweedFS install (or a first-ever milvus install) has nothing to resolve."""
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+    mock_configure_vector_db.return_value = (
+        False,
+        {"DF_VECTOR_DATABASE__PROVIDER__ACTIVE": "1", "DF_VECTOR_DATABASE__PROVIDER__TYPE": "milvus"},
+    )
+    mock_find_legacy.return_value = None
+    context = InstallContext(
+        resolved_template=None,
+        directory=tmp_path,
+        newest_image_tag=None,
+        original_env_content={},
+        log_level="INFO",
+        plugins_setup="{}",
+    )
+    kwargs = install_kwargs(tmp_path)
+    del kwargs["directory"]
+    del kwargs["force_install"]
+    del kwargs["template"]
+    del kwargs["admin_name"]
+    del kwargs["admin_email"]
+    del kwargs["admin_password"]
+
+    config = resolve(context, **kwargs)
+
+    assert mock_ensure_not_running.call_count == 0
+    assert config.legacy_minio_service is None
+    assert config.keep_legacy_minio is False
+
+
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@mock.patch("deepfellow.server.utils.install.ensure_legacy_minio_not_running")
+@mock.patch("deepfellow.server.utils.install.find_legacy_minio_service")
+@MOCK_ECHO
+def test_resolve_exits_when_legacy_minio_is_still_running(
+    mock_echo: Mock,
+    mock_find_legacy: Mock,
+    mock_ensure_not_running: Mock,
+    mock_configure_mongo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    tmp_path: Path,
+) -> None:
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+    mock_configure_vector_db.return_value = (
+        False,
+        {"DF_VECTOR_DATABASE__PROVIDER__ACTIVE": "1", "DF_VECTOR_DATABASE__PROVIDER__TYPE": "milvus"},
+    )
+    mock_find_legacy.return_value = _OLD_MINIO_SERVICE
+    mock_ensure_not_running.side_effect = DockerError("MinIO container is running")
+    context = InstallContext(
+        resolved_template=None,
+        directory=tmp_path,
+        newest_image_tag=None,
+        original_env_content={},
+        log_level="INFO",
+        plugins_setup="{}",
+    )
+    kwargs = install_kwargs(tmp_path)
+    del kwargs["directory"]
+    del kwargs["force_install"]
+    del kwargs["template"]
+    del kwargs["admin_name"]
+    del kwargs["admin_email"]
+    del kwargs["admin_password"]
+
+    with pytest.raises(typer.Exit):
+        resolve(context, **kwargs)
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call(
+        "Unable to resolve the existing MinIO install: MinIO container is running"
+    )
 
 
 @mock.patch("deepfellow.server.utils.install.run")
