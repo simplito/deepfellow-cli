@@ -181,6 +181,7 @@ state.cli_secrets_file  # Path — path to CLI secrets file
 - Never merge MRs via CLI — merging is done manually in GitLab UI
 - Plane project key: `DFCLI` (used as `{PROJECT}` in BASE_WORKFLOW.md)
 - No `Co-Authored-By` trailer in commit messages
+- No Claude Code attribution anywhere — not in commit messages, not in MR/PR descriptions (e.g. no "Generated with Claude Code" footer)
 
 <!-- BASE_WORKFLOW.md is a gitignored symlink; install from `deepfellow-claude-skills/install-workflow.sh` -->
 

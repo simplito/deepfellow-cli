@@ -29,6 +29,7 @@ from deepfellow.common.docker import (
     is_docker_group_available,
     is_docker_installed,
     is_service_running,
+    is_service_running_or_raise,
     is_user_allowed_to_use_docker,
     is_user_in_docker_group,
     list_networks,
@@ -40,6 +41,7 @@ from deepfellow.common.docker import (
     resolve_compose_volume_name,
     save_compose_file,
     volume_exists,
+    volume_exists_or_raise,
 )
 from deepfellow.common.exceptions import DockerNetworkError, DockerSocketNotFoundError
 
@@ -587,6 +589,39 @@ def test_is_service_running_returns_false_on_docker_error(mock_run: Mock, tmp_pa
     assert result is False
 
 
+@mock.patch("deepfellow.common.docker.run")
+def test_is_service_running_or_raise_returns_true_when_running(mock_run: Mock, tmp_path: Path) -> None:
+    mock_run.return_value = "NAME            IMAGE\ninfra-infra-1   some-image"
+
+    result = is_service_running_or_raise("infra", tmp_path)
+
+    assert result is True
+    assert mock_run.call_args == mock.call(
+        ["docker", "compose", "ps", "infra", "--status", "running"],
+        cwd=tmp_path,
+        raises=DockerError,
+        capture_output=True,
+    )
+
+
+@mock.patch("deepfellow.common.docker.run")
+def test_is_service_running_or_raise_returns_false_when_not_running(mock_run: Mock, tmp_path: Path) -> None:
+    mock_run.return_value = "NAME            IMAGE"
+
+    result = is_service_running_or_raise("infra", tmp_path)
+
+    assert result is False
+
+
+@mock.patch("deepfellow.common.docker.run")
+def test_is_service_running_or_raise_raises_on_docker_error(mock_run: Mock, tmp_path: Path) -> None:
+    """Unlike `is_service_running()`, a `docker compose ps` failure must propagate, not read as 'not running'."""
+    mock_run.side_effect = DockerError(1, "docker")
+
+    with pytest.raises(DockerError):
+        is_service_running_or_raise("infra", tmp_path)
+
+
 def test_get_docker_network_returns_subnet_value(tmp_path: Path) -> None:
     (tmp_path / ".env").write_text("DF_INFRA_DOCKER_SUBNET=172.20.0.0/16\n")
 
@@ -626,6 +661,37 @@ def test_volume_exists_returns_false_on_docker_error(mock_run: Mock, mock_echo: 
     assert mock_echo.debug.call_count == 1
     assert mock_echo.debug.call_args == mock.call(error)
     assert mock_echo.error.call_count == 0
+
+
+@mock.patch("deepfellow.common.docker.run")
+def test_volume_exists_or_raise_returns_true_on_success(mock_run: Mock) -> None:
+    result = volume_exists_or_raise("server_mongo")
+
+    assert result is True
+    assert mock_run.call_count == 1
+    assert mock_run.call_args == mock.call(
+        ["docker", "volume", "inspect", "server_mongo"], capture_output=True, raises=DockerError
+    )
+
+
+@mock.patch("deepfellow.common.docker.run")
+def test_volume_exists_or_raise_returns_false_on_confirmed_absence(mock_run: Mock) -> None:
+    mock_run.side_effect = DockerError("No such volume: server_mongo")
+
+    result = volume_exists_or_raise("server_mongo")
+
+    assert result is False
+
+
+@mock.patch("deepfellow.common.docker.run")
+def test_volume_exists_or_raise_reraises_on_unrelated_failure(mock_run: Mock) -> None:
+    error = DockerError("Cannot connect to the Docker daemon")
+    mock_run.side_effect = error
+
+    with pytest.raises(DockerError) as exc_info:
+        volume_exists_or_raise("server_mongo")
+
+    assert exc_info.value is error
 
 
 @mock.patch("deepfellow.common.docker.run")
