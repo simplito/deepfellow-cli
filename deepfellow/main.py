@@ -30,6 +30,7 @@ from .otel import app as otel_app
 from .prune import app as prune_app
 from .server import app as server_app
 from .suite import app as suite_app
+from .update import app as update_app
 
 app = typer.Typer(invoke_without_command=True)
 
@@ -118,6 +119,7 @@ app.add_typer(server_app, name="server")
 app.add_typer(
     suite_app, name="suite", help="One-step installation for infra, server, tools and automatic configuration."
 )
+app.add_typer(update_app)
 
 if __name__ == "__main__":
     app()
