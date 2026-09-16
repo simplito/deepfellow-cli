@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased]
+## [0.34.0] - 2026-09-16
 ### Fixed
 - `deepfellow suite install` (and `server install --template`) no longer crashes with an unhandled `TypeError` during the workspace-creation step against a server that returns a `webhook_url` field on project objects - the CLI's `Project` model now accounts for it.
 
