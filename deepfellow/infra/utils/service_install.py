@@ -17,7 +17,12 @@ import typer
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import InfraInstallSkippedError
 from deepfellow.common.rest import get
-from deepfellow.infra.utils.connection import call_infra, resolve_infra_connection
+from deepfellow.infra.utils.connection import (
+    call_infra,
+    cancel_on_interrupt,
+    cancel_service_install,
+    resolve_infra_connection,
+)
 from deepfellow.infra.utils.fields import build_spec_from_fields, parse_set_args, parse_spec_json
 from deepfellow.infra.utils.progress import install_with_progress
 
@@ -113,14 +118,18 @@ def apply_spec(name: str, install_spec: ServiceInstallSpec, quiet: bool = False)
     url = f"{server}/admin/services/{name}"
 
     try:
-        data = call_infra(
-            lambda: install_with_progress(url, api_key, data={"spec": install_spec.spec}),
-            "Unable to install service",
-            server=server,
-            api_key=api_key,
-            quiet=quiet,
-            skip_if_message_contains="already installed",
-            retry_if_message_contains="already installing",
+        data = cancel_on_interrupt(
+            lambda: call_infra(
+                lambda: install_with_progress(url, api_key, data={"spec": install_spec.spec}),
+                "Unable to install service",
+                server=server,
+                api_key=api_key,
+                quiet=quiet,
+                skip_if_message_contains="already installed",
+                retry_if_message_contains="already installing",
+            ),
+            lambda: cancel_service_install(server, api_key, name),
+            f"service '{name}'",
         )
     except InfraInstallSkippedError:
         echo.info(f"Service '{name}' is already installed; skipping.")

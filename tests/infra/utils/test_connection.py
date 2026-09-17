@@ -22,6 +22,9 @@ from deepfellow.infra.utils.connection import (
     INSTALL_RETRY_INTERVAL_SECONDS,
     _error_message,
     call_infra,
+    cancel_model_install,
+    cancel_on_interrupt,
+    cancel_service_install,
     persist_infra_connection,
     resolve_infra_connection,
 )
@@ -469,6 +472,139 @@ def test_call_infra_shows_default_message_on_generic_http_error(mock_echo: Mock)
 
     assert mock_echo.error.call_count == 1
     assert mock_echo.error.call_args == mock.call("Unable to call Infra")
+
+
+def test_cancel_on_interrupt_returns_call_result_when_not_interrupted() -> None:
+    call = Mock(return_value={"status": "ok"})
+    cancel = Mock()
+
+    result = cancel_on_interrupt(call, cancel, "service 'ollama'")
+
+    assert result == {"status": "ok"}
+    assert cancel.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.connection.echo")
+def test_cancel_on_interrupt_cancels_and_reraises_on_keyboard_interrupt(mock_echo: Mock) -> None:
+    call = Mock(side_effect=KeyboardInterrupt())
+    cancel = Mock()
+
+    with pytest.raises(KeyboardInterrupt):
+        cancel_on_interrupt(call, cancel, "service 'ollama'")
+
+    assert cancel.call_count == 1
+    assert mock_echo.warning.call_count == 1
+    assert mock_echo.warning.call_args == mock.call("Interrupted; cancelling service 'ollama' install on Infra...")
+
+
+@mock.patch("deepfellow.infra.utils.connection.echo")
+def test_cancel_on_interrupt_keeps_the_original_interrupt_when_cancel_itself_raises(mock_echo: Mock) -> None:
+    """cancel() blowing up (e.g. httpx.InvalidURL, a bug in the cancel helper) must never replace the
+    KeyboardInterrupt with its own traceback - the interrupt is still what the user asked for."""
+    call = Mock(side_effect=KeyboardInterrupt())
+    cancel = Mock(side_effect=ValueError("boom"))
+
+    with pytest.raises(KeyboardInterrupt):
+        cancel_on_interrupt(call, cancel, "service 'ollama'")
+
+    assert cancel.call_count == 1
+    assert mock_echo.warning.call_count == 2
+    assert mock_echo.warning.call_args_list[0] == mock.call(
+        "Interrupted; cancelling service 'ollama' install on Infra..."
+    )
+    assert mock_echo.warning.call_args_list[1] == mock.call(
+        "Could not cancel service 'ollama' install on Infra; it may still be running there. (boom)"
+    )
+
+
+def test_cancel_on_interrupt_lets_other_exceptions_propagate_without_cancelling() -> None:
+    call = Mock(side_effect=ValueError("boom"))
+    cancel = Mock()
+
+    with pytest.raises(ValueError, match="boom"):
+        cancel_on_interrupt(call, cancel, "service 'ollama'")
+
+    assert cancel.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.connection.httpx.post")
+@mock.patch("deepfellow.infra.utils.connection.echo")
+def test_cancel_service_install_posts_to_cancel_endpoint(mock_echo: Mock, mock_post: Mock) -> None:
+    mock_post.return_value = Mock(status_code=200)
+
+    cancel_service_install("http://infra:8086", "the-key", "ollama")
+
+    assert mock_post.call_count == 1
+    assert mock_post.call_args == mock.call(
+        "http://infra:8086/admin/services/ollama/cancel",
+        headers={"Authorization": "Bearer the-key"},
+        timeout=30.0,
+    )
+    assert mock_echo.warning.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.connection.httpx.post")
+@mock.patch("deepfellow.infra.utils.connection.echo")
+def test_cancel_service_install_swallows_not_installing_404(mock_echo: Mock, mock_post: Mock) -> None:
+    mock_post.return_value = Mock(status_code=404)
+
+    cancel_service_install("http://infra:8086", "the-key", "ollama")
+
+    assert mock_echo.warning.call_count == 0
+    assert mock_echo.debug.call_args == mock.call("service 'ollama': nothing was installing (404); nothing to cancel.")
+
+
+@mock.patch("deepfellow.infra.utils.connection.httpx.post")
+@mock.patch("deepfellow.infra.utils.connection.echo")
+def test_cancel_service_install_warns_on_other_error(mock_echo: Mock, mock_post: Mock) -> None:
+    response = Mock(status_code=405)
+    response.raise_for_status.side_effect = httpx.HTTPStatusError("TEST", request=Mock(), response=response)
+    mock_post.return_value = response
+
+    cancel_service_install("http://infra:8086", "the-key", "ollama")
+
+    assert mock_echo.warning.call_count == 1
+    assert "service 'ollama'" in mock_echo.warning.call_args.args[0]
+
+
+@mock.patch("deepfellow.infra.utils.connection.httpx.post")
+@mock.patch("deepfellow.infra.utils.connection.echo")
+def test_cancel_model_install_posts_to_cancel_endpoint_with_model_id(mock_echo: Mock, mock_post: Mock) -> None:
+    mock_post.return_value = Mock(status_code=200)
+
+    cancel_model_install("http://infra:8086", "the-key", "ollama", "llama3")
+
+    assert mock_post.call_count == 1
+    assert mock_post.call_args == mock.call(
+        "http://infra:8086/admin/services/ollama/models/cancel?model_id=llama3",
+        headers={"Authorization": "Bearer the-key"},
+        timeout=30.0,
+    )
+    assert mock_echo.warning.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.connection.httpx.post")
+@mock.patch("deepfellow.infra.utils.connection.echo")
+def test_cancel_model_install_swallows_not_installing_404(mock_echo: Mock, mock_post: Mock) -> None:
+    mock_post.return_value = Mock(status_code=404)
+
+    cancel_model_install("http://infra:8086", "the-key", "ollama", "llama3")
+
+    assert mock_echo.warning.call_count == 0
+    assert mock_echo.debug.call_args == mock.call("model 'llama3': nothing was installing (404); nothing to cancel.")
+
+
+@mock.patch("deepfellow.infra.utils.connection.httpx.post")
+@mock.patch("deepfellow.infra.utils.connection.echo")
+def test_cancel_model_install_warns_on_other_error(mock_echo: Mock, mock_post: Mock) -> None:
+    response = Mock(status_code=500)
+    response.raise_for_status.side_effect = httpx.HTTPStatusError("TEST", request=Mock(), response=response)
+    mock_post.return_value = response
+
+    cancel_model_install("http://infra:8086", "the-key", "ollama", "llama3")
+
+    assert mock_echo.warning.call_count == 1
+    assert "model 'llama3'" in mock_echo.warning.call_args.args[0]
 
 
 def test_error_message_returns_error_message_from_json_body() -> None:

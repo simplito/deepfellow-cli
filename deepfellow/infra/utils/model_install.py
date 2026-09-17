@@ -15,7 +15,12 @@ import typer
 
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import InfraInstallSkippedError
-from deepfellow.infra.utils.connection import call_infra, resolve_infra_connection
+from deepfellow.infra.utils.connection import (
+    call_infra,
+    cancel_model_install,
+    cancel_on_interrupt,
+    resolve_infra_connection,
+)
 from deepfellow.infra.utils.progress import install_with_progress
 
 
@@ -60,14 +65,18 @@ def apply_install(
     url = f"{server}/admin/services/{service_name}/models/_?model_id={model_name}"
 
     try:
-        data = call_infra(
-            lambda: install_with_progress(url, api_key, data={"spec": {}}),
-            "Unable to install model.",
-            server=server,
-            api_key=api_key,
-            quiet=quiet,
-            skip_if_message_contains="already installed",
-            retry_if_message_contains="already installing",
+        data = cancel_on_interrupt(
+            lambda: call_infra(
+                lambda: install_with_progress(url, api_key, data={"spec": {}}),
+                "Unable to install model.",
+                server=server,
+                api_key=api_key,
+                quiet=quiet,
+                skip_if_message_contains="already installed",
+                retry_if_message_contains="already installing",
+            ),
+            lambda: cancel_model_install(server, api_key, service_name, model_name),
+            f"model '{model_name}'",
         )
     except InfraInstallSkippedError:
         echo.info(f"Model '{model_name}' is already installed; skipping.")
