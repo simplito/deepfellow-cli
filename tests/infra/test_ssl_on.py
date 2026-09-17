@@ -44,6 +44,7 @@ def mocks():
         mock.patch("deepfellow.infra.ssl_on.load_compose_file") as m_load,
         mock.patch("deepfellow.infra.ssl_on.is_service_running") as m_is_running,
         mock.patch("deepfellow.infra.ssl_on.echo") as m_echo,
+        mock.patch("deepfellow.infra.ssl_on.assert_docker") as m_assert_docker,
         mock.patch("deepfellow.infra.ssl_on.check_infra_directory") as m_check,
     ):
         yield SimpleNamespace(
@@ -55,6 +56,7 @@ def mocks():
             load=m_load,
             is_running=m_is_running,
             echo=m_echo,
+            assert_docker=m_assert_docker,
             check=m_check,
         )
 
@@ -70,6 +72,7 @@ def test_ssl_on_calls_check_infra_directory(
 
     assert mocks.check.call_count == 1
     assert mocks.check.call_args == ((tmp_path,), {})
+    assert mocks.assert_docker.call_count == 1
 
 
 def test_ssl_on_errors_when_only_key_provided(mocks: SimpleNamespace, tmp_path: Path):
@@ -77,6 +80,7 @@ def test_ssl_on_errors_when_only_key_provided(mocks: SimpleNamespace, tmp_path: 
         ssl_on(directory=tmp_path, ssl_key_path="/key.pem", ssl_cert_path="", port=None, server=None)
 
     assert mocks.echo.error.call_count == 1
+    assert mocks.assert_docker.call_count == 1
 
 
 def test_ssl_on_errors_when_only_cert_provided(mocks: SimpleNamespace, tmp_path: Path):
@@ -84,6 +88,7 @@ def test_ssl_on_errors_when_only_cert_provided(mocks: SimpleNamespace, tmp_path:
         ssl_on(directory=tmp_path, ssl_key_path="", ssl_cert_path="/cert.pem", port=None, server=None)
 
     assert mocks.echo.error.call_count == 1
+    assert mocks.assert_docker.call_count == 1
 
 
 def test_ssl_on_errors_when_infra_not_running(mocks: SimpleNamespace, tmp_path: Path):
@@ -92,6 +97,7 @@ def test_ssl_on_errors_when_infra_not_running(mocks: SimpleNamespace, tmp_path: 
         ssl_on(directory=tmp_path, ssl_key_path="", ssl_cert_path="", port=None, server=None)
 
     assert mocks.echo.error.call_count == 1
+    assert mocks.assert_docker.call_count == 1
 
 
 def test_ssl_on_adds_ssl_volume_when_not_present(
@@ -106,6 +112,7 @@ def test_ssl_on_adds_ssl_volume_when_not_present(
     ssl_dir_str = (tmp_path / "ssl").as_posix()
 
     assert f"{ssl_dir_str}:/ssl" in compose_data["services"]["infra"]["volumes"]
+    assert mocks.assert_docker.call_count == 1
 
 
 def test_ssl_on_does_not_add_volume_when_already_present(
@@ -120,6 +127,7 @@ def test_ssl_on_does_not_add_volume_when_already_present(
     ssl_on(**default_ssl_kwargs)
 
     assert len(compose["services"]["infra"]["volumes"]) == 1
+    assert mocks.assert_docker.call_count == 1
 
 
 def test_ssl_on_saves_compose_twice(
@@ -132,6 +140,7 @@ def test_ssl_on_saves_compose_twice(
     ssl_on(**default_ssl_kwargs)
 
     assert mocks.save.call_count == 2
+    assert mocks.assert_docker.call_count == 1
 
 
 def test_ssl_on_runs_mkdir_in_container(
@@ -147,6 +156,7 @@ def test_ssl_on_runs_mkdir_in_container(
         mock.call(["docker", "compose", "exec", "infra", "mkdir", "/ssl", "-p"], cwd=tmp_path)
         in mocks.run.call_args_list
     )
+    assert mocks.assert_docker.call_count == 1
 
 
 def test_ssl_on_copies_cert_files_when_paths_provided(
@@ -159,6 +169,7 @@ def test_ssl_on_copies_cert_files_when_paths_provided(
     ssl_on(**{**default_ssl_kwargs, "ssl_key_path": "/key.pem", "ssl_cert_path": "/cert.pem"})
 
     assert mocks.shutil.copy2.call_count == 2
+    assert mocks.assert_docker.call_count == 1
 
 
 def test_ssl_on_errors_when_cert_file_not_found(mocks: SimpleNamespace, compose_data: dict, default_ssl_kwargs: dict):
@@ -171,6 +182,7 @@ def test_ssl_on_errors_when_cert_file_not_found(mocks: SimpleNamespace, compose_
         ssl_on(**{**default_ssl_kwargs, "ssl_key_path": "/key.pem", "ssl_cert_path": "/cert.pem"})
 
     assert mocks.echo.error.call_count == 1
+    assert mocks.assert_docker.call_count == 1
 
 
 def test_ssl_on_runs_openssl_when_no_paths_provided(
@@ -183,6 +195,7 @@ def test_ssl_on_runs_openssl_when_no_paths_provided(
     ssl_on(**default_ssl_kwargs)
 
     assert any("openssl" in str(arg) for arg in mocks.run.call_args_list)
+    assert mocks.assert_docker.call_count == 1
 
 
 def test_ssl_on_updates_port_when_different(mocks: SimpleNamespace, compose_data: dict, default_ssl_kwargs: dict):
@@ -193,6 +206,7 @@ def test_ssl_on_updates_port_when_different(mocks: SimpleNamespace, compose_data
     ssl_on(**{**default_ssl_kwargs, "port": 8080})
 
     assert any("infra_port" in str(c) and "8080" in str(c) for c in mocks.env_set.call_args_list)
+    assert mocks.assert_docker.call_count == 1
 
 
 def test_ssl_on_converts_http_to_https(mocks: SimpleNamespace, compose_data: dict, default_ssl_kwargs: dict):
@@ -203,6 +217,7 @@ def test_ssl_on_converts_http_to_https(mocks: SimpleNamespace, compose_data: dic
     ssl_on(**default_ssl_kwargs)
 
     assert mock.call(mock.ANY, "infra_url", "https://localhost:8080", quiet=True) in mocks.env_set.call_args_list
+    assert mocks.assert_docker.call_count == 1
 
 
 def test_ssl_on_uses_provided_server_directly(mocks: SimpleNamespace, compose_data: dict, default_ssl_kwargs: dict):
@@ -213,6 +228,7 @@ def test_ssl_on_uses_provided_server_directly(mocks: SimpleNamespace, compose_da
     ssl_on(**{**default_ssl_kwargs, "server": "https://myserver.com"})
 
     assert mock.call(mock.ANY, "infra_url", "https://myserver.com", quiet=True) in mocks.env_set.call_args_list
+    assert mocks.assert_docker.call_count == 1
 
 
 def test_ssl_on_sets_entrypoint_and_command_in_compose(
@@ -226,6 +242,7 @@ def test_ssl_on_sets_entrypoint_and_command_in_compose(
 
     assert compose_data["services"]["infra"]["entrypoint"] == []
     assert "--ssl-keyfile /ssl/key.pem" in compose_data["services"]["infra"]["command"]
+    assert mocks.assert_docker.call_count == 1
 
 
 def test_ssl_on_runs_docker_compose_up(
@@ -238,3 +255,4 @@ def test_ssl_on_runs_docker_compose_up(
     ssl_on(**default_ssl_kwargs)
 
     assert any("up" in str(arg) and "--build" in str(arg) for arg in mocks.run.call_args_list)
+    assert mocks.assert_docker.call_count == 1

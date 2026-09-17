@@ -29,24 +29,35 @@ class DockerError(Exception):
     """Raised if any docker command fails."""
 
 
-def is_docker_installed() -> bool:
-    """Checks if docker is installed."""
+def _command_succeeds(cmd: list[str], catch_not_found: bool = True) -> bool:
+    """Checks if a command runs successfully.
+
+    Args:
+        cmd: Command to run.
+        catch_not_found: Whether a missing executable should also count as failure.
+    """
+    errors: tuple[type[Exception], ...] = (DockerError, FileNotFoundError) if catch_not_found else (DockerError,)
     try:
-        run(["docker", "--version"], capture_output=True, raises=DockerError)
-    except (DockerError, FileNotFoundError):
+        run(cmd, capture_output=True, raises=DockerError)
+    except errors:
         return False
 
     return True
+
+
+def is_docker_installed() -> bool:
+    """Checks if docker is installed."""
+    return _command_succeeds(["docker", "--version"])
+
+
+def is_docker_compose_installed() -> bool:
+    """Checks if the docker compose plugin is installed."""
+    return _command_succeeds(["docker", "compose", "version"])
 
 
 def is_user_allowed_to_use_docker() -> bool:
     """Check is user is allowed to use docker."""
-    try:
-        run(["docker", "ps"], capture_output=True, raises=DockerError)
-    except DockerError:
-        return False
-
-    return True
+    return _command_succeeds(["docker", "ps"], catch_not_found=False)
 
 
 def is_user_in_docker_group() -> bool:

@@ -18,6 +18,7 @@ from deepfellow.common.defaults import DOCKER_COMPOSE_CONFIG_FILENAME
 from deepfellow.common.docker import is_service_running, load_compose_file, save_compose_file
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get, env_set
+from deepfellow.common.install import assert_docker
 from deepfellow.common.system import run
 from deepfellow.common.validation import validate_server
 from deepfellow.infra.utils.options import directory_option
@@ -39,6 +40,7 @@ def ssl_on(
     """Switch on the SSL."""
     # Validate entry data
     check_infra_directory(directory)
+    assert_docker()
     if (ssl_key_path and not ssl_cert_path) or (not ssl_key_path and ssl_cert_path):
         echo.error("SSL configuration requires both SSL_KEY_PATH and SSL_CERT_PATH. Provide both or omit both.")
         raise typer.Exit(1)

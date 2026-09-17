@@ -52,9 +52,11 @@ def default_update_kwargs(directory: Path) -> dict:
 @mock.patch("deepfellow.server.update.load_compose_file")
 @mock.patch("deepfellow.server.update.echo")
 @mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
 @mock.patch("deepfellow.server.update.check_server_directory")
 def test_update_calls_check_server_directory(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_read: Mock,
     mock_echo: Mock,
     mock_load: Mock,
@@ -75,15 +77,20 @@ def test_update_calls_check_server_directory(
 
     assert mock_check.call_count == 1
     assert mock_check.call_args == ((default_update_kwargs["directory"],), {})
+    assert mock_assert_docker.call_count == 1
 
 
+@mock.patch("deepfellow.server.update.assert_docker")
 @mock.patch("deepfellow.server.update.check_server_directory")
 def test_update_raises_when_tag_and_custom_image_provided(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     directory: Path,
 ) -> None:
     with pytest.raises(typer.BadParameter):
         update(directory=directory, image="custom-image", local_image=False, tag="0.15.0")
+
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.update.start_server")
@@ -94,9 +101,11 @@ def test_update_raises_when_tag_and_custom_image_provided(
 @mock.patch("deepfellow.server.update.load_compose_file")
 @mock.patch("deepfellow.server.update.echo")
 @mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
 @mock.patch("deepfellow.server.update.check_server_directory")
 def test_update_local_image_and_no_pull_policy(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_read: Mock,
     mock_echo: Mock,
     mock_load: Mock,
@@ -121,6 +130,7 @@ def test_update_local_image_and_no_pull_policy(
         (compose_data, default_update_kwargs["directory"] / DOCKER_COMPOSE_CONFIG_FILENAME),
         {},
     )
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.update.start_server")
@@ -131,9 +141,11 @@ def test_update_local_image_and_no_pull_policy(
 @mock.patch("deepfellow.server.update.load_compose_file")
 @mock.patch("deepfellow.server.update.echo")
 @mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
 @mock.patch("deepfellow.server.update.check_server_directory")
 def test_update_local_image_and_pull_policy(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_read: Mock,
     mock_echo: Mock,
     mock_load: Mock,
@@ -154,6 +166,7 @@ def test_update_local_image_and_pull_policy(
 
     assert compose_data_with_pull_policy["services"]["server"]["pull_policy"] == "always"
     assert mock_save.call_count == 0
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.update.start_server")
@@ -164,9 +177,11 @@ def test_update_local_image_and_pull_policy(
 @mock.patch("deepfellow.server.update.load_compose_file")
 @mock.patch("deepfellow.server.update.echo")
 @mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
 @mock.patch("deepfellow.server.update.check_server_directory")
 def test_update_no_local_image_and_pull_policy(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_read: Mock,
     mock_echo: Mock,
     mock_load: Mock,
@@ -191,6 +206,7 @@ def test_update_no_local_image_and_pull_policy(
         (compose_data_with_pull_policy, default_update_kwargs["directory"] / DOCKER_COMPOSE_CONFIG_FILENAME),
         {},
     )
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.update.start_server")
@@ -201,9 +217,11 @@ def test_update_no_local_image_and_pull_policy(
 @mock.patch("deepfellow.server.update.load_compose_file")
 @mock.patch("deepfellow.server.update.echo")
 @mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
 @mock.patch("deepfellow.server.update.check_server_directory")
 def test_update_no_image_no_pull_policy(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_read: Mock,
     mock_echo: Mock,
     mock_load: Mock,
@@ -223,6 +241,7 @@ def test_update_no_image_no_pull_policy(
     update(**default_update_kwargs)
 
     assert mock_save.call_count == 0
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.update.start_server")
@@ -233,9 +252,11 @@ def test_update_no_image_no_pull_policy(
 @mock.patch("deepfellow.server.update.load_compose_file")
 @mock.patch("deepfellow.server.update.echo")
 @mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
 @mock.patch("deepfellow.server.update.check_server_directory")
 def test_update_with_tag(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_read: Mock,
     mock_echo: Mock,
     mock_load: Mock,
@@ -259,6 +280,7 @@ def test_update_with_tag(
         (mock.ANY, "SERVER_IMAGE", f"{DF_SERVER_IMAGE_HUB}:0.15.0"),
         {"quiet": False, "docker_note": False},
     )
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.update.start_server")
@@ -270,9 +292,11 @@ def test_update_with_tag(
 @mock.patch("deepfellow.server.update.load_compose_file")
 @mock.patch("deepfellow.server.update.echo")
 @mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
 @mock.patch("deepfellow.server.update.check_server_directory")
 def test_update_calls_env_set_when_env_image_differs_from_provided(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_read: Mock,
     mock_echo: Mock,
     mock_load: Mock,
@@ -297,6 +321,7 @@ def test_update_calls_env_set_when_env_image_differs_from_provided(
         (mock.ANY, "SERVER_IMAGE", DF_SERVER_IMAGE),
         {"quiet": False, "docker_note": False},
     )
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.update.get_newest_image_tag")
@@ -308,9 +333,11 @@ def test_update_calls_env_set_when_env_image_differs_from_provided(
 @mock.patch("deepfellow.server.update.load_compose_file")
 @mock.patch("deepfellow.server.update.echo")
 @mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
 @mock.patch("deepfellow.server.update.check_server_directory")
 def test_update_with_custom_image_and_no_tag_uses_image_as_is(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_read: Mock,
     mock_echo: Mock,
     mock_load: Mock,
@@ -336,6 +363,7 @@ def test_update_with_custom_image_and_no_tag_uses_image_as_is(
         (mock.ANY, "SERVER_IMAGE", "custom-image"),
         {"quiet": False, "docker_note": False},
     )
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.update.get_newest_image_tag")
@@ -347,9 +375,11 @@ def test_update_with_custom_image_and_no_tag_uses_image_as_is(
 @mock.patch("deepfellow.server.update.load_compose_file")
 @mock.patch("deepfellow.server.update.echo")
 @mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
 @mock.patch("deepfellow.server.update.check_server_directory")
 def test_update_does_not_call_env_set_when_image_unchanged(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_read: Mock,
     mock_echo: Mock,
     mock_load: Mock,
@@ -370,6 +400,7 @@ def test_update_does_not_call_env_set_when_image_unchanged(
     update(**default_update_kwargs)
 
     assert mock_env_set.call_count == 0
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.update.start_server")
@@ -380,9 +411,11 @@ def test_update_does_not_call_env_set_when_image_unchanged(
 @mock.patch("deepfellow.server.update.load_compose_file")
 @mock.patch("deepfellow.server.update.echo")
 @mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
 @mock.patch("deepfellow.server.update.check_server_directory")
 def test_update_restarts_when_confirmed(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_read: Mock,
     mock_echo: Mock,
     mock_load: Mock,
@@ -405,6 +438,7 @@ def test_update_restarts_when_confirmed(
     assert mock_stop.call_args == ((default_update_kwargs["directory"],), {})
     assert mock_start.call_count == 1
     assert mock_start.call_args == ((default_update_kwargs["directory"],), {})
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.update.start_server")
@@ -415,9 +449,11 @@ def test_update_restarts_when_confirmed(
 @mock.patch("deepfellow.server.update.load_compose_file")
 @mock.patch("deepfellow.server.update.echo")
 @mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
 @mock.patch("deepfellow.server.update.check_server_directory")
 def test_update_does_not_restart_when_not_confirmed(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_read: Mock,
     mock_echo: Mock,
     mock_load: Mock,
@@ -438,3 +474,4 @@ def test_update_does_not_restart_when_not_confirmed(
 
     assert mock_stop.call_count == 0
     assert mock_start.call_count == 0
+    assert mock_assert_docker.call_count == 1

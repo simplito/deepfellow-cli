@@ -16,6 +16,7 @@ from typing import Any
 import typer
 
 from deepfellow.common.docker import (
+    is_docker_compose_installed,
     is_docker_group_available,
     is_docker_installed,
     is_user_allowed_to_use_docker,
@@ -70,9 +71,13 @@ def ensure_directory(
 
 
 def assert_docker() -> None:
-    """Raise typer.Exit(1) if docker is not installed, otherwise pass."""
+    """Raise typer.Exit(1) if docker or the docker compose plugin is not installed, otherwise pass."""
     if not is_docker_installed():
         echo.error("Missing docker. Install docker.")
+        raise typer.Exit(1)
+
+    if not is_docker_compose_installed():
+        echo.error("Missing docker compose plugin. Install docker compose.")
         raise typer.Exit(1)
 
     if not is_user_allowed_to_use_docker():

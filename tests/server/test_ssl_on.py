@@ -24,29 +24,37 @@ def docker_config() -> dict:
     return {"services": {"server": {"volumes": ["/tmp/deepfellow-infra/data:/data"]}}}
 
 
-def test_ssl_on_raises_when_only_key_path_provided() -> None:
+@mock.patch("deepfellow.server.ssl_on.assert_docker")
+def test_ssl_on_raises_when_only_key_path_provided(mock_assert_docker: Mock) -> None:
     with pytest.raises(typer.Exit) as exc_info:
         ssl_on(directory=DIRECTORY, ssl_key_path="key.pem", ssl_cert_path=None, port=None, server=None)
 
     assert exc_info.value.exit_code == 1
+    assert mock_assert_docker.call_count == 1
 
 
-def test_ssl_on_raises_when_only_cert_path_provided() -> None:
+@mock.patch("deepfellow.server.ssl_on.assert_docker")
+def test_ssl_on_raises_when_only_cert_path_provided(mock_assert_docker: Mock) -> None:
     with pytest.raises(typer.Exit) as exc_info:
         ssl_on(directory=DIRECTORY, ssl_key_path=None, ssl_cert_path="cert.pem", port=None, server=None)
 
     assert exc_info.value.exit_code == 1
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.ssl_on.echo")
 @mock.patch("deepfellow.server.ssl_on.is_service_running", return_value=False)
-def test_ssl_on_raises_when_server_not_running(mock_is_service_running: Mock, mock_echo: Mock) -> None:
+@mock.patch("deepfellow.server.ssl_on.assert_docker")
+def test_ssl_on_raises_when_server_not_running(
+    mock_assert_docker: Mock, mock_is_service_running: Mock, mock_echo: Mock
+) -> None:
     with pytest.raises(typer.Exit) as exc_info:
         ssl_on(directory=DIRECTORY, ssl_key_path=None, ssl_cert_path=None, port=None, server=None)
 
     assert exc_info.value.exit_code == 1
     assert mock_is_service_running.call_args == mock.call("server", cwd=DIRECTORY)
     assert mock_echo.error.call_count == 1
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.ssl_on.echo")
@@ -57,7 +65,9 @@ def test_ssl_on_raises_when_server_not_running(mock_is_service_running: Mock, mo
 @mock.patch("deepfellow.server.ssl_on.load_compose_file")
 @mock.patch("deepfellow.server.ssl_on.is_service_running", return_value=True)
 @mock.patch("deepfellow.server.ssl_on.Path.mkdir")
+@mock.patch("deepfellow.server.ssl_on.assert_docker")
 def test_ssl_on_generates_self_signed_cert_when_no_paths_provided(
+    mock_assert_docker: Mock,
     mock_mkdir: Mock,
     mock_is_service_running: Mock,
     mock_load_compose_file: Mock,
@@ -101,6 +111,7 @@ def test_ssl_on_generates_self_signed_cert_when_no_paths_provided(
         ["docker", "compose", "cp", "server:/ssl/.", (DIRECTORY / "ssl").as_posix()], cwd=DIRECTORY, quiet=True
     )
     assert mock_echo.success.call_count == 1
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.ssl_on.echo")
@@ -112,7 +123,9 @@ def test_ssl_on_generates_self_signed_cert_when_no_paths_provided(
 @mock.patch("deepfellow.server.ssl_on.is_service_running", return_value=True)
 @mock.patch("deepfellow.server.ssl_on.shutil.copy2")
 @mock.patch("deepfellow.server.ssl_on.Path.mkdir")
+@mock.patch("deepfellow.server.ssl_on.assert_docker")
 def test_ssl_on_copies_provided_cert_files(
+    mock_assert_docker: Mock,
     mock_mkdir: Mock,
     mock_copy2: Mock,
     mock_is_service_running: Mock,
@@ -133,6 +146,7 @@ def test_ssl_on_copies_provided_cert_files(
     assert mock_copy2.call_args_list[1] == mock.call(Path("my-cert.pem"), DIRECTORY / "ssl" / "cert.pem")
     assert mock_run.call_count == 3
     assert mock_echo.success.call_count == 1
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.ssl_on.echo")
@@ -144,7 +158,9 @@ def test_ssl_on_copies_provided_cert_files(
 @mock.patch("deepfellow.server.ssl_on.is_service_running", return_value=True)
 @mock.patch("deepfellow.server.ssl_on.shutil.copy2")
 @mock.patch("deepfellow.server.ssl_on.Path.mkdir")
+@mock.patch("deepfellow.server.ssl_on.assert_docker")
 def test_ssl_on_raises_when_cert_file_missing(
+    mock_assert_docker: Mock,
     mock_mkdir: Mock,
     mock_copy2: Mock,
     mock_is_service_running: Mock,
@@ -166,6 +182,7 @@ def test_ssl_on_raises_when_cert_file_missing(
 
     assert exc_info.value.exit_code == 1
     assert mock_echo.error.call_args == mock.call("File not found missing.pem")
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.ssl_on.echo")
@@ -177,7 +194,9 @@ def test_ssl_on_raises_when_cert_file_missing(
 @mock.patch("deepfellow.server.ssl_on.is_service_running", return_value=True)
 @mock.patch("deepfellow.server.ssl_on.shutil.copy2")
 @mock.patch("deepfellow.server.ssl_on.Path.mkdir")
+@mock.patch("deepfellow.server.ssl_on.assert_docker")
 def test_ssl_on_adds_ssl_volume_when_missing(
+    mock_assert_docker: Mock,
     mock_mkdir: Mock,
     mock_copy2: Mock,
     mock_is_service_running: Mock,
@@ -195,6 +214,7 @@ def test_ssl_on_adds_ssl_volume_when_missing(
 
     volumes = docker_config["services"]["server"]["volumes"]
     assert f"{(DIRECTORY / 'ssl').as_posix()}:/ssl" in volumes
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.ssl_on.echo")
@@ -206,7 +226,9 @@ def test_ssl_on_adds_ssl_volume_when_missing(
 @mock.patch("deepfellow.server.ssl_on.is_service_running", return_value=True)
 @mock.patch("deepfellow.server.ssl_on.shutil.copy2")
 @mock.patch("deepfellow.server.ssl_on.Path.mkdir")
+@mock.patch("deepfellow.server.ssl_on.assert_docker")
 def test_ssl_on_skips_ssl_volume_when_already_present(
+    mock_assert_docker: Mock,
     mock_mkdir: Mock,
     mock_copy2: Mock,
     mock_is_service_running: Mock,
@@ -226,6 +248,7 @@ def test_ssl_on_skips_ssl_volume_when_already_present(
 
     volumes = docker_config["services"]["server"]["volumes"]
     assert volumes.count(ssl_volume) == 1
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.ssl_on.echo")
@@ -237,7 +260,9 @@ def test_ssl_on_skips_ssl_volume_when_already_present(
 @mock.patch("deepfellow.server.ssl_on.is_service_running", return_value=True)
 @mock.patch("deepfellow.server.ssl_on.shutil.copy2")
 @mock.patch("deepfellow.server.ssl_on.Path.mkdir")
+@mock.patch("deepfellow.server.ssl_on.assert_docker")
 def test_ssl_on_stores_port_when_provided_and_changed(
+    mock_assert_docker: Mock,
     mock_mkdir: Mock,
     mock_copy2: Mock,
     mock_is_service_running: Mock,
@@ -255,6 +280,7 @@ def test_ssl_on_stores_port_when_provided_and_changed(
     ssl_on(directory=DIRECTORY, ssl_key_path="my-key.pem", ssl_cert_path="my-cert.pem", port=9000, server=None)
 
     assert mock.call(DIRECTORY / ".env", "server_port", "9000", quiet=True) in mock_env_set.call_args_list
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.ssl_on.echo")
@@ -266,7 +292,9 @@ def test_ssl_on_stores_port_when_provided_and_changed(
 @mock.patch("deepfellow.server.ssl_on.is_service_running", return_value=True)
 @mock.patch("deepfellow.server.ssl_on.shutil.copy2")
 @mock.patch("deepfellow.server.ssl_on.Path.mkdir")
+@mock.patch("deepfellow.server.ssl_on.assert_docker")
 def test_ssl_on_rewrites_http_url_to_https_when_server_omitted(
+    mock_assert_docker: Mock,
     mock_mkdir: Mock,
     mock_copy2: Mock,
     mock_is_service_running: Mock,
@@ -284,6 +312,7 @@ def test_ssl_on_rewrites_http_url_to_https_when_server_omitted(
     ssl_on(directory=DIRECTORY, ssl_key_path="my-key.pem", ssl_cert_path="my-cert.pem", port=None, server=None)
 
     assert mock.call(DIRECTORY / ".env", "server_url", "https://example.com", quiet=True) in mock_env_set.call_args_list
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.ssl_on.echo")
@@ -295,7 +324,9 @@ def test_ssl_on_rewrites_http_url_to_https_when_server_omitted(
 @mock.patch("deepfellow.server.ssl_on.is_service_running", return_value=True)
 @mock.patch("deepfellow.server.ssl_on.shutil.copy2")
 @mock.patch("deepfellow.server.ssl_on.Path.mkdir")
+@mock.patch("deepfellow.server.ssl_on.assert_docker")
 def test_ssl_on_stores_explicit_server_url_when_provided(
+    mock_assert_docker: Mock,
     mock_mkdir: Mock,
     mock_copy2: Mock,
     mock_is_service_running: Mock,
@@ -322,6 +353,7 @@ def test_ssl_on_stores_explicit_server_url_when_provided(
         mock.call(DIRECTORY / ".env", "server_url", "https://new.example.com", quiet=True)
         in mock_env_set.call_args_list
     )
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.ssl_on.echo")
@@ -333,7 +365,9 @@ def test_ssl_on_stores_explicit_server_url_when_provided(
 @mock.patch("deepfellow.server.ssl_on.is_service_running", return_value=True)
 @mock.patch("deepfellow.server.ssl_on.shutil.copy2")
 @mock.patch("deepfellow.server.ssl_on.Path.mkdir")
+@mock.patch("deepfellow.server.ssl_on.assert_docker")
 def test_ssl_on_updates_compose_command_and_entrypoint(
+    mock_assert_docker: Mock,
     mock_mkdir: Mock,
     mock_copy2: Mock,
     mock_is_service_running: Mock,
@@ -357,3 +391,4 @@ def test_ssl_on_updates_compose_command_and_entrypoint(
     assert mock_run.call_args_list[-1] == mock.call(
         ["docker", "compose", "up", "--build", "-d", "--remove-orphans"], cwd=DIRECTORY, quiet=True
     )
+    assert mock_assert_docker.call_count == 1

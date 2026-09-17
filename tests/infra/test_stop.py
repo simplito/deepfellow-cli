@@ -25,9 +25,11 @@ def run_args() -> list:
 @mock.patch("deepfellow.infra.stop.run")
 @mock.patch("deepfellow.infra.stop.echo.success")
 @mock.patch("deepfellow.infra.stop.echo.debug")
+@mock.patch("deepfellow.infra.stop.assert_docker")
 @mock.patch("deepfellow.infra.stop.check_infra_directory")
 def test_stop_success(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_echo_debug: Mock,
     mock_echo_success: Mock,
     mock_run: Mock,
@@ -38,6 +40,7 @@ def test_stop_success(
 
     assert mock_check.call_count == 1
     assert mock_check.call_args == ((directory,), {})
+    assert mock_assert_docker.call_count == 1
     assert mock_run.call_count == 1
     assert mock_run.call_args == ((run_args,), {"cwd": directory})
     assert mock_echo_debug.call_count == 1

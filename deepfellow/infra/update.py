@@ -20,6 +20,7 @@ from deepfellow.common.defaults import DF_INFRA_IMAGE, DF_INFRA_IMAGE_HUB, DOCKE
 from deepfellow.common.docker import load_compose_file, save_compose_file
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
+from deepfellow.common.install import assert_docker
 from deepfellow.common.registry import get_newest_image_tag
 from deepfellow.common.system import run
 from deepfellow.infra.utils.docker import start_infra, stop_infra
@@ -50,6 +51,7 @@ def update(
 ) -> None:
     """Update DeepFellow Infra."""
     check_infra_directory(directory)
+    assert_docker()
     # Validate mutual exclusive image and tag
     if tag and image != DF_INFRA_IMAGE:
         raise typer.BadParameter("Only one if the `--tag` or `--image` options can be provided.")

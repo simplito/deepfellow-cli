@@ -26,6 +26,7 @@ from deepfellow.common.docker import (
     get_container_id,
     get_docker_network,
     get_socket,
+    is_docker_compose_installed,
     is_docker_group_available,
     is_docker_installed,
     is_service_running,
@@ -79,6 +80,23 @@ def test_is_docker_installed_error(mock_run: Mock, error: Exception) -> None:
     mock_run.side_effect = error
 
     assert not is_docker_installed()  # Should also be False, not True
+
+
+@pytest.mark.parametrize("error", [DockerError(1, "docker compose"), FileNotFoundError()])
+@mock.patch("deepfellow.common.docker.run")
+def test_is_docker_compose_installed_error(mock_run: Mock, error: Exception) -> None:
+    mock_run.side_effect = error
+
+    assert not is_docker_compose_installed()
+
+
+@mock.patch("deepfellow.common.docker.run")
+def test_is_docker_compose_installed_returns_true_on_success(mock_run: Mock) -> None:
+    mock_run.return_value = "Docker Compose version v2.29.0"
+
+    result = is_docker_compose_installed()
+
+    assert result is True
 
 
 @mock.patch("deepfellow.common.docker.echo")
