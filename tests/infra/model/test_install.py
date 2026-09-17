@@ -243,6 +243,26 @@ def test_apply_install_performs_no_prompting(
     assert mock_echo.success.call_args == mock.call("Model llama-3.1-8B installed.")
 
 
+@mock.patch("deepfellow.infra.utils.model_install.cancel_model_install")
+@mock.patch("deepfellow.infra.utils.connection.env_set")
+@mock.patch("deepfellow.infra.utils.model_install.echo")
+@mock.patch("deepfellow.infra.utils.model_install.install_with_progress")
+def test_apply_install_cancels_install_on_keyboard_interrupt(
+    mock_install_with_progress: Mock,
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    mock_cancel: Mock,
+) -> None:
+    mock_install_with_progress.side_effect = KeyboardInterrupt()
+    connection = ModelInstallConnection(server="http://infra:8086", api_key="test-key")
+
+    with pytest.raises(KeyboardInterrupt):
+        apply_install(service_name="ollama", model_name="llama-3.1-8B", connection=connection)
+
+    assert mock_cancel.call_count == 1
+    assert mock_cancel.call_args == mock.call("http://infra:8086", "test-key", "ollama", "llama-3.1-8B")
+
+
 @mock.patch("deepfellow.infra.model.install.install_util")
 def test_install_command_delegates_to_install_util(mock_install_util: Mock) -> None:
     install_command(server="http://infra:8086", service_name="ollama", model_name="llama-3.1-8B")

@@ -334,6 +334,27 @@ def test_apply_spec_skips_when_service_already_installed(
     assert mock_echo.info.call_args == mock.call(f"Service '{name}' is already installed; skipping.")
 
 
+@mock.patch("deepfellow.infra.utils.service_install.cancel_service_install")
+@mock.patch("deepfellow.infra.utils.connection.env_set")
+@mock.patch("deepfellow.infra.utils.service_install.echo")
+@mock.patch("deepfellow.infra.utils.service_install.install_with_progress")
+def test_apply_spec_cancels_install_on_keyboard_interrupt(
+    mock_install_with_progress: Mock,
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    mock_cancel: Mock,
+    name: str,
+) -> None:
+    mock_install_with_progress.side_effect = KeyboardInterrupt()
+    install_spec = ServiceInstallSpec(server="http://infra:8086", api_key="test-key", spec={}, explicit_spec=True)
+
+    with pytest.raises(KeyboardInterrupt):
+        apply_spec(name, install_spec)
+
+    assert mock_cancel.call_count == 1
+    assert mock_cancel.call_args == mock.call("http://infra:8086", "test-key", name)
+
+
 def test_install_with_invalid_json_spec(name: str) -> None:
     with pytest.raises(typer.Exit):
         install(name=name, spec="not-json")

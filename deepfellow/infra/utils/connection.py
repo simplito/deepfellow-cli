@@ -13,6 +13,7 @@ import time
 from collections.abc import Callable
 from json import JSONDecodeError
 from typing import Any, cast
+from urllib.parse import quote
 
 import httpx
 import typer
@@ -67,6 +68,55 @@ def resolve_infra_connection(server: str | None) -> tuple[str, str]:
         api_key = echo.prompt("Provide Infra Admin API Key", password=True)
 
     return server, cast("str", api_key)
+
+
+def cancel_service_install(server: str, api_key: str, service_id: str) -> None:
+    """Best-effort cancel of an in-progress service install/update on the Infra server.
+
+    Meant to be called from a `KeyboardInterrupt` handler: never raises. A 404 (nothing was
+    installing) is treated as success; any other failure is only warned about, so it can never
+    replace the interrupt as the reason the command is exiting.
+
+    Args:
+        server: Infra server URL.
+        api_key: Infra admin API key.
+        service_id: The service instance id to cancel (e.g. "ollama").
+    """
+    url = f"{server}/admin/services/{quote(service_id, safe='')}/cancel"
+    _cancel(url, api_key, f"service '{service_id}'")
+
+
+def cancel_model_install(server: str, api_key: str, service_id: str, model_id: str) -> None:
+    """Best-effort cancel of an in-progress model install on the Infra server. See `cancel_service_install`.
+
+    Args:
+        server: Infra server URL.
+        api_key: Infra admin API key.
+        service_id: The service instance id the model belongs to (e.g. "ollama").
+        model_id: The model id to cancel (e.g. "llama-3.1-8B").
+    """
+    url = f"{server}/admin/services/{quote(service_id, safe='')}/models/cancel?model_id={quote(model_id, safe='')}"
+    _cancel(url, api_key, f"model '{model_id}'")
+
+
+def _cancel(url: str, api_key: str, description: str) -> None:
+    """POST a cancel request, swallowing a 404 and warning (never raising) on any other failure.
+
+    Args:
+        url: Full cancel endpoint URL to POST to.
+        api_key: Infra admin API key.
+        description: Human-readable description of what's being cancelled, used in the warning
+            message on failure (e.g. "service 'ollama'").
+    """
+    echo.debug(f"POST {url}")
+    try:
+        response = httpx.post(url, headers={"Authorization": f"Bearer {api_key}"}, timeout=30.0)
+        if response.status_code == 404:
+            echo.debug(f"{description}: nothing was installing (404); nothing to cancel.")
+            return
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        echo.warning(f"Could not cancel {description} install on Infra; it may still be running there. ({exc})")
 
 
 def persist_infra_connection(server: str, api_key: str, quiet: bool = False) -> None:
@@ -152,6 +202,38 @@ def call_infra(
         persist_infra_connection(server, api_key, quiet=quiet)
 
     return result
+
+
+def cancel_on_interrupt(
+    call: Callable[[], dict[str, Any]], cancel: Callable[[], None], description: str
+) -> dict[str, Any]:
+    """Run `call`, best-effort cancelling the matching install on Infra if interrupted, then re-raising.
+
+    Meant to wrap a `call_infra(...)` call for a long-running install, covering both its SSE
+    progress read and its own "already installing" retry-wait - a `KeyboardInterrupt` landing in
+    either would otherwise just abandon the install running server-side. Any other exception
+    `call` raises (e.g. `InfraInstallSkippedError`) passes through untouched. `cancel` itself is
+    never allowed to replace the original `KeyboardInterrupt`: whatever it raises is caught and
+    warned about here, so the interrupt is always what actually propagates.
+
+    Args:
+        call: Zero-argument callable performing the install (e.g. `lambda: call_infra(...)`).
+        cancel: Zero-argument callable that best-effort cancels the corresponding install on Infra
+            (e.g. `lambda: cancel_service_install(server, api_key, name)`).
+        description: What's being installed, for the interrupt message (e.g. "service 'ollama'").
+
+    Returns:
+        Whatever `call` returns.
+    """
+    try:
+        return call()
+    except KeyboardInterrupt:
+        echo.warning(f"Interrupted; cancelling {description} install on Infra...")
+        try:
+            cancel()
+        except Exception as exc:  # cancel() must never replace the KeyboardInterrupt raised below
+            echo.warning(f"Could not cancel {description} install on Infra; it may still be running there. ({exc})")
+        raise
 
 
 def _error_message(response: httpx.Response, default_error_msg: str) -> str:
