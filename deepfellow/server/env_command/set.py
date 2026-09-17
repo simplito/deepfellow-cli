@@ -18,6 +18,7 @@ from deepfellow.common.config import dict_to_env, read_env_file
 from deepfellow.common.docker import is_service_running
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get, env_set
+from deepfellow.common.install import assert_docker
 from deepfellow.common.state import state
 from deepfellow.server.utils.docker import start_server, stop_server
 from deepfellow.server.utils.options import directory_option
@@ -87,6 +88,7 @@ def set(
 ) -> None:
     """Set environment configuration."""
     check_server_directory(directory)
+    assert_docker()
 
     resolved_name = _resolved_env_name(env_name, df_prefix)
     field_name = _dynamic_field_name(directory, resolved_name)

@@ -14,6 +14,7 @@ from pathlib import Path
 import typer
 
 from deepfellow.common.echo import echo
+from deepfellow.common.install import assert_docker
 from deepfellow.common.system import run
 from deepfellow.infra.utils.options import directory_option
 
@@ -27,6 +28,7 @@ def logs(
     tail: int | None = typer.Option(20, "-n", "--tail", help="Number of lines to show from the end of the logs"),
 ) -> None:
     """Show DeepFellow Infra logs."""
+    assert_docker()
     echo.info("Showing DeepFellow Infra logs")
 
     cmd = ["docker", "compose", "logs", "infra"]

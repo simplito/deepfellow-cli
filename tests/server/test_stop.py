@@ -16,9 +16,11 @@ from deepfellow.server.stop import stop
 @mock.patch("deepfellow.server.stop.run")
 @mock.patch("deepfellow.server.stop.echo.success")
 @mock.patch("deepfellow.server.stop.echo.debug")
+@mock.patch("deepfellow.server.stop.assert_docker")
 @mock.patch("deepfellow.server.stop.check_server_directory")
 def test_stop_stops_server(
     mock_check_server_directory: mock.MagicMock,
+    mock_assert_docker: mock.MagicMock,
     mock_debug: mock.MagicMock,
     mock_success: mock.MagicMock,
     mock_run: mock.MagicMock,
@@ -28,6 +30,7 @@ def test_stop_stops_server(
 
     assert mock_check_server_directory.call_count == 1
     assert mock_check_server_directory.call_args == mock.call(directory)
+    assert mock_assert_docker.call_count == 1
     assert mock_debug.call_count == 1
     assert mock_debug.call_args == mock.call("Stopping DeepFellow Server")
     assert mock_run.call_count == 1

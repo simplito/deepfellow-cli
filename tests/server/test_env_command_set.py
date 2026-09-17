@@ -32,9 +32,11 @@ def directory(tmp_path: Path) -> Path:
 @mock.patch("deepfellow.server.env_command.set.stop_server")
 @mock.patch("deepfellow.server.env_command.set.echo")
 @mock.patch("deepfellow.server.env_command.set.env_set")
+@mock.patch("deepfellow.server.env_command.set.assert_docker")
 @mock.patch("deepfellow.server.env_command.set.check_server_directory")
 def test_set_restarts_server_when_confirmed(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_env_set: Mock,
     mock_echo: Mock,
     mock_stop: Mock,
@@ -53,6 +55,7 @@ def test_set_restarts_server_when_confirmed(
     assert mock_stop.call_args == mock.call(directory)
     assert mock_start.call_count == 1
     assert mock_start.call_args == mock.call(directory)
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.env_command.set.is_service_running", return_value=False)
@@ -61,9 +64,11 @@ def test_set_restarts_server_when_confirmed(
 @mock.patch("deepfellow.server.env_command.set.stop_server")
 @mock.patch("deepfellow.server.env_command.set.echo")
 @mock.patch("deepfellow.server.env_command.set.env_set")
+@mock.patch("deepfellow.server.env_command.set.assert_docker")
 @mock.patch("deepfellow.server.env_command.set.check_server_directory")
 def test_set_skips_restart_when_declined(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_env_set: Mock,
     mock_echo: Mock,
     mock_stop: Mock,
@@ -80,6 +85,7 @@ def test_set_skips_restart_when_declined(
     assert mock_echo.confirm.call_count == 1
     assert mock_stop.call_count == 0
     assert mock_start.call_count == 0
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.env_command.set.is_service_running", return_value=False)
@@ -88,9 +94,11 @@ def test_set_skips_restart_when_declined(
 @mock.patch("deepfellow.server.env_command.set.stop_server")
 @mock.patch("deepfellow.server.env_command.set.echo")
 @mock.patch("deepfellow.server.env_command.set.env_set")
+@mock.patch("deepfellow.server.env_command.set.assert_docker")
 @mock.patch("deepfellow.server.env_command.set.check_server_directory")
 def test_set_confirm_has_default_true(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_env_set: Mock,
     mock_echo: Mock,
     mock_stop: Mock,
@@ -104,6 +112,7 @@ def test_set_confirm_has_default_true(
     set(directory=directory, env_name="DF_SOME_VAR", env_value="value", df_prefix=True, no_restart=False)
 
     assert mock_echo.confirm.call_args == mock.call("Restart the server now to apply the change?", default=True)
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.env_command.set.is_service_running", return_value=False)
@@ -112,9 +121,11 @@ def test_set_confirm_has_default_true(
 @mock.patch("deepfellow.server.env_command.set.stop_server")
 @mock.patch("deepfellow.server.env_command.set.echo")
 @mock.patch("deepfellow.server.env_command.set.env_set")
+@mock.patch("deepfellow.server.env_command.set.assert_docker")
 @mock.patch("deepfellow.server.env_command.set.check_server_directory")
 def test_set_skips_restart_when_no_restart_flag(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_env_set: Mock,
     mock_echo: Mock,
     mock_stop: Mock,
@@ -129,6 +140,7 @@ def test_set_skips_restart_when_no_restart_flag(
     assert mock_echo.confirm.call_count == 0
     assert mock_stop.call_count == 0
     assert mock_start.call_count == 0
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.env_command.set._dynamic_field_name", return_value="otel_tracing_enabled")
@@ -136,9 +148,11 @@ def test_set_skips_restart_when_no_restart_flag(
 @mock.patch("deepfellow.server.env_command.set.stop_server")
 @mock.patch("deepfellow.server.env_command.set.echo")
 @mock.patch("deepfellow.server.env_command.set.env_set")
+@mock.patch("deepfellow.server.env_command.set.assert_docker")
 @mock.patch("deepfellow.server.env_command.set.check_server_directory")
 def test_set_blocks_when_variable_is_dynamic_config(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_env_set: Mock,
     mock_echo: Mock,
     mock_stop: Mock,
@@ -154,6 +168,7 @@ def test_set_blocks_when_variable_is_dynamic_config(
     assert "otel_tracing_enabled" in mock_echo.error.call_args[0][0]
     assert mock_stop.call_count == 0
     assert mock_start.call_count == 0
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.env_command.set.is_service_running", return_value=False)
@@ -278,9 +293,11 @@ def test_dynamic_field_name_returns_none_when_admin_api_unreachable(
 @mock.patch("deepfellow.server.env_command.set.stop_server")
 @mock.patch("deepfellow.server.env_command.set.echo")
 @mock.patch("deepfellow.server.env_command.set.env_set")
+@mock.patch("deepfellow.server.env_command.set.assert_docker")
 @mock.patch("deepfellow.server.env_command.set.check_server_directory")
 def test_set_warns_when_config_json_exists_and_server_not_running(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_env_set: Mock,
     mock_echo: Mock,
     mock_stop: Mock,
@@ -296,6 +313,7 @@ def test_set_warns_when_config_json_exists_and_server_not_running(
 
     assert mock_echo.warning.call_count == 1
     assert mock_env_set.call_count == 1
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.server.env_command.set.config_json_exists", return_value=False)
@@ -305,9 +323,11 @@ def test_set_warns_when_config_json_exists_and_server_not_running(
 @mock.patch("deepfellow.server.env_command.set.stop_server")
 @mock.patch("deepfellow.server.env_command.set.echo")
 @mock.patch("deepfellow.server.env_command.set.env_set")
+@mock.patch("deepfellow.server.env_command.set.assert_docker")
 @mock.patch("deepfellow.server.env_command.set.check_server_directory")
 def test_set_no_warning_when_config_json_missing_and_server_not_running(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_env_set: Mock,
     mock_echo: Mock,
     mock_stop: Mock,
@@ -323,3 +343,4 @@ def test_set_no_warning_when_config_json_missing_and_server_not_running(
 
     assert mock_echo.warning.call_count == 0
     assert mock_env_set.call_count == 1
+    assert mock_assert_docker.call_count == 1

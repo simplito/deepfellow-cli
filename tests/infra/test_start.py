@@ -24,9 +24,11 @@ def env_content() -> dict:
 @mock.patch("deepfellow.infra.start.start_infra")
 @mock.patch("deepfellow.infra.start.echo.info")
 @mock.patch("deepfellow.infra.start.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.start.assert_docker")
 @mock.patch("deepfellow.infra.start.check_infra_directory")
 def test_start_calls_check_infra_directory(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_read: Mock,
     mock_echo: Mock,
     mock_start_infra: Mock,
@@ -39,14 +41,17 @@ def test_start_calls_check_infra_directory(
 
     assert mock_check.call_count == 1
     assert mock_check.call_args == ((directory,), {})
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.infra.start.start_infra")
 @mock.patch("deepfellow.infra.start.echo.info")
 @mock.patch("deepfellow.infra.start.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.start.assert_docker")
 @mock.patch("deepfellow.infra.start.check_infra_directory")
 def test_start_calls_start_infra_with_directory(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_read: Mock,
     mock_echo: Mock,
     mock_start_infra: Mock,
@@ -59,14 +64,17 @@ def test_start_calls_start_infra_with_directory(
 
     assert mock_start_infra.call_count == 1
     assert mock_start_infra.call_args == ((directory,), {})
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.infra.start.start_infra")
 @mock.patch("deepfellow.infra.start.echo.info")
 @mock.patch("deepfellow.infra.start.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.start.assert_docker")
 @mock.patch("deepfellow.infra.start.check_infra_directory")
 def test_echo_prints_starting_message(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_read: Mock,
     mock_echo: Mock,
     mock_start_infra: Mock,
@@ -78,14 +86,17 @@ def test_echo_prints_starting_message(
     start(directory=directory)
 
     assert mock_echo.call_args_list[0] == mock.call("Starting DeepFellow Infra")
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.infra.start.start_infra")
 @mock.patch("deepfellow.infra.start.echo.info")
 @mock.patch("deepfellow.infra.start.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.start.assert_docker")
 @mock.patch("deepfellow.infra.start.check_infra_directory")
 def test_echo_prints_port(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_read: Mock,
     mock_echo: Mock,
     mock_start_infra: Mock,
@@ -99,3 +110,4 @@ def test_echo_prints_port(
     assert mock_echo.call_args_list[1] == mock.call(
         f"DeepFellow Infra started on http://localhost:{env_content['df_infra_port']}"
     )
+    assert mock_assert_docker.call_count == 1

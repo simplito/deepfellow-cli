@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+### Fixed
+- `infra`/`server` commands that run `docker`/`docker compose` (`start`, `stop`, `restart`, `update`, `logs`, `ssl-on`, `env set`, and `infra connect`/`disconnect`) now validate up front that docker is installed, running, and usable, and give a clear DeepFellow error message instead of a raw docker error when it isn't - previously only `install`, `status`, `prune`, and `uninstall` did this check. The check itself (`assert_docker`) now also verifies the `docker compose` plugin is present, not just the `docker` binary.
+
 ## [0.34.0] - 2026-09-16
 ### Fixed
 - `deepfellow suite install` (and `server install --template`) no longer crashes with an unhandled `TypeError` during the workspace-creation step against a server that returns a `webhook_url` field on project objects - the CLI's `Project` model now accounts for it.

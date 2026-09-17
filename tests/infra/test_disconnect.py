@@ -26,9 +26,11 @@ def _config_with_parent(parent_infra_url: str | None) -> dict:
 @mock.patch("deepfellow.infra.disconnect.env_get")
 @mock.patch("deepfellow.infra.disconnect.echo")
 @mock.patch("deepfellow.infra.disconnect.is_service_running")
+@mock.patch("deepfellow.infra.disconnect.assert_docker")
 @mock.patch("deepfellow.infra.disconnect.check_infra_directory")
 def test_disconnect_calls_check_infra_directory(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_is_running: Mock,
     mock_echo: Mock,
     mock_env_get: Mock,
@@ -44,15 +46,18 @@ def test_disconnect_calls_check_infra_directory(
 
     assert mock_check.call_count == 1
     assert mock_check.call_args == ((directory,), {})
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.infra.disconnect.infra_admin_request")
 @mock.patch("deepfellow.infra.disconnect.env_get")
 @mock.patch("deepfellow.infra.disconnect.echo")
 @mock.patch("deepfellow.infra.disconnect.is_service_running")
+@mock.patch("deepfellow.infra.disconnect.assert_docker")
 @mock.patch("deepfellow.infra.disconnect.check_infra_directory")
 def test_disconnect_raises_exit_when_service_not_running(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_is_running: Mock,
     mock_echo: Mock,
     mock_env_get: Mock,
@@ -64,14 +69,18 @@ def test_disconnect_raises_exit_when_service_not_running(
     with pytest.raises(typer.Exit):
         disconnect(directory=directory)
 
+    assert mock_assert_docker.call_count == 1
+
 
 @mock.patch("deepfellow.infra.disconnect.infra_admin_request")
 @mock.patch("deepfellow.infra.disconnect.env_get")
 @mock.patch("deepfellow.infra.disconnect.echo")
 @mock.patch("deepfellow.infra.disconnect.is_service_running")
+@mock.patch("deepfellow.infra.disconnect.assert_docker")
 @mock.patch("deepfellow.infra.disconnect.check_infra_directory")
 def test_disconnect_raises_exit_when_infra_port_missing(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_is_running: Mock,
     mock_echo: Mock,
     mock_env_get: Mock,
@@ -85,15 +94,18 @@ def test_disconnect_raises_exit_when_infra_port_missing(
         disconnect(directory=directory)
 
     assert mock_admin_request.call_count == 0
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.infra.disconnect.infra_admin_request")
 @mock.patch("deepfellow.infra.disconnect.env_get")
 @mock.patch("deepfellow.infra.disconnect.echo")
 @mock.patch("deepfellow.infra.disconnect.is_service_running")
+@mock.patch("deepfellow.infra.disconnect.assert_docker")
 @mock.patch("deepfellow.infra.disconnect.check_infra_directory")
 def test_disconnect_calls_infra_admin_request_to_read_config(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_is_running: Mock,
     mock_echo: Mock,
     mock_env_get: Mock,
@@ -109,15 +121,18 @@ def test_disconnect_calls_infra_admin_request_to_read_config(
     assert mock_admin_request.call_args_list[0] == mock.call(
         "GET", "http://localhost:8086/admin/config", "http://localhost:8086", "admin-key"
     )
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.infra.disconnect.infra_admin_request")
 @mock.patch("deepfellow.infra.disconnect.env_get")
 @mock.patch("deepfellow.infra.disconnect.echo")
 @mock.patch("deepfellow.infra.disconnect.is_service_running")
+@mock.patch("deepfellow.infra.disconnect.assert_docker")
 @mock.patch("deepfellow.infra.disconnect.check_infra_directory")
 def test_disconnect_calls_echo_error_when_not_connected(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_is_running: Mock,
     mock_echo: Mock,
     mock_env_get: Mock,
@@ -132,15 +147,18 @@ def test_disconnect_calls_echo_error_when_not_connected(
 
     assert mock_echo.error.call_count == 1
     assert mock_echo.error.call_args == (("Already disconnected",), {})
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.infra.disconnect.infra_admin_request")
 @mock.patch("deepfellow.infra.disconnect.env_get")
 @mock.patch("deepfellow.infra.disconnect.echo")
 @mock.patch("deepfellow.infra.disconnect.is_service_running")
+@mock.patch("deepfellow.infra.disconnect.assert_docker")
 @mock.patch("deepfellow.infra.disconnect.check_infra_directory")
 def test_disconnect_does_not_put_config_when_not_connected(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_is_running: Mock,
     mock_echo: Mock,
     mock_env_get: Mock,
@@ -154,15 +172,18 @@ def test_disconnect_does_not_put_config_when_not_connected(
     disconnect(directory=directory)
 
     assert mock_admin_request.call_count == 1
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.infra.disconnect.infra_admin_request")
 @mock.patch("deepfellow.infra.disconnect.env_get")
 @mock.patch("deepfellow.infra.disconnect.echo")
 @mock.patch("deepfellow.infra.disconnect.is_service_running")
+@mock.patch("deepfellow.infra.disconnect.assert_docker")
 @mock.patch("deepfellow.infra.disconnect.check_infra_directory")
 def test_disconnect_calls_echo_success_when_not_confirmed(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_is_running: Mock,
     mock_echo: Mock,
     mock_env_get: Mock,
@@ -178,15 +199,18 @@ def test_disconnect_calls_echo_success_when_not_confirmed(
 
     assert mock_echo.success.call_count == 1
     assert mock_echo.success.call_args == (("Operation ends with no changes.",), {})
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.infra.disconnect.infra_admin_request")
 @mock.patch("deepfellow.infra.disconnect.env_get")
 @mock.patch("deepfellow.infra.disconnect.echo")
 @mock.patch("deepfellow.infra.disconnect.is_service_running")
+@mock.patch("deepfellow.infra.disconnect.assert_docker")
 @mock.patch("deepfellow.infra.disconnect.check_infra_directory")
 def test_disconnect_does_not_put_config_when_not_confirmed(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_is_running: Mock,
     mock_echo: Mock,
     mock_env_get: Mock,
@@ -201,15 +225,18 @@ def test_disconnect_does_not_put_config_when_not_confirmed(
     disconnect(directory=directory)
 
     assert mock_admin_request.call_count == 1
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.infra.disconnect.infra_admin_request")
 @mock.patch("deepfellow.infra.disconnect.env_get")
 @mock.patch("deepfellow.infra.disconnect.echo")
 @mock.patch("deepfellow.infra.disconnect.is_service_running")
+@mock.patch("deepfellow.infra.disconnect.assert_docker")
 @mock.patch("deepfellow.infra.disconnect.check_infra_directory")
 def test_disconnect_calls_infra_admin_request_to_clear_config_when_confirmed(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_is_running: Mock,
     mock_echo: Mock,
     mock_env_get: Mock,
@@ -230,15 +257,18 @@ def test_disconnect_calls_infra_admin_request_to_clear_config_when_confirmed(
         "admin-key",
         json_body={"connect_to_mesh_url": "", "connect_to_mesh_key": ""},
     )
+    assert mock_assert_docker.call_count == 1
 
 
 @mock.patch("deepfellow.infra.disconnect.infra_admin_request")
 @mock.patch("deepfellow.infra.disconnect.env_get")
 @mock.patch("deepfellow.infra.disconnect.echo")
 @mock.patch("deepfellow.infra.disconnect.is_service_running")
+@mock.patch("deepfellow.infra.disconnect.assert_docker")
 @mock.patch("deepfellow.infra.disconnect.check_infra_directory")
 def test_disconnect_calls_echo_success_when_confirmed(
     mock_check: Mock,
+    mock_assert_docker: Mock,
     mock_is_running: Mock,
     mock_echo: Mock,
     mock_env_get: Mock,
@@ -254,3 +284,4 @@ def test_disconnect_calls_echo_success_when_confirmed(
 
     assert mock_echo.success.call_count == 1
     assert "http://parent-infra:8086" in mock_echo.success.call_args[0][0]
+    assert mock_assert_docker.call_count == 1

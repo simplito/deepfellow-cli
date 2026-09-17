@@ -19,6 +19,7 @@ from deepfellow.common.defaults import DF_INFRA_STORAGE_DIR
 from deepfellow.common.docker import is_service_running
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get, env_set
+from deepfellow.common.install import assert_docker
 from deepfellow.infra.utils.docker import start_infra, stop_infra
 from deepfellow.infra.utils.options import directory_option
 from deepfellow.infra.utils.validation import check_infra_directory
@@ -96,6 +97,7 @@ def set(
 ) -> None:
     """Set environment configuration."""
     check_infra_directory(directory)
+    assert_docker()
 
     resolved_name = _resolved_env_name(env_name, df_prefix)
     field_name = _dynamic_field_name(directory, resolved_name)

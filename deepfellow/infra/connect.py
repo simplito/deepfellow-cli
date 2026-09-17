@@ -20,6 +20,7 @@ import typer
 from deepfellow.common.docker import is_service_running
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get
+from deepfellow.common.install import assert_docker
 from deepfellow.common.system import run
 from deepfellow.common.validation import validate_truthy, validate_url
 from deepfellow.infra.utils.admin import infra_admin_request
@@ -126,6 +127,7 @@ def connect(
 ) -> None:
     """Connect two Infras together. This infra is child."""
     check_infra_directory(directory)
+    assert_docker()
 
     if not is_service_running("infra", cwd=directory):
         echo.error("DeepFellow Infra is not running")

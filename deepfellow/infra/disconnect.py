@@ -16,6 +16,7 @@ import typer
 from deepfellow.common.docker import is_service_running
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get
+from deepfellow.common.install import assert_docker
 from deepfellow.infra.utils.admin import infra_admin_request
 from deepfellow.infra.utils.options import directory_option
 from deepfellow.infra.utils.validation import check_infra_directory
@@ -29,6 +30,7 @@ def disconnect(
 ) -> None:
     """Disconnect infra. This infra is child."""
     check_infra_directory(directory)
+    assert_docker()
 
     if not is_service_running("infra", cwd=directory):
         echo.error("DeepFellow Infra is not running")
