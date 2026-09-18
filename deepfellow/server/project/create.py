@@ -10,6 +10,7 @@
 """server project create command."""
 
 from enum import Enum
+from typing import Any
 
 import typer
 
@@ -36,6 +37,8 @@ def create(
     status: Status = typer.Option(Status.active, help="Status of the Project"),
     models: list[str] | None = typer.Option(None, help="List of models this Project can use. 'all' or list of models"),
     custom_endpoints: list[str] = typer.Option([], help="List of custom endpoints"),
+    webhook_url: str | None = typer.Option(None, help="Webhook URL for the Project"),
+    webhook_secret: str | None = typer.Option(None, help="Webhook signing secret for the Project"),
 ) -> None:
     """Create organization."""
     # Get token for the server
@@ -51,16 +54,17 @@ def create(
     if models and models != ["all"]:
         project_models = models
 
-    project = create_project(
-        server_url,
-        token,
-        organization_id,
-        {
-            "name": name,
-            "status": status,
-            "models": project_models,
-            "custom_endpoints": custom_endpoints,
-        },
-    )
+    data: dict[str, Any] = {
+        "name": name,
+        "status": status,
+        "models": project_models,
+        "custom_endpoints": custom_endpoints,
+    }
+    if webhook_url is not None:
+        data["webhook_url"] = webhook_url
+    if webhook_secret is not None:
+        data["webhook_secret"] = webhook_secret
+
+    project = create_project(server_url, token, organization_id, data)
 
     echo.info(str(project))

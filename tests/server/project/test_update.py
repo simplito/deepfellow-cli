@@ -56,6 +56,8 @@ def test_update_calls_update_project_with_name_only(
         models=None,
         custom_endpoints=None,
         mcp_prefixes=None,
+        webhook_url=None,
+        webhook_secret=None,
         overwrite=False,
     )
 
@@ -91,6 +93,8 @@ def test_update_adds_model_to_existing_models(
         models=["gpt-3.5"],
         custom_endpoints=None,
         mcp_prefixes=None,
+        webhook_url=None,
+        webhook_secret=None,
         overwrite=False,
     )
 
@@ -127,6 +131,8 @@ def test_update_dedups_model_already_present(
         models=["gpt-3.5", "claude"],
         custom_endpoints=None,
         mcp_prefixes=None,
+        webhook_url=None,
+        webhook_secret=None,
         overwrite=False,
     )
 
@@ -160,6 +166,8 @@ def test_update_replaces_models_when_overwrite_flag_given(
         models=["gpt-4"],
         custom_endpoints=None,
         mcp_prefixes=None,
+        webhook_url=None,
+        webhook_secret=None,
         overwrite=True,
     )
 
@@ -194,6 +202,8 @@ def test_update_treats_all_as_all_models_keyword_without_fetching_current(
         models=["all"],
         custom_endpoints=None,
         mcp_prefixes=None,
+        webhook_url=None,
+        webhook_secret=None,
         overwrite=False,
     )
 
@@ -228,6 +238,8 @@ def test_update_raises_bad_parameter_when_all_mixed_with_specific_models(
             models=["all", "gpt-4"],
             custom_endpoints=None,
             mcp_prefixes=None,
+            webhook_url=None,
+            webhook_secret=None,
             overwrite=False,
         )
 
@@ -259,6 +271,8 @@ def test_update_raises_bad_parameter_when_adding_to_all_sentinel_models(
             models=["gpt-4"],
             custom_endpoints=None,
             mcp_prefixes=None,
+            webhook_url=None,
+            webhook_secret=None,
             overwrite=False,
         )
 
@@ -290,6 +304,8 @@ def test_update_adds_custom_endpoint_to_existing_custom_endpoints(
         models=None,
         custom_endpoints=["ep-b"],
         mcp_prefixes=None,
+        webhook_url=None,
+        webhook_secret=None,
         overwrite=False,
     )
 
@@ -323,6 +339,8 @@ def test_update_replaces_custom_endpoints_when_overwrite_flag_given(
         models=None,
         custom_endpoints=["ep-c"],
         mcp_prefixes=None,
+        webhook_url=None,
+        webhook_secret=None,
         overwrite=True,
     )
 
@@ -358,6 +376,8 @@ def test_update_raises_bad_parameter_when_adding_to_all_sentinel_custom_endpoint
             models=None,
             custom_endpoints=["ep-a"],
             mcp_prefixes=None,
+            webhook_url=None,
+            webhook_secret=None,
             overwrite=False,
         )
 
@@ -388,6 +408,8 @@ def test_update_treats_all_as_all_custom_endpoints_keyword_without_fetching_curr
         models=None,
         custom_endpoints=["all"],
         mcp_prefixes=None,
+        webhook_url=None,
+        webhook_secret=None,
         overwrite=False,
     )
 
@@ -422,6 +444,8 @@ def test_update_raises_bad_parameter_when_all_mixed_with_specific_custom_endpoin
             models=None,
             custom_endpoints=["all", "ep-a"],
             mcp_prefixes=None,
+            webhook_url=None,
+            webhook_secret=None,
             overwrite=False,
         )
 
@@ -453,6 +477,8 @@ def test_update_adds_mcp_prefix_to_existing_mcp_prefixes(
         models=None,
         custom_endpoints=None,
         mcp_prefixes=["brave-search"],
+        webhook_url=None,
+        webhook_secret=None,
         overwrite=False,
     )
 
@@ -486,6 +512,8 @@ def test_update_replaces_mcp_prefixes_when_overwrite_flag_given(
         models=None,
         custom_endpoints=None,
         mcp_prefixes=["brave-search"],
+        webhook_url=None,
+        webhook_secret=None,
         overwrite=True,
     )
 
@@ -520,6 +548,8 @@ def test_update_treats_all_as_all_mcp_prefixes_keyword_without_fetching_current(
         models=None,
         custom_endpoints=None,
         mcp_prefixes=["all"],
+        webhook_url=None,
+        webhook_secret=None,
         overwrite=False,
     )
 
@@ -554,6 +584,8 @@ def test_update_raises_bad_parameter_when_all_mixed_with_specific_mcp_prefixes(
             models=None,
             custom_endpoints=None,
             mcp_prefixes=["all", "brave-search"],
+            webhook_url=None,
+            webhook_secret=None,
             overwrite=False,
         )
 
@@ -585,6 +617,8 @@ def test_update_raises_bad_parameter_when_adding_to_all_sentinel_mcp_prefixes(
             models=None,
             custom_endpoints=None,
             mcp_prefixes=["brave-search"],
+            webhook_url=None,
+            webhook_secret=None,
             overwrite=False,
         )
 
@@ -618,6 +652,8 @@ def test_update_fetches_current_project_once_for_multiple_list_fields(
         models=["gpt-3.5"],
         custom_endpoints=["ep-b"],
         mcp_prefixes=["brave-search"],
+        webhook_url=None,
+        webhook_secret=None,
         overwrite=False,
     )
 
@@ -634,6 +670,46 @@ def test_update_fetches_current_project_once_for_multiple_list_fields(
             "custom_endpoints": ["ep-a", "ep-b"],
             "mcp_prefixes": ["ocr-websearch", "brave-search"],
         },
+    )
+
+
+@mock.patch("deepfellow.server.project.update.echo.info")
+@mock.patch("deepfellow.server.project.update.update_project")
+@mock.patch("deepfellow.server.project.update.get_project")
+@mock.patch("deepfellow.server.project.update.get_token")
+@mock.patch("deepfellow.server.project.update.get_server_url")
+def test_update_includes_webhook_url_and_secret_when_given(
+    mock_get_server_url: Mock,
+    mock_get_token: Mock,
+    mock_get_project: Mock,
+    mock_update_project: Mock,
+    mock_info: Mock,
+) -> None:
+    mock_get_server_url.return_value = "https://server"
+    mock_get_token.return_value = "token"
+    mock_update_project.return_value = _project()
+
+    update(
+        server=None,
+        organization_id="org-id",
+        project_id="project-id",
+        name=None,
+        models=None,
+        custom_endpoints=None,
+        mcp_prefixes=None,
+        webhook_url="https://example.com/hook",
+        webhook_secret="s3cr3t",
+        overwrite=False,
+    )
+
+    assert mock_get_project.call_count == 0
+    assert mock_update_project.call_count == 1
+    assert mock_update_project.call_args == mock.call(
+        "https://server",
+        "token",
+        "org-id",
+        "project-id",
+        {"webhook_url": "https://example.com/hook", "webhook_secret": "s3cr3t"},
     )
 
 
@@ -661,6 +737,8 @@ def test_update_raises_bad_parameter_when_no_fields_given(
             models=None,
             custom_endpoints=None,
             mcp_prefixes=None,
+            webhook_url=None,
+            webhook_secret=None,
             overwrite=False,
         )
 
@@ -692,6 +770,8 @@ def test_update_echoes_updated_project(
         models=None,
         custom_endpoints=None,
         mcp_prefixes=None,
+        webhook_url=None,
+        webhook_secret=None,
         overwrite=False,
     )
 

@@ -50,6 +50,8 @@ def test_create_calls_create_project_with_all_models_when_no_models_given(
         status=Status.active,
         models=None,
         custom_endpoints=[],
+        webhook_url=None,
+        webhook_secret=None,
     )
 
     assert mock_create_project.call_count == 1
@@ -87,6 +89,8 @@ def test_create_calls_create_project_with_specific_models(
         status=Status.active,
         models=["gpt-4", "gpt-3.5"],
         custom_endpoints=[],
+        webhook_url=None,
+        webhook_secret=None,
     )
 
     assert mock_create_project.call_count == 1
@@ -124,6 +128,8 @@ def test_create_treats_all_as_all_models_keyword(
         status=Status.active,
         models=["all"],
         custom_endpoints=[],
+        webhook_url=None,
+        webhook_secret=None,
     )
 
     assert mock_create_project.call_count == 1
@@ -161,9 +167,52 @@ def test_create_raises_bad_parameter_when_all_mixed_with_specific_models(
             status=Status.active,
             models=["all", "gpt-4"],
             custom_endpoints=[],
+            webhook_url=None,
+            webhook_secret=None,
         )
 
     assert mock_create_project.call_count == 0
+
+
+@mock.patch("deepfellow.server.project.create.echo.info")
+@mock.patch("deepfellow.server.project.create.create_project")
+@mock.patch("deepfellow.server.project.create.get_token")
+@mock.patch("deepfellow.server.project.create.get_server_url")
+def test_create_includes_webhook_url_and_secret_when_given(
+    mock_get_server_url: Mock,
+    mock_get_token: Mock,
+    mock_create_project: Mock,
+    mock_info: Mock,
+) -> None:
+    mock_get_server_url.return_value = "https://server"
+    mock_get_token.return_value = "token"
+    mock_create_project.return_value = _project()
+
+    create(
+        server=None,
+        organization_id="org-id",
+        name="Acme",
+        status=Status.active,
+        models=None,
+        custom_endpoints=[],
+        webhook_url="https://example.com/hook",
+        webhook_secret="s3cr3t",
+    )
+
+    assert mock_create_project.call_count == 1
+    assert mock_create_project.call_args == mock.call(
+        "https://server",
+        "token",
+        "org-id",
+        {
+            "name": "Acme",
+            "status": Status.active,
+            "models": "all",
+            "custom_endpoints": [],
+            "webhook_url": "https://example.com/hook",
+            "webhook_secret": "s3cr3t",
+        },
+    )
 
 
 @mock.patch("deepfellow.server.project.create.echo.info")
@@ -188,6 +237,8 @@ def test_create_echoes_created_project(
         status=Status.active,
         models=None,
         custom_endpoints=[],
+        webhook_url=None,
+        webhook_secret=None,
     )
 
     assert mock_info.call_count == 1

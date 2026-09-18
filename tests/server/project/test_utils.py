@@ -56,6 +56,17 @@ def test_as_dict_returns_all_fields() -> None:
     assert result["models"] == ["model-a"]
     assert result["custom_endpoints"] == ["endpoint-a"]
     assert result["mcp_prefixes"] == ["prefix-a"]
+    assert result["webhook_url"] is None
+    assert result["webhook_secret"] is None
+
+
+def test_as_dict_masks_webhook_secret_when_set() -> None:
+    project = Project(**project_data(), webhook_url="https://example.com/hook", webhook_secret="s3cr3t")
+
+    result: dict[str, str | list[str] | None] = project.as_dict()
+
+    assert result["webhook_url"] == "https://example.com/hook"
+    assert result["webhook_secret"] == "*****"
 
 
 def test_str_joins_as_dict_items_as_lines() -> None:
