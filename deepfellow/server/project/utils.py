@@ -26,6 +26,7 @@ class Project:
     mcp_prefixes: list[str] | Literal["all"]
     created_at: float
     webhook_url: str | None = None
+    webhook_secret: str | None = None
 
     def created_at_to_str(self) -> str:
         """Convert created_at to a localized date string."""
@@ -42,6 +43,7 @@ class Project:
             "custom_endpoints": self.custom_endpoints,
             "mcp_prefixes": self.mcp_prefixes,
             "webhook_url": self.webhook_url,
+            "webhook_secret": "*****" if self.webhook_secret else None,
         }
 
     def __str__(self) -> str:

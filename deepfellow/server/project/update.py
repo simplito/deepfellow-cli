@@ -55,6 +55,8 @@ def update(
     mcp_prefixes: list[str] | None = typer.Option(
         None, help="Add these MCP server prefixes to the Project's MCP server prefixes, or 'all' for every prefix"
     ),
+    webhook_url: str | None = typer.Option(None, help="Set the Project's webhook URL"),
+    webhook_secret: str | None = typer.Option(None, help="Set the Project's webhook signing secret"),
     overwrite: bool = typer.Option(
         False,
         "--overwrite",
@@ -75,8 +77,9 @@ def update(
         raise typer.BadParameter("Cannot mix 'all' with specific MCP prefixes")
 
     data: dict[str, Any] = {}
-    if name is not None:
-        data["name"] = name
+    for key, value in (("name", name), ("webhook_url", webhook_url), ("webhook_secret", webhook_secret)):
+        if value is not None:
+            data[key] = value
 
     models_is_all_keyword = models == ["all"]
     custom_endpoints_is_all_keyword = custom_endpoints == ["all"]
@@ -111,7 +114,8 @@ def update(
 
     if not data:
         raise typer.BadParameter(
-            "Provide at least one of --name, --models, --custom-endpoints, --mcp-prefixes to update"
+            "Provide at least one of --name, --models, --custom-endpoints, --mcp-prefixes, "
+            "--webhook-url, --webhook-secret to update"
         )
 
     project = update_project(server_url, token, organization_id, project_id, data)
