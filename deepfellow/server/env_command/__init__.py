@@ -14,7 +14,7 @@ import typer
 from .info import app as info_app
 from .set import app as set_app
 
-app = typer.Typer()
+app = typer.Typer(no_args_is_help=True)
 
 
 app.add_typer(set_app)

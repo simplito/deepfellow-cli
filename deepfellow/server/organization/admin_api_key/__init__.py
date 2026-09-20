@@ -14,7 +14,7 @@ import typer
 from .create import app as create_app
 from .revoke import app as revoke_app
 
-app = typer.Typer()
+app = typer.Typer(no_args_is_help=True)
 
 
 app.add_typer(create_app)
