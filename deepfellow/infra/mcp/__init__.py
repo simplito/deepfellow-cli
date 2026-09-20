@@ -17,7 +17,7 @@ from .list import app as list_app
 from .remove import app as remove_app
 from .uninstall import app as uninstall_app
 
-app = typer.Typer()
+app = typer.Typer(no_args_is_help=True)
 
 app.add_typer(add_app)
 app.add_typer(install_app)

@@ -30,7 +30,7 @@ from .stop import app as stop_app
 from .uninstall import app as uninstall_app
 from .update import app as update_app
 
-app = typer.Typer()
+app = typer.Typer(no_args_is_help=True)
 
 
 app.add_typer(info_app)

@@ -13,6 +13,6 @@ import typer
 
 from .install import app as install_app
 
-app = typer.Typer()
+app = typer.Typer(no_args_is_help=True)
 
 app.add_typer(install_app)
