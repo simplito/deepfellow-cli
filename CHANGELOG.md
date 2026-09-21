@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - `deepfellow server project create`/`update` now accept `--webhook-url`/`--webhook-secret` to set a Project's webhook URL and signing secret, and `webhook_secret` is now included (masked as `*****`) when a Project is displayed - previously there was no way to view or set a Project's webhook secret through the CLI.
+- `deepfellow infra model list <service_name>` - lists the models available on an infra service (id, type, size, description, and installed status), so a model name no longer has to be guessed or looked up via the API/WebUI before running `infra model install`. `--installed`/`--no-installed` filters the list to only installed or only not-installed models.
 
 ### Fixed
 - `infra`/`server` commands that run `docker`/`docker compose` (`start`, `stop`, `restart`, `update`, `logs`, `ssl-on`, `env set`, and `infra connect`/`disconnect`) now validate up front that docker is installed, running, and usable, and give a clear DeepFellow error message instead of a raw docker error when it isn't - previously only `install`, `status`, `prune`, and `uninstall` did this check. The check itself (`assert_docker`) now also verifies the `docker compose` plugin is present, not just the `docker` binary.

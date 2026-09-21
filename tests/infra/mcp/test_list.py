@@ -96,8 +96,8 @@ def test_str_shows_installed_false_and_no_parameters_for_an_uninstalled_custom_m
 
 def test_str_falls_back_to_installed_dict_when_custom_spec_is_absent() -> None:
     # Some other df-cli list endpoints report a dict of runtime config directly under
-    # `installed` (see `infra/service/list.py::_is_installed`) - `installed: True` is still shown
-    # in that case, even though the CLI only ever reads `custom_spec` for `parameters:`.
+    # `installed` (see `deepfellow.infra.utils.connection.is_installed`) - `installed: True` is
+    # still shown in that case, even though the CLI only ever reads `custom_spec` for `parameters:`.
     server = McpServer(
         id="my-server",
         kind="mcp",
@@ -224,7 +224,7 @@ def test_str_redacts_credential_bearing_fields_nested_in_a_list_of_dicts() -> No
 
 
 @mock.patch("deepfellow.infra.utils.connection.env_set")
-@mock.patch("deepfellow.infra.utils.mcp.make_request")
+@mock.patch("deepfellow.infra.utils.models.make_request")
 @mock.patch("deepfellow.infra.utils.mcp.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_list_servers_returns_mcp_server_list(mock_resolve: Mock, mock_make_request: Mock, mock_env_set: Mock) -> None:
     mock_make_request.return_value = {"list": [_model("my-server", "cm-1")]}
@@ -243,7 +243,7 @@ def test_list_servers_returns_mcp_server_list(mock_resolve: Mock, mock_make_requ
 
 
 @mock.patch("deepfellow.infra.utils.connection.env_set")
-@mock.patch("deepfellow.infra.utils.mcp.make_request")
+@mock.patch("deepfellow.infra.utils.models.make_request")
 @mock.patch("deepfellow.infra.utils.mcp.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_list_servers_reads_custom_spec_field_from_the_response(
     mock_resolve: Mock, mock_make_request: Mock, mock_env_set: Mock
@@ -258,7 +258,7 @@ def test_list_servers_reads_custom_spec_field_from_the_response(
 
 
 @mock.patch("deepfellow.infra.utils.connection.env_set")
-@mock.patch("deepfellow.infra.utils.mcp.make_request")
+@mock.patch("deepfellow.infra.utils.models.make_request")
 @mock.patch("deepfellow.infra.utils.mcp.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_list_servers_reads_description_and_fields_from_the_response(
     mock_resolve: Mock, mock_make_request: Mock, mock_env_set: Mock
@@ -283,7 +283,7 @@ def test_list_servers_reads_description_and_fields_from_the_response(
 
 
 @mock.patch("deepfellow.infra.utils.connection.env_set")
-@mock.patch("deepfellow.infra.utils.mcp.make_request")
+@mock.patch("deepfellow.infra.utils.models.make_request")
 @mock.patch("deepfellow.infra.utils.mcp.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_list_servers_does_not_reannounce_connection_persistence(
     mock_resolve: Mock, mock_make_request: Mock, mock_env_set: Mock
@@ -299,7 +299,7 @@ def test_list_servers_does_not_reannounce_connection_persistence(
 
 
 @mock.patch("deepfellow.infra.utils.connection.env_set")
-@mock.patch("deepfellow.infra.utils.mcp.make_request")
+@mock.patch("deepfellow.infra.utils.models.make_request")
 @mock.patch("deepfellow.infra.utils.mcp.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_list_servers_returns_empty_list_when_no_servers_provisioned(
     mock_resolve: Mock, mock_make_request: Mock, mock_env_set: Mock
@@ -312,7 +312,7 @@ def test_list_servers_returns_empty_list_when_no_servers_provisioned(
 
 
 @mock.patch("deepfellow.infra.utils.connection.env_set")
-@mock.patch("deepfellow.infra.utils.mcp.make_request")
+@mock.patch("deepfellow.infra.utils.models.make_request")
 def test_list_forwards_quiet_to_call_infra(mock_make_request: Mock, mock_env_set: Mock) -> None:
     mock_make_request.return_value = {"list": []}
 
@@ -322,9 +322,9 @@ def test_list_forwards_quiet_to_call_infra(mock_make_request: Mock, mock_env_set
     assert all(call.kwargs.get("quiet") is True for call in mock_env_set.call_args_list)
 
 
-@mock.patch("deepfellow.infra.utils.mcp.echo.error")
+@mock.patch("deepfellow.infra.utils.models.echo.error")
 @mock.patch("deepfellow.infra.utils.connection.env_set")
-@mock.patch("deepfellow.infra.utils.mcp.make_request")
+@mock.patch("deepfellow.infra.utils.models.make_request")
 @mock.patch("deepfellow.infra.utils.mcp.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_list_servers_exits_when_list_field_is_missing(
     mock_resolve: Mock, mock_make_request: Mock, mock_env_set: Mock, mock_error: Mock
@@ -337,9 +337,9 @@ def test_list_servers_exits_when_list_field_is_missing(
     assert mock_error.call_count == 1
 
 
-@mock.patch("deepfellow.infra.utils.mcp.echo.error")
+@mock.patch("deepfellow.infra.utils.models.echo.error")
 @mock.patch("deepfellow.infra.utils.connection.env_set")
-@mock.patch("deepfellow.infra.utils.mcp.make_request")
+@mock.patch("deepfellow.infra.utils.models.make_request")
 @mock.patch("deepfellow.infra.utils.mcp.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_list_servers_exits_when_list_item_is_not_a_dict(
     mock_resolve: Mock, mock_make_request: Mock, mock_env_set: Mock, mock_error: Mock

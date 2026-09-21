@@ -7,7 +7,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any
 from unittest import mock
 from unittest.mock import Mock
 
@@ -15,22 +14,7 @@ import httpx
 import pytest
 import typer
 
-from deepfellow.infra.service.list import _format_service, _is_installed, list
-
-
-@pytest.mark.parametrize(
-    ("service", "expected"),
-    [
-        ({"installed": False}, False),
-        ({"installed": {}}, True),
-        ({"installed": {"port": 1234}}, True),
-        ({}, False),
-    ],
-)
-def test_is_installed_returns_expected(service: dict[str, Any], expected: bool) -> None:
-    result = _is_installed(service)
-
-    assert result is expected
+from deepfellow.infra.service.list import _format_service, list
 
 
 def test_format_service_formats_fields_as_key_value_lines() -> None:

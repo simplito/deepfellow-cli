@@ -25,6 +25,7 @@ from deepfellow.infra.utils.connection import (
     cancel_model_install,
     cancel_on_interrupt,
     cancel_service_install,
+    is_installed,
     persist_infra_connection,
     resolve_infra_connection,
 )
@@ -472,6 +473,21 @@ def test_call_infra_shows_default_message_on_generic_http_error(mock_echo: Mock)
 
     assert mock_echo.error.call_count == 1
     assert mock_echo.error.call_args == mock.call("Unable to call Infra")
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (False, False),
+        ({}, True),
+        ({"port": 1234}, True),
+        (True, True),
+    ],
+)
+def test_is_installed_returns_expected(value: object, expected: bool) -> None:
+    result = is_installed(value)
+
+    assert result is expected
 
 
 def test_cancel_on_interrupt_returns_call_result_when_not_interrupted() -> None:

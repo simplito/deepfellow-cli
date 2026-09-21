@@ -31,7 +31,7 @@ def _model(model_id: str, spec_fields: list[dict[str, object]] | None = None) ->
 @mock.patch("deepfellow.infra.utils.mcp.echo")
 @mock.patch("deepfellow.infra.utils.fields.echo")
 @mock.patch("deepfellow.infra.utils.mcp.install_with_progress")
-@mock.patch("deepfellow.infra.utils.mcp.make_request")
+@mock.patch("deepfellow.infra.utils.models.make_request")
 @mock.patch("deepfellow.infra.utils.mcp.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_install_prompts_for_required_field_from_model_spec(
     mock_resolve: Mock,
@@ -71,7 +71,7 @@ def test_install_prompts_for_required_field_from_model_spec(
 @mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.utils.mcp.echo")
 @mock.patch("deepfellow.infra.utils.mcp.install_with_progress")
-@mock.patch("deepfellow.infra.utils.mcp.make_request")
+@mock.patch("deepfellow.infra.utils.models.make_request")
 @mock.patch("deepfellow.infra.utils.mcp.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_install_not_found_reports_error_without_calling_install(
     mock_resolve: Mock, mock_make_request: Mock, mock_install_with_progress: Mock, mock_echo: Mock, mock_env_set: Mock
@@ -116,7 +116,7 @@ def test_install_raises_when_spec_and_set_args_given_together(name: str) -> None
 @mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.utils.mcp.echo")
 @mock.patch("deepfellow.infra.utils.mcp.install_with_progress")
-@mock.patch("deepfellow.infra.utils.mcp.make_request")
+@mock.patch("deepfellow.infra.utils.models.make_request")
 @mock.patch("deepfellow.infra.utils.mcp.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_install_exits_with_details_on_finish_status_error(
     mock_resolve: Mock, mock_make_request: Mock, mock_install_with_progress: Mock, mock_echo: Mock, mock_env_set: Mock
@@ -140,7 +140,7 @@ def test_install_exits_with_details_on_finish_status_error(
 @mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.utils.mcp.echo")
 @mock.patch("deepfellow.infra.utils.mcp.install_with_progress")
-@mock.patch("deepfellow.infra.utils.mcp.make_request")
+@mock.patch("deepfellow.infra.utils.models.make_request")
 @mock.patch("deepfellow.infra.utils.mcp.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_install_skips_when_already_installed(
     mock_resolve: Mock, mock_make_request: Mock, mock_install_with_progress: Mock, mock_echo: Mock, mock_env_set: Mock
@@ -160,7 +160,7 @@ def test_install_skips_when_already_installed(
 @mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.utils.mcp.echo")
 @mock.patch("deepfellow.infra.utils.mcp.install_with_progress")
-@mock.patch("deepfellow.infra.utils.mcp.make_request")
+@mock.patch("deepfellow.infra.utils.models.make_request")
 @mock.patch("deepfellow.infra.utils.mcp.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_install_points_to_infra_logs_when_finish_status_error_without_details(
     mock_resolve: Mock, mock_make_request: Mock, mock_install_with_progress: Mock, mock_echo: Mock, mock_env_set: Mock
@@ -183,7 +183,7 @@ def test_install_points_to_infra_logs_when_finish_status_error_without_details(
 @mock.patch("deepfellow.infra.utils.mcp.echo")
 @mock.patch("deepfellow.infra.utils.fields.echo")
 @mock.patch("deepfellow.infra.utils.mcp.install_with_progress")
-@mock.patch("deepfellow.infra.utils.mcp.make_request")
+@mock.patch("deepfellow.infra.utils.models.make_request")
 @mock.patch(
     "deepfellow.infra.utils.mcp.resolve_infra_connection", return_value=("http://infra:8086", "connection-token")
 )
