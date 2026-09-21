@@ -204,6 +204,21 @@ def call_infra(
     return result
 
 
+def is_installed(value: Any) -> bool:
+    """Return whether an ``installed`` field value, as reported by an infra service/model entry, means installed.
+
+    The API reports an entry as not installed via a literal `False`; any other value - `True`, an
+    empty or populated dict of runtime config, or an install-progress dict - means installed.
+
+    Args:
+        value: The raw `installed` field value from a service/model entry (e.g. `entry.get("installed", False)`).
+
+    Returns:
+        Whether the entry is installed.
+    """
+    return value is not False
+
+
 def cancel_on_interrupt(
     call: Callable[[], dict[str, Any]], cancel: Callable[[], None], description: str
 ) -> dict[str, Any]:

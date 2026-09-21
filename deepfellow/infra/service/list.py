@@ -16,18 +16,9 @@ import typer
 from deepfellow.common.echo import echo
 from deepfellow.common.rest import make_request
 from deepfellow.common.validation import validate_server
-from deepfellow.infra.utils.connection import call_infra, resolve_infra_connection
+from deepfellow.infra.utils.connection import call_infra, is_installed, resolve_infra_connection
 
 app = typer.Typer()
-
-
-def _is_installed(service: dict[str, Any]) -> bool:
-    """Return whether a service is installed.
-
-    The API reports ``installed`` as ``False`` when the service is not installed,
-    and as a (possibly empty) dict of runtime config when it is.
-    """
-    return service.get("installed", False) is not False
 
 
 def _format_service(service: dict[str, Any]) -> str:
@@ -63,7 +54,7 @@ def list(
         api_key=api_key,
     )
 
-    services = [service for service in data.get("list", []) if _is_installed(service)]
+    services = [service for service in data.get("list", []) if is_installed(service.get("installed", False))]
 
     if not services:
         echo.info("No services installed.")

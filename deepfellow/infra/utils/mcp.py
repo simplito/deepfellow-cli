@@ -21,8 +21,9 @@ from deepfellow.common.exceptions import InfraInstallSkippedError
 from deepfellow.common.rest import make_request
 from deepfellow.common.state import state
 from deepfellow.common.validation import validate_port
-from deepfellow.infra.utils.connection import call_infra, resolve_infra_connection
+from deepfellow.infra.utils.connection import call_infra, is_installed, resolve_infra_connection
 from deepfellow.infra.utils.fields import build_spec_from_fields, format_field, parse_set_args, parse_spec_json
+from deepfellow.infra.utils.models import get_service_models
 from deepfellow.infra.utils.progress import install_with_progress
 
 MCP_SERVICE_ID = "mcp"
@@ -142,13 +143,13 @@ class McpServer:
         worth repeating.
         """
         # `installed` is a plain bool for every model reported by this endpoint, but treat any
-        # non-False value as installed (mirroring `infra/service/list.py::_is_installed`) in case
-        # the backend ever reports it as a dict of runtime config here too.
-        is_installed = self.installed is not False
+        # non-False value as installed (see `deepfellow.infra.utils.connection.is_installed`) in
+        # case the backend ever reports it as a dict of runtime config here too.
+        installed = is_installed(self.installed)
         lines = [
             f"id: {self.id}",
             f"kind: {self.kind}",
-            f"installed: {is_installed}",
+            f"installed: {installed}",
         ]
         if self.description:
             lines.append(f"description: {self.description}")
@@ -156,7 +157,7 @@ class McpServer:
             redacted_spec = _redact_sensitive_fields(self.custom_spec)
             lines.append("parameters:")
             lines.extend(f"  {key}: {value}" for key, value in redacted_spec.items())
-        if self.fields and not is_installed:
+        if self.fields and not installed:
             # Not filtered to `required: True` fields: a field can be optional at the schema
             # level while its `description` still names a required sub-value (e.g. `envs` for
             # brave-search is schema-optional but its description reads "Required variables:
@@ -278,24 +279,7 @@ def list_servers(server: str | None = None) -> list[McpServer]:
 
 def _fetch_models(server: str, api_key: str, quiet: bool = False) -> list[dict[str, Any]]:
     """Fetch the raw list of mcp service models (built-in and custom)."""
-    data = call_infra(
-        lambda: make_request(
-            method="GET",
-            url=f"{server}/admin/services/{MCP_SERVICE_ID}/models",
-            token=api_key,
-            err_msg="Unable to list MCP servers.",
-            reraise=True,
-        ),
-        "Unable to list MCP servers.",
-        server=server,
-        api_key=api_key,
-        quiet=quiet,
-    )
-    items = data.get("list") if isinstance(data, dict) else None
-    if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
-        echo.error("Unexpected response listing MCP servers.")
-        raise typer.Exit(1)
-    return items
+    return get_service_models(server, api_key, MCP_SERVICE_ID, quiet=quiet, err_msg="Unable to list MCP servers.")
 
 
 def _list(server: str, api_key: str, quiet: bool = False) -> list[McpServer]:

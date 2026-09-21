@@ -58,7 +58,7 @@ def test_add_converts_config_and_provisions_custom_model(
 
 @mock.patch("deepfellow.infra.utils.mcp.echo.error")
 @mock.patch("deepfellow.infra.utils.connection.env_set")
-@mock.patch("deepfellow.infra.utils.mcp.make_request")
+@mock.patch("deepfellow.infra.utils.models.make_request")
 @mock.patch("deepfellow.infra.utils.mcp.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_ensure_name_available_exits_when_name_collides_with_builtin_model(
     mock_resolve: Mock, mock_make_request: Mock, mock_env_set: Mock, mock_error: Mock
@@ -77,7 +77,7 @@ def test_ensure_name_available_exits_when_name_collides_with_builtin_model(
 
 @mock.patch("deepfellow.infra.utils.mcp.echo.error")
 @mock.patch("deepfellow.infra.utils.connection.env_set")
-@mock.patch("deepfellow.infra.utils.mcp.make_request")
+@mock.patch("deepfellow.infra.utils.models.make_request")
 @mock.patch("deepfellow.infra.utils.mcp.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_ensure_name_available_exits_when_name_collides_with_custom_model(
     mock_resolve: Mock, mock_make_request: Mock, mock_env_set: Mock, mock_error: Mock
@@ -98,7 +98,7 @@ def test_ensure_name_available_exits_when_name_collides_with_custom_model(
 
 
 @mock.patch("deepfellow.infra.utils.connection.env_set")
-@mock.patch("deepfellow.infra.utils.mcp.make_request")
+@mock.patch("deepfellow.infra.utils.models.make_request")
 @mock.patch("deepfellow.infra.utils.mcp.resolve_infra_connection", return_value=("http://infra:8086", "test-key"))
 def test_ensure_name_available_returns_resolved_server_when_name_is_free(
     mock_resolve: Mock, mock_make_request: Mock, mock_env_set: Mock
