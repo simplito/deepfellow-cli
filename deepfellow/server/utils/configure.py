@@ -493,20 +493,6 @@ def configure_mongo(
         "DF_MONGO_DB": mongo_db,
     }
     if custom:
-        mongo_config["DF_MONGO_URL"] = echo.prompt_until_valid(
-            "Provide host:port for MongoDB e.g. 192.168.1.5:27017",
-            validate_connection_string,
-            from_args=mongo_url,
-            original_default=DF_MONGO_URL,
-            default=original_env.get("df_mongo_url"),
-        )
-        mongo_config["DF_MONGO_DB"] = echo.prompt_until_valid(
-            "Provide database name for MongoDB",
-            validate_truthy,
-            from_args=mongo_db,
-            original_default=DF_MONGO_DB,
-            default=original_env.get("df_mongo_db"),
-        )
         mongo_config["DF_MONGO_USER"] = echo.prompt_until_valid(
             "Provide username for MongoDB",
             validate_truthy,
@@ -521,6 +507,20 @@ def configure_mongo(
             original_default="",
             default=original_env.get("df_mongo_password"),
             password=True,
+        )
+        mongo_config["DF_MONGO_DB"] = echo.prompt_until_valid(
+            "Provide database name for MongoDB",
+            validate_truthy,
+            from_args=mongo_db,
+            original_default=DF_MONGO_DB,
+            default=original_env.get("df_mongo_db"),
+        )
+        mongo_config["DF_MONGO_URL"] = echo.prompt_until_valid(
+            "Provide host:port for MongoDB e.g. 192.168.1.5:27017",
+            validate_connection_string,
+            from_args=mongo_url,
+            original_default=DF_MONGO_URL,
+            default=original_env.get("df_mongo_url"),
         )
     else:
         # Preserve existing admin credentials on reconfigure; on a fresh install with none to
