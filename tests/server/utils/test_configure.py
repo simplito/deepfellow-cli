@@ -920,10 +920,10 @@ def test_configure_infra_url_uses_prompt_until_valid_with_validate_url(mock_echo
 @mock.patch("deepfellow.server.utils.configure.echo")
 def test_configure_mongo_custom_prompts_all_fields(mock_echo, tmp_directory: Path):
     mock_echo.prompt_until_valid.side_effect = [
-        "192.168.1.5:27017",
-        "custom-db",
         "custom-user",
         "custom-password",
+        "custom-db",
+        "192.168.1.5:27017",
     ]
 
     result = configure_mongo(tmp_directory, True, "custom-user", "custom-password")
