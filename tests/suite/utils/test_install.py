@@ -30,21 +30,25 @@ from deepfellow.common.defaults import (
 )
 from deepfellow.common.exceptions import InstallError
 from deepfellow.common.state import state
+from deepfellow.common.templates import InstallTemplate, PostStartAction
 from deepfellow.infra.utils.install import InstallConfig as InfraInstallConfig
+from deepfellow.infra.utils.templates import BUILTIN_TEMPLATES as INFRA_BUILTIN_TEMPLATES
 from deepfellow.server.organization.utils import Organization
 from deepfellow.server.project.api_key.utils import ApiKey
 from deepfellow.server.project.utils import Project
 from deepfellow.server.utils.configure import FalkorDBConfig, OtelConfig
 from deepfellow.server.utils.install import InstallConfig as ServerInstallConfig
+from deepfellow.server.utils.templates import BUILTIN_TEMPLATES as SERVER_BUILTIN_TEMPLATES
 from deepfellow.server.utils.workspace import Workspace
 from deepfellow.suite.utils.install import (
-    STEPS,
-    TOTAL_STEPS,
+    _build_steps,
     _infra_config_from_dict,
     _infra_config_to_dict,
     _install_directory_intact,
+    _resolve_effective_template,
     _server_config_from_dict,
     _server_config_to_dict,
+    _validate_template,
     _workspace_to_dict,
     install,
 )
@@ -56,6 +60,21 @@ PLAINTEXT_WARNING = (
     "them without re-prompting. It's removed automatically once this install fully succeeds - "
     "if you abandon this run, remove it yourself."
 )
+
+# The default "workspace" template's real, production-defined post-start actions - derived from
+# production's own BUILTIN_TEMPLATES rather than retyped, so these constants can't silently drift
+# from what install()'s own (unmocked, pure-for-a-built-in-name) infra_resolve_template("workspace")/
+# server_resolve_template("workspace") calls actually resolve in every test below that doesn't
+# override `template`.
+_WORKSPACE_POST_START_ACTIONS: list[PostStartAction] = INFRA_BUILTIN_TEMPLATES["workspace"]["post_start_actions"]
+_SERVER_WORKSPACE_POST_START_ACTIONS: list[PostStartAction] = SERVER_BUILTIN_TEMPLATES["workspace"][
+    "post_start_actions"
+]
+# Kept as `STEPS`/`TOTAL_STEPS` (test-local, not imported from production - see _build_steps() -
+# these no longer exist as production module constants since the step list is template-dependent)
+# so every existing STEPS/TOTAL_STEPS usage below needs no further change.
+STEPS = _build_steps(_WORKSPACE_POST_START_ACTIONS, _SERVER_WORKSPACE_POST_START_ACTIONS)
+TOTAL_STEPS = len(STEPS)
 
 
 def _infra_install_apply_call() -> mock._Call:
@@ -195,11 +214,10 @@ def _patch_all_steps(func: Callable[..., None]) -> Callable[..., None]:
     func = mock.patch("deepfellow.suite.utils.install.create_workspace")(func)
     func = mock.patch("deepfellow.suite.utils.install.get_token_from_login")(func)
     func = mock.patch("deepfellow.suite.utils.install.set_default_server_directory")(func)
-    func = mock.patch("deepfellow.suite.utils.install._server_create_admin")(func)
+    func = mock.patch("deepfellow.suite.utils.install._server_post_start_action")(func)
     func = mock.patch("deepfellow.suite.utils.install._server_start")(func)
     func = mock.patch("deepfellow.suite.utils.install._server_install_apply")(func)
-    func = mock.patch("deepfellow.suite.utils.install._infra_model_install")(func)
-    func = mock.patch("deepfellow.suite.utils.install._infra_service_install")(func)
+    func = mock.patch("deepfellow.suite.utils.install._infra_post_start_action")(func)
     func = mock.patch("deepfellow.suite.utils.install._infra_start")(func)
     func = mock.patch("deepfellow.suite.utils.install._infra_install_apply")(func)
     func = mock.patch("deepfellow.suite.utils.install.echo")(func)
@@ -224,11 +242,10 @@ def test_install_success_calls_all_steps_in_order(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -251,6 +268,7 @@ def test_install_success_calls_all_steps_in_order(
         docker_config=None,
         storage=DF_INFRA_STORAGE_DIR,
         docker_network=DF_INFRA_DOCKER_NETWORK,
+        template="workspace",
         explicitly_provided=set(),
     )
     assert mock_server_config.call_count == 1
@@ -258,19 +276,15 @@ def test_install_success_calls_all_steps_in_order(
     assert mock_infra_install_apply.call_count == 1
     assert mock_infra_install_apply.call_args == _infra_install_apply_call()
     assert mock_infra_start.call_count == 1
-    assert mock_infra_service_install.call_count == 1
+    assert mock_infra_post_start_action.call_count == 4
     # Fresh (non --resume) run: "Updated config/secrets" stays visible - only --resume quiets it.
-    assert mock_infra_service_install.call_args == mock.call(DF_INFRA_DIRECTORY, False)
-    assert mock_infra_model_install.call_count == 3
-    assert mock_infra_model_install.call_args_list == [
-        mock.call("gemma4:e4b", DF_INFRA_DIRECTORY, False),
-        mock.call("mxbai-embed-large", DF_INFRA_DIRECTORY, False),
-        mock.call("qwen3.5:4b", DF_INFRA_DIRECTORY, False),
+    assert mock_infra_post_start_action.call_args_list == [
+        mock.call(action, DF_INFRA_DIRECTORY, False) for action in _WORKSPACE_POST_START_ACTIONS
     ]
     assert mock_server_install_apply.call_count == 1
     assert mock_server_install_apply.call_args == _server_install_apply_call()
     assert mock_server_start.call_count == 1
-    assert mock_server_create_admin.call_count == 1
+    assert mock_server_post_start_action.call_count == 1
     assert mock_set_default_server_directory.call_count == 1
     assert mock_set_default_server_directory.call_args == mock.call(DF_SERVER_DIRECTORY, force=False)
     assert mock_get_token_from_login.call_count == 1
@@ -308,11 +322,10 @@ def test_install_config_steps_run_before_any_apply_step(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -358,11 +371,10 @@ def test_install_stops_after_infra_config_error_and_does_not_delete_state(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -408,11 +420,10 @@ def test_install_stops_after_infra_install_error_and_does_not_delete_state(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -450,11 +461,10 @@ def test_install_stops_after_infra_start_error_does_not_call_service_install(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -469,7 +479,7 @@ def test_install_stops_after_infra_start_error_does_not_call_service_install(
         install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
 
     assert mock_infra_install_apply.call_count == 1
-    assert mock_infra_service_install.call_count == 0
+    assert mock_infra_post_start_action.call_count == 0
     assert mock_server_install_apply.call_count == 0
     # +3: admin credentials + both config steps + infra_install, all persisted before this failure.
     assert mock_save_state.call_count == 4
@@ -494,11 +504,10 @@ def test_install_stops_when_server_install_raises_does_not_call_login(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -533,11 +542,10 @@ def test_install_bare_rerun_with_existing_state_starts_fresh(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -595,11 +603,10 @@ def test_install_bare_rerun_confirm_message_mentions_api_key_when_workspace_exis
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -642,11 +649,10 @@ def test_install_bare_rerun_confirm_message_omits_api_key_when_no_workspace(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -683,11 +689,10 @@ def test_install_bare_rerun_declining_discard_continues_previous_install(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -709,9 +714,11 @@ def test_install_bare_rerun_declining_discard_continues_previous_install(
     assert mock_infra_start.call_count == 0
     assert mock_server_install_apply.call_args == _server_install_apply_call()
     # Continuing here behaves exactly as --resume would (per this test's own docstring), so the
-    # ollama service/model install calls must be quieted the same way a real --resume run's are -
-    # not left noisy just because the local `resume` flag itself was never passed.
-    assert mock_infra_service_install.call_args == mock.call(DF_INFRA_DIRECTORY, True)
+    # post-start-action calls must be quieted the same way a real --resume run's are - not left
+    # noisy just because the local `resume` flag itself was never passed.
+    assert mock_infra_post_start_action.call_args_list[0] == mock.call(
+        _WORKSPACE_POST_START_ACTIONS[0], DF_INFRA_DIRECTORY, True
+    )
     assert any(call == mock.call("Continuing the previous install instead.") for call in mock_echo.info.call_args_list)
     # No "state discarded" warning (nothing was discarded) - just the unconditional plaintext-
     # secrets notice that fires once per invocation, regardless of whether credentials were
@@ -737,11 +744,10 @@ def test_install_bare_rerun_with_yes_flag_skips_confirmation_and_discards(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -779,11 +785,10 @@ def test_install_resume_skips_already_completed_steps_still_live(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -791,13 +796,19 @@ def test_install_resume_skips_already_completed_steps_still_live(
 ) -> None:
     """infra_install/infra_start skip because their live checks confirm the directory/container are
     still there (both mocks default to True via _patch_all_steps) - the live-state fix.
-    infra_service_install/infra_model_install/server_create_admin always re-run regardless of
+    infra_service_install/infra_model_install/server_post_start_action_0 always re-run regardless of
     completed_steps, relying on their own already-installed/already-exists idempotency."""
     completed = [
         "infra_config",
         "server_config",
         "infra_install",
         "infra_start",
+        # Old, pre-template-flag fixed step ids (and, since the server side got the same dynamic
+        # per-post-start-action treatment, "server_create_admin" too) - none of these match any
+        # newly-computed step id (see test_install_resume_ignores_leftover_old_post_start_action_step_ids
+        # below for the dedicated test of this), included here only because they were already part
+        # of this test's fixture before those changes and are harmless noise for what this test
+        # checks.
         "infra_service_install",
         "infra_model_install_chat",
         "infra_model_install_embedding",
@@ -814,19 +825,15 @@ def test_install_resume_skips_already_completed_steps_still_live(
     assert mock_server_config.call_count == 0
     assert mock_infra_install_apply.call_count == 0
     assert mock_infra_start.call_count == 0
-    assert mock_infra_service_install.call_count == 1
-    # A --resume run repeats these calls (once per model) against the exact same, already-confirmed
+    assert mock_infra_post_start_action.call_count == 4
+    # A --resume run repeats these calls (once per action) against the exact same, already-confirmed
     # connection - "Updated config/secrets" would just be noise, so it's quieted here.
-    assert mock_infra_service_install.call_args == mock.call(DF_INFRA_DIRECTORY, True)
-    assert mock_infra_model_install.call_count == 3
-    assert mock_infra_model_install.call_args_list == [
-        mock.call("gemma4:e4b", DF_INFRA_DIRECTORY, True),
-        mock.call("mxbai-embed-large", DF_INFRA_DIRECTORY, True),
-        mock.call("qwen3.5:4b", DF_INFRA_DIRECTORY, True),
+    assert mock_infra_post_start_action.call_args_list == [
+        mock.call(action, DF_INFRA_DIRECTORY, True) for action in _WORKSPACE_POST_START_ACTIONS
     ]
     assert mock_server_install_apply.call_count == 1
     assert mock_server_start.call_count == 1
-    assert mock_server_create_admin.call_count == 1
+    assert mock_server_post_start_action.call_count == 1
 
 
 @_patch_all_steps
@@ -847,11 +854,10 @@ def test_install_infra_config_skip_reconstructs_from_persisted_dict(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -892,11 +898,10 @@ def test_install_infra_start_reruns_when_container_no_longer_running_despite_com
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -915,7 +920,7 @@ def test_install_infra_start_reruns_when_container_no_longer_running_despite_com
     assert mock_infra_install_apply.call_count == 0
     assert mock_infra_start.call_count == 1
     assert mock_is_service_running.call_args_list[0] == mock.call("infra", cwd=DF_INFRA_DIRECTORY)
-    assert mock_infra_service_install.call_count == 1
+    assert mock_infra_post_start_action.call_count == 4
     warning_messages = [call.args[0] for call in mock_echo.warning.call_args_list]
     assert (
         "Step 4/14: infra start... was marked complete previously, but is no longer detected as up; "
@@ -941,11 +946,10 @@ def test_install_infra_install_reruns_when_directory_missing_despite_completed_s
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -989,11 +993,10 @@ def test_install_self_heal_does_not_re_resolve_infra_config(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -1038,11 +1041,10 @@ def test_install_infra_start_reruns_when_infra_self_heals_despite_container_stil
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -1084,18 +1086,17 @@ def test_install_server_start_reruns_when_container_no_longer_running_despite_co
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
     mock_env_get: Mock,
 ) -> None:
     completed_through_server_start = [
-        step_id for step_id, _ in STEPS if step_id not in ("server_create_admin", "server_login")
+        step_id for step_id, _ in STEPS if step_id not in ("server_post_start_action_0", "server_login")
     ][:10]
     mock_load_state.return_value = SuiteInstallState(completed_steps=completed_through_server_start)
     mock_install_directory_intact.return_value = True
@@ -1128,18 +1129,17 @@ def test_install_server_install_reruns_when_directory_missing_despite_completed_
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
     mock_env_get: Mock,
 ) -> None:
     completed_through_server_install = [
-        step_id for step_id, _ in STEPS if step_id not in ("server_start", "server_create_admin", "server_login")
+        step_id for step_id, _ in STEPS if step_id not in ("server_start", "server_post_start_action_0", "server_login")
     ][:9]
     mock_load_state.return_value = SuiteInstallState(completed_steps=completed_through_server_install)
     mock_install_directory_intact.side_effect = lambda directory: directory != DF_SERVER_DIRECTORY
@@ -1172,11 +1172,10 @@ def test_install_infra_self_heal_no_longer_forces_server_repair(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -1186,7 +1185,7 @@ def test_install_infra_self_heal_no_longer_forces_server_repair(
     not re-resolved - see test_install_self_heal_does_not_re_resolve_infra_config), so an intact
     server install must stay skipped, not be force-repaired just because infra was."""
     completed_through_server_start = [
-        step_id for step_id, _ in STEPS if step_id not in ("server_create_admin", "server_login")
+        step_id for step_id, _ in STEPS if step_id not in ("server_post_start_action_0", "server_login")
     ][:10]
     mock_load_state.return_value = SuiteInstallState(
         completed_steps=completed_through_server_start,
@@ -1223,11 +1222,10 @@ def test_install_create_admin_always_executes_even_when_completed(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -1242,7 +1240,7 @@ def test_install_create_admin_always_executes_even_when_completed(
 
     install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", resume=True)
 
-    assert mock_server_create_admin.call_count == 1
+    assert mock_server_post_start_action.call_count == 1
 
 
 @_patch_all_steps
@@ -1263,11 +1261,10 @@ def test_install_grant_model_access_always_executes_even_when_completed(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -1319,11 +1316,10 @@ def test_install_resume_with_empty_completed_steps_does_not_force(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -1347,6 +1343,7 @@ def test_install_resume_with_empty_completed_steps_does_not_force(
         docker_config=None,
         storage=DF_INFRA_STORAGE_DIR,
         docker_network=DF_INFRA_DOCKER_NETWORK,
+        template="workspace",
         explicitly_provided=set(),
     )
     assert mock_server_config.call_args.args[4] is False  # force_install
@@ -1370,11 +1367,10 @@ def test_install_resume_with_partial_completed_steps_does_not_force(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -1412,11 +1408,10 @@ def test_install_force_install_flag_is_passed_to_infra_and_server_config(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -1457,11 +1452,10 @@ def test_install_resume_with_no_state_file_runs_fresh(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -1496,11 +1490,10 @@ def test_install_resume_reuses_persisted_workspace_without_recreating(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -1639,11 +1632,10 @@ def test_install_resume_with_corrupted_persisted_workspace_fails_cleanly(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -1684,11 +1676,10 @@ def test_install_resume_with_corrupted_persisted_infra_config_fails_cleanly(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -1730,11 +1721,10 @@ def test_install_resume_with_corrupted_persisted_server_config_fails_cleanly(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -1773,11 +1763,10 @@ def test_install_resume_with_pre_change_state_file_falls_back_to_one_time_reprom
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -1830,11 +1819,10 @@ def test_install_resume_reuses_persisted_admin_without_prompting(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -1856,10 +1844,15 @@ def test_install_resume_reuses_persisted_admin_without_prompting(
     assert mock_get_token_from_login.call_args.kwargs["email"] == "persisted@example.com"
     assert mock_get_token_from_login.call_args.kwargs["password"] == "Pers1sted$ecret!"
     # A pure passthrough of the persisted value - no flag, no prompt - must not count as an
-    # override: _server_create_admin() would otherwise warn about a no-op that was actually
+    # override: _server_post_start_action() would otherwise warn about a no-op that was actually
     # expected (the same admin as before, not a value the user just supplied this run).
-    assert mock_server_create_admin.call_args == mock.call(
-        "Persisted Admin", "persisted@example.com", "Pers1sted$ecret!", DF_SERVER_DIRECTORY, False
+    assert mock_server_post_start_action.call_args == mock.call(
+        _SERVER_WORKSPACE_POST_START_ACTIONS[0],
+        DF_SERVER_DIRECTORY,
+        "Persisted Admin",
+        "persisted@example.com",
+        "Pers1sted$ecret!",
+        False,
     )
 
 
@@ -1881,11 +1874,10 @@ def test_install_resume_admin_flag_overrides_persisted_credentials(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -1929,11 +1921,10 @@ def test_install_non_interactive_resume_uses_persisted_admin_without_error(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -1973,11 +1964,10 @@ def test_install_persists_resolved_admin_credentials_on_fresh_run(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -2016,11 +2006,10 @@ def test_install_warns_about_plaintext_secrets_exactly_once(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -2061,11 +2050,10 @@ def test_install_resumed_create_admin_step_succeeds_and_continues(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -2074,16 +2062,16 @@ def test_install_resumed_create_admin_step_succeeds_and_continues(
     """create_admin is idempotent (see server/utils/users.py) - a resumed run whose admin already
     existed from before the interruption must succeed, not abort."""
     completed_through_server_start = [
-        step_id for step_id, _ in STEPS if step_id not in ("server_create_admin", "server_login")
+        step_id for step_id, _ in STEPS if step_id not in ("server_post_start_action_0", "server_login")
     ][:10]
     mock_load_state.return_value = SuiteInstallState(completed_steps=completed_through_server_start)
-    mock_server_create_admin.return_value = None  # idempotent no-op, not an error
+    mock_server_post_start_action.return_value = None  # idempotent no-op, not an error
     mock_get_token_from_login.return_value = "token"
     mock_create_workspace.return_value = _make_workspace()
 
     install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", resume=True)
 
-    assert mock_server_create_admin.call_count == 1
+    assert mock_server_post_start_action.call_count == 1
     assert mock_get_token_from_login.call_count == 1
 
 
@@ -2152,11 +2140,10 @@ def test_install_translates_step_exit_to_install_error(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -2190,11 +2177,10 @@ def test_install_prompted_credentials_are_reused_for_server_config_and_login(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -2216,8 +2202,13 @@ def test_install_prompted_credentials_are_reused_for_server_config_and_login(
     # already-existing account gets silently discarded with no warning (see the concrete failure
     # scenario in the !311 review: a mistyped password at this exact prompt led to a confusing,
     # unrelated login failure two steps later instead of a clear warning here).
-    assert mock_server_create_admin.call_args == mock.call(
-        "Prompted Admin", "prompted@example.com", "Pr0mpted$ecret!", DF_SERVER_DIRECTORY, True
+    assert mock_server_post_start_action.call_args == mock.call(
+        _SERVER_WORKSPACE_POST_START_ACTIONS[0],
+        DF_SERVER_DIRECTORY,
+        "Prompted Admin",
+        "prompted@example.com",
+        "Pr0mpted$ecret!",
+        True,
     )
 
 
@@ -2239,11 +2230,10 @@ def test_install_checks_docker_before_prompting(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -2298,11 +2288,10 @@ def test_install_forwards_distinct_infra_and_server_ports_independently(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -2345,11 +2334,10 @@ def test_install_uses_resolved_server_port_over_cli_value_for_login_url(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -2388,11 +2376,10 @@ def test_install_forwards_docker_network_to_both_infra_and_server_config(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -2431,11 +2418,10 @@ def test_install_forwards_falkordb_options_to_server_config(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -2479,11 +2465,10 @@ def test_install_falkordb_disabled_by_default(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -2516,11 +2501,10 @@ def test_install_forwards_mongodb_port_and_credentials_to_server_config(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -2562,11 +2546,10 @@ def test_install_forwards_otel_local_to_server_config(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -2599,11 +2582,10 @@ def test_install_forwards_custom_infra_and_server_directories(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -2629,11 +2611,18 @@ def test_install_forwards_custom_infra_and_server_directories(
 
     assert mock_infra_config.call_args.kwargs["directory"] == custom_infra_directory
     assert mock_infra_start.call_args == mock.call(custom_infra_directory)
-    assert mock_infra_service_install.call_args == mock.call(custom_infra_directory, False)
+    assert mock_infra_post_start_action.call_args_list[0] == mock.call(
+        _WORKSPACE_POST_START_ACTIONS[0], custom_infra_directory, False
+    )
     assert mock_server_config.call_args.kwargs["directory"] == custom_server_directory
     assert mock_server_start.call_args == mock.call(custom_server_directory)
-    assert mock_server_create_admin.call_args == mock.call(
-        "Admin", "admin@example.com", "Sup3r$ecret!", custom_server_directory, True
+    assert mock_server_post_start_action.call_args == mock.call(
+        _SERVER_WORKSPACE_POST_START_ACTIONS[0],
+        custom_server_directory,
+        "Admin",
+        "admin@example.com",
+        "Sup3r$ecret!",
+        True,
     )
     assert mock_set_default_server_directory.call_args == mock.call(custom_server_directory, force=False)
     assert mock_env_get.call_args == mock.call(custom_server_directory / ".env", "DF_SERVER_PORT")
@@ -2657,11 +2646,10 @@ def test_install_maps_explicitly_provided_to_infra_and_server_port_only(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -2703,11 +2691,10 @@ def test_install_maps_explicitly_provided_docker_network_to_both(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -2746,18 +2733,17 @@ def test_install_warns_when_infra_config_flags_ignored_because_step_skipped(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
     mock_env_get: Mock,
 ) -> None:
     """--infra-port (etc.) passed on a --resume run against an already-installed infra must warn
-    that it was ignored, mirroring _server_create_admin's admin_overridden warning - the step is
+    that it was ignored, mirroring _server_post_start_action's admin_overridden warning - the step is
     skipped outright (is_done), so its config flags never reach infra_config()."""
     mock_load_state.return_value = SuiteInstallState(completed_steps=["infra_config", "infra_install"])
     mock_get_token_from_login.return_value = "token"
@@ -2795,11 +2781,10 @@ def test_install_warns_when_server_config_flags_ignored_because_step_skipped(
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -2845,11 +2830,10 @@ def test_install_warns_when_infra_config_flag_ignored_even_if_install_step_rerun
     mock_create_workspace: Mock,
     mock_get_token_from_login: Mock,
     mock_set_default_server_directory: Mock,
-    mock_server_create_admin: Mock,
+    mock_server_post_start_action: Mock,
     mock_server_start: Mock,
     mock_server_install_apply: Mock,
-    mock_infra_model_install: Mock,
-    mock_infra_service_install: Mock,
+    mock_infra_post_start_action: Mock,
     mock_infra_start: Mock,
     mock_infra_install_apply: Mock,
     mock_echo: Mock,
@@ -2905,7 +2889,9 @@ def test_warn_config_flags_ignored_no_warning_when_nothing_overridden(mock_echo:
 
 @mock.patch("deepfellow.suite.utils.install.infra_resolve")
 @mock.patch("deepfellow.suite.utils.install.infra_inspect")
-def test_infra_config_uses_workspace_template(mock_infra_inspect: Mock, mock_infra_resolve: Mock) -> None:
+def test_infra_config_forwards_the_given_template(mock_infra_inspect: Mock, mock_infra_resolve: Mock) -> None:
+    """The `template` argument must be forwarded through, not hardcoded - proven by passing a value
+    other than the default "workspace" and asserting infra_inspect() received that exact value."""
     from deepfellow.suite.utils.install import _infra_config
 
     _infra_config(
@@ -2917,10 +2903,11 @@ def test_infra_config_uses_workspace_template(mock_infra_inspect: Mock, mock_inf
         docker_config=None,
         storage=DF_INFRA_STORAGE_DIR,
         docker_network=DF_INFRA_DOCKER_NETWORK,
+        template="custom-template",
         explicitly_provided=set(),
     )
 
-    assert mock_infra_inspect.call_args.kwargs["template"] == "workspace"
+    assert mock_infra_inspect.call_args.kwargs["template"] == "custom-template"
     assert mock_infra_inspect.call_args.kwargs["force_install"] is True
     assert mock_infra_resolve.call_args.args[0] == mock_infra_inspect.return_value
     assert mock_infra_resolve.call_args.kwargs["docker_config"] == DF_INFRA_DIRECTORY / "docker-config.json"
@@ -2940,6 +2927,7 @@ def test_infra_config_returns_resolve_result(mock_infra_inspect: Mock, mock_infr
         docker_config=None,
         storage=DF_INFRA_STORAGE_DIR,
         docker_network=DF_INFRA_DOCKER_NETWORK,
+        template="workspace",
         explicitly_provided=set(),
     )
 
@@ -2967,6 +2955,7 @@ def test_infra_config_translates_bad_parameter_to_install_error(mock_infra_inspe
             docker_config=None,
             storage=DF_INFRA_STORAGE_DIR,
             docker_network=DF_INFRA_DOCKER_NETWORK,
+            template="workspace",
             explicitly_provided=set(),
         )
 
@@ -2988,6 +2977,7 @@ def test_infra_config_translates_os_error_to_install_error(mock_infra_inspect: M
             docker_config=None,
             storage=DF_INFRA_STORAGE_DIR,
             docker_network=DF_INFRA_DOCKER_NETWORK,
+            template="workspace",
             explicitly_provided=set(),
         )
 
@@ -3043,37 +3033,34 @@ def test_infra_start_reraises_original_error_in_debug_mode(mock_start_infra: Moc
 
 @mock.patch("deepfellow.suite.utils.install.env_get")
 @mock.patch("deepfellow.suite.utils.install.infra_dispatch_post_start_action")
-def test_infra_service_install_dispatches_ollama_with_localhost_url(mock_dispatch: Mock, mock_env_get: Mock) -> None:
-    from deepfellow.suite.utils.install import _infra_service_install
+def test_infra_post_start_action_dispatches_a_service_install_action_with_localhost_url(
+    mock_dispatch: Mock, mock_env_get: Mock
+) -> None:
+    from deepfellow.suite.utils.install import _infra_post_start_action
 
     mock_env_get.return_value = "9999"
+    service_action = _WORKSPACE_POST_START_ACTIONS[0]
 
-    _infra_service_install(DF_INFRA_DIRECTORY, quiet=True)
+    _infra_post_start_action(service_action, DF_INFRA_DIRECTORY, quiet=True)
 
-    action = mock_dispatch.call_args.args[0]
-    assert action["function"] == "infra.service.install"
-    assert action["kwargs"]["name"] == "ollama"
-    assert action["kwargs"]["server"] == "http://localhost:9999"
-    assert action["kwargs"]["quiet"] is True
+    dispatched = mock_dispatch.call_args.args[0]
+    assert dispatched["function"] == service_action["function"] == "infra.service.install"
+    assert dispatched["kwargs"] == {**service_action["kwargs"], "server": "http://localhost:9999", "quiet": True}
 
 
 @mock.patch("deepfellow.suite.utils.install.env_get")
 @mock.patch("deepfellow.suite.utils.install.infra_dispatch_post_start_action")
-def test_infra_model_install_dispatches_model_action(mock_dispatch: Mock, mock_env_get: Mock) -> None:
-    from deepfellow.suite.utils.install import _infra_model_install
+def test_infra_post_start_action_dispatches_a_model_install_action(mock_dispatch: Mock, mock_env_get: Mock) -> None:
+    from deepfellow.suite.utils.install import _infra_post_start_action
 
     mock_env_get.return_value = None
+    model_action = _WORKSPACE_POST_START_ACTIONS[1]
 
-    _infra_model_install("gemma4:e4b", DF_INFRA_DIRECTORY, quiet=False)
+    _infra_post_start_action(model_action, DF_INFRA_DIRECTORY, quiet=False)
 
-    action = mock_dispatch.call_args.args[0]
-    assert action["function"] == "infra.model.install"
-    assert action["kwargs"] == {
-        "service_name": "ollama",
-        "model_name": "gemma4:e4b",
-        "server": mock.ANY,
-        "quiet": False,
-    }
+    dispatched = mock_dispatch.call_args.args[0]
+    assert dispatched["function"] == model_action["function"] == "infra.model.install"
+    assert dispatched["kwargs"] == {**model_action["kwargs"], "server": mock.ANY, "quiet": False}
 
 
 def _server_config_kwargs(**overrides: object) -> dict:
@@ -3091,6 +3078,7 @@ def _server_config_kwargs(**overrides: object) -> dict:
         "falkordb_username": "",
         "falkordb_password": "",
         "otel_local": False,
+        "template": "workspace",
         "explicitly_provided": set(),
     }
     base.update(overrides)
@@ -3099,16 +3087,25 @@ def _server_config_kwargs(**overrides: object) -> dict:
 
 @mock.patch("deepfellow.suite.utils.install.server_resolve")
 @mock.patch("deepfellow.suite.utils.install.server_inspect")
-def test_server_config_uses_workspace_template_and_infra_api_key(
+def test_server_config_forwards_the_given_template_and_infra_api_key(
     mock_server_inspect: Mock, mock_server_resolve: Mock
 ) -> None:
+    """`template` must be forwarded through, not hardcoded - proven by passing a value other than
+    the default "workspace" and asserting server_inspect() received that exact value."""
     from deepfellow.suite.utils.install import _server_config
 
     infra_config = _make_infra_config(api_key="infra-api-key")
 
-    _server_config(infra_config, "Admin", "admin@example.com", "Sup3r$ecret!", True, **_server_config_kwargs())
+    _server_config(
+        infra_config,
+        "Admin",
+        "admin@example.com",
+        "Sup3r$ecret!",
+        True,
+        **_server_config_kwargs(template="custom-template"),
+    )
 
-    assert mock_server_inspect.call_args.kwargs["template"] == "workspace"
+    assert mock_server_inspect.call_args.kwargs["template"] == "custom-template"
     assert mock_server_inspect.call_args.kwargs["force_install"] is True
     assert mock_server_inspect.call_args.kwargs["admin_email"] == "admin@example.com"
     assert mock_server_resolve.call_args.kwargs["infra_api_key"] == "infra-api-key"
@@ -3209,13 +3206,18 @@ def test_server_start_reraises_original_error_in_debug_mode(mock_start_server: M
         _server_start(DF_SERVER_DIRECTORY)
 
 
+_SERVER_CREATE_ADMIN_ACTION: PostStartAction = _SERVER_WORKSPACE_POST_START_ACTIONS[0]
+
+
 @mock.patch("deepfellow.suite.utils.install.create_admin_util")
-def test_server_create_admin_calls_create_admin_util(mock_create_admin_util: Mock) -> None:
-    from deepfellow.suite.utils.install import _server_create_admin
+def test_server_post_start_action_create_admin_calls_create_admin_util(mock_create_admin_util: Mock) -> None:
+    from deepfellow.suite.utils.install import _server_post_start_action
 
     mock_create_admin_util.return_value = True
 
-    _server_create_admin("Admin", "admin@example.com", "Sup3r$ecret!", DF_SERVER_DIRECTORY, False)
+    _server_post_start_action(
+        _SERVER_CREATE_ADMIN_ACTION, DF_SERVER_DIRECTORY, "Admin", "admin@example.com", "Sup3r$ecret!", False
+    )
 
     assert mock_create_admin_util.call_count == 1
     assert mock_create_admin_util.call_args.kwargs["name"] == "Admin"
@@ -3226,16 +3228,18 @@ def test_server_create_admin_calls_create_admin_util(mock_create_admin_util: Moc
 
 @mock.patch("deepfellow.suite.utils.install.echo")
 @mock.patch("deepfellow.suite.utils.install.create_admin_util")
-def test_server_create_admin_warns_when_override_ignored_by_existing_account(
+def test_server_post_start_action_create_admin_warns_when_override_ignored_by_existing_account(
     mock_create_admin_util: Mock, mock_echo: Mock
 ) -> None:
     """An explicit --admin-* override that turns out to target an already-existing admin is
     silently discarded by create_admin_util (it only ever creates or no-ops) - must be surfaced."""
-    from deepfellow.suite.utils.install import _server_create_admin
+    from deepfellow.suite.utils.install import _server_post_start_action
 
     mock_create_admin_util.return_value = False  # already existed, no-op
 
-    _server_create_admin("Bobby", "admin@example.com", "Sup3r$ecret!", DF_SERVER_DIRECTORY, True)
+    _server_post_start_action(
+        _SERVER_CREATE_ADMIN_ACTION, DF_SERVER_DIRECTORY, "Bobby", "admin@example.com", "Sup3r$ecret!", True
+    )
 
     assert mock_echo.warning.call_count == 1
     assert "admin@example.com" in mock_echo.warning.call_args.args[0]
@@ -3243,29 +3247,306 @@ def test_server_create_admin_warns_when_override_ignored_by_existing_account(
 
 @mock.patch("deepfellow.suite.utils.install.echo")
 @mock.patch("deepfellow.suite.utils.install.create_admin_util")
-def test_server_create_admin_no_warning_when_not_overridden(mock_create_admin_util: Mock, mock_echo: Mock) -> None:
+def test_server_post_start_action_create_admin_no_warning_when_not_overridden(
+    mock_create_admin_util: Mock, mock_echo: Mock
+) -> None:
     """A prior run's persisted admin (not an explicit override this run) hitting the same
     already-exists no-op is expected, not a mistake - no warning."""
-    from deepfellow.suite.utils.install import _server_create_admin
+    from deepfellow.suite.utils.install import _server_post_start_action
 
     mock_create_admin_util.return_value = False  # already existed, no-op
 
-    _server_create_admin("Admin", "admin@example.com", "Sup3r$ecret!", DF_SERVER_DIRECTORY, False)
+    _server_post_start_action(
+        _SERVER_CREATE_ADMIN_ACTION, DF_SERVER_DIRECTORY, "Admin", "admin@example.com", "Sup3r$ecret!", False
+    )
 
     assert mock_echo.warning.call_count == 0
 
 
 @mock.patch("deepfellow.suite.utils.install.echo")
 @mock.patch("deepfellow.suite.utils.install.create_admin_util")
-def test_server_create_admin_no_warning_when_override_created_fresh(
+def test_server_post_start_action_create_admin_no_warning_when_override_created_fresh(
     mock_create_admin_util: Mock, mock_echo: Mock
 ) -> None:
     """An override that actually applies (no pre-existing account for that email) is not a
     silently-discarded change - no warning."""
-    from deepfellow.suite.utils.install import _server_create_admin
+    from deepfellow.suite.utils.install import _server_post_start_action
 
     mock_create_admin_util.return_value = True  # newly created
 
-    _server_create_admin("Bobby", "bobby@example.com", "Sup3r$ecret!", DF_SERVER_DIRECTORY, True)
+    _server_post_start_action(
+        _SERVER_CREATE_ADMIN_ACTION, DF_SERVER_DIRECTORY, "Bobby", "bobby@example.com", "Sup3r$ecret!", True
+    )
 
     assert mock_echo.warning.call_count == 0
+
+
+@mock.patch("deepfellow.suite.utils.install.server_dispatch_post_start_action")
+@mock.patch("deepfellow.suite.utils.install.create_admin_util")
+def test_server_post_start_action_dispatches_a_non_admin_action_unmodified(
+    mock_create_admin_util: Mock, mock_dispatch: Mock
+) -> None:
+    """The DFCLI-14 follow-up guarantee: a server template's post-start action other than
+    server.create_admin must actually be dispatched (via server's own dispatch mechanism, exactly
+    as `server install --template` itself would run it), not silently dropped - and must never go
+    through the admin-credential override path, which is scoped to server.create_admin only."""
+    from deepfellow.suite.utils.install import _server_post_start_action
+
+    other_action: PostStartAction = {"function": "server.some_other_action", "kwargs": {"foo": "bar"}}
+
+    _server_post_start_action(other_action, DF_SERVER_DIRECTORY, "Admin", "admin@example.com", "Sup3r$ecret!", False)
+
+    assert mock_dispatch.call_count == 1
+    assert mock_dispatch.call_args == mock.call(other_action)
+    assert mock_create_admin_util.call_count == 0
+
+
+def test_validate_template_accepts_a_known_builtin_name() -> None:
+    _validate_template("workspace")
+
+
+def test_validate_template_raises_on_unknown_name() -> None:
+    with pytest.raises(InstallError, match="not a valid suite install template"):
+        _validate_template("nonexistent")
+
+
+def test_resolve_effective_template_adopts_given_template_for_a_fresh_state() -> None:
+    """A freshly-started install_state (no persisted template yet) simply records this
+    invocation's own --template, with nothing to warn about."""
+    install_state = SuiteInstallState()
+
+    result = _resolve_effective_template(install_state, "workspace")
+
+    assert result == "workspace"
+    assert install_state.template == "workspace"
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+def test_resolve_effective_template_reuses_matching_persisted_template_without_warning(mock_echo: Mock) -> None:
+    install_state = SuiteInstallState(template="workspace")
+
+    result = _resolve_effective_template(install_state, "workspace")
+
+    assert result == "workspace"
+    assert mock_echo.warning.call_count == 0
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+def test_resolve_effective_template_warns_and_reuses_persisted_template_on_mismatch(mock_echo: Mock) -> None:
+    """The core DFCLI-14 follow-up guarantee: a persisted template from a run being continued
+    always wins over this invocation's own --template - which would otherwise silently mix one
+    template's infra/server configuration with another template's installed services/models."""
+    install_state = SuiteInstallState(template="workspace")
+
+    result = _resolve_effective_template(install_state, "other")
+
+    assert result == "workspace"
+    assert install_state.template == "workspace"
+    assert mock_echo.warning.call_count == 1
+    message = mock_echo.warning.call_args.args[0]
+    assert "'other'" in message
+    assert "'workspace'" in message
+
+
+@mock.patch("deepfellow.suite.utils.install.assert_docker")
+def test_install_raises_before_docker_check_when_template_is_unknown(mock_assert_docker: Mock) -> None:
+    with pytest.raises(InstallError, match="not a valid suite install template"):
+        install(template="nonexistent")
+
+    assert mock_assert_docker.call_count == 0
+
+
+@mock.patch("deepfellow.suite.utils.install.assert_docker")
+def test_install_raises_before_docker_check_when_template_is_a_file_path(mock_assert_docker: Mock) -> None:
+    with pytest.raises(InstallError, match="not a valid suite install template"):
+        install(template="/tmp/custom.yaml")
+
+    assert mock_assert_docker.call_count == 0
+
+
+_FAKE_TWO_ACTION_TEMPLATE: InstallTemplate = {
+    "config": {},
+    "post_start_actions": [
+        {"function": "infra.service.install", "kwargs": {"name": "vllm", "spec": "{}"}},
+        {"function": "infra.model.install", "kwargs": {"service_name": "vllm", "model_name": "custom-model"}},
+    ],
+}
+
+
+@mock.patch("deepfellow.suite.utils.install.infra_resolve_template")
+@_patch_all_steps
+def test_install_derives_post_start_action_steps_and_granted_models_from_template(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_infra_resolve_template: Mock,
+) -> None:
+    mock_infra_resolve_template.return_value = _FAKE_TWO_ACTION_TEMPLATE
+    mock_load_state.return_value = None
+    mock_get_token_from_login.return_value = "token"
+    workspace = _make_workspace()
+    mock_create_workspace.return_value = workspace
+
+    install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
+
+    assert mock_infra_post_start_action.call_count == 2
+    assert mock_infra_post_start_action.call_args_list == [
+        mock.call(action, DF_INFRA_DIRECTORY, False) for action in _FAKE_TWO_ACTION_TEMPLATE["post_start_actions"]
+    ]
+    assert mock_update_project.call_args.args[2:] == (
+        workspace.organization.id,
+        workspace.project.id,
+        {"models": ["custom-model"]},
+    )
+
+
+@mock.patch("deepfellow.suite.utils.install.server_resolve_template")
+@mock.patch("deepfellow.suite.utils.install.infra_resolve_template")
+@mock.patch("deepfellow.suite.utils.install._SUITE_BUILTIN_TEMPLATES", frozenset({"workspace", "other"}))
+@_patch_all_steps
+def test_install_resume_with_different_template_warns_and_reuses_persisted_one(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_infra_resolve_template: Mock,
+    mock_server_resolve_template: Mock,
+) -> None:
+    """The core review-finding guarantee: --resume with a --template different from (or simply
+    omitting, defaulting back to "workspace") the one the previous run persisted must not silently
+    mix the two - infra/server stay configured for the persisted template, and the services/models
+    this run installs and grants access to must come from that SAME persisted template, not this
+    invocation's --template.
+
+    "other" isn't a real built-in template (only "workspace" is, in production) - only
+    `_SUITE_BUILTIN_TEMPLATES` is patched to accept it as a name for this test, so
+    `infra_resolve_template()`/`server_resolve_template()` are stubbed to resolve it to some other
+    (fake) template's actions, distinguishable from "workspace"'s real ones.
+    """
+    mock_infra_resolve_template.side_effect = lambda name: (
+        INFRA_BUILTIN_TEMPLATES["workspace"] if name == "workspace" else _FAKE_TWO_ACTION_TEMPLATE
+    )
+    mock_server_resolve_template.side_effect = lambda name: (
+        SERVER_BUILTIN_TEMPLATES["workspace"] if name == "workspace" else _FAKE_TWO_ACTION_TEMPLATE
+    )
+    mock_load_state.return_value = SuiteInstallState(
+        completed_steps=["infra_config", "server_config"], template="workspace"
+    )
+    mock_get_token_from_login.return_value = "token"
+    workspace = _make_workspace()
+    mock_create_workspace.return_value = workspace
+
+    install(
+        admin_name="Admin",
+        admin_email="admin@example.com",
+        admin_password="Sup3r$ecret!",
+        resume=True,
+        template="other",
+    )
+
+    warning_messages = [call.args[0] for call in mock_echo.warning.call_args_list]
+    assert any("'other'" in msg and "'workspace'" in msg for msg in warning_messages)
+    # The persisted "workspace" template's real post-start actions/models were used - not "other"'s.
+    assert mock_infra_post_start_action.call_args_list == [
+        mock.call(action, DF_INFRA_DIRECTORY, True) for action in _WORKSPACE_POST_START_ACTIONS
+    ]
+    assert mock_server_post_start_action.call_args_list == [
+        mock.call(action, DF_SERVER_DIRECTORY, "Admin", "admin@example.com", "Sup3r$ecret!", True)
+        for action in _SERVER_WORKSPACE_POST_START_ACTIONS
+    ]
+    assert mock_update_project.call_args.args[2:] == (
+        workspace.organization.id,
+        workspace.project.id,
+        {"models": ["gemma4:e4b", "mxbai-embed-large", "qwen3.5:4b"]},
+    )
+    assert mock_save_state.call_args.args[0].template == "workspace"
+
+
+@_patch_all_steps
+def test_install_resume_ignores_leftover_old_post_start_action_step_ids(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+) -> None:
+    """Old, pre-template-flag fixed step ids never match a newly-computed infra_post_start_action_{i}
+    id, so all 4 actions simply re-run once - harmless, since each is proven idempotent (always_run)."""
+    mock_load_state.return_value = SuiteInstallState(
+        completed_steps=[
+            "infra_config",
+            "server_config",
+            "infra_install",
+            "infra_start",
+            "infra_service_install",
+            "infra_model_install_chat",
+            "infra_model_install_embedding",
+            "infra_model_install_fast",
+        ]
+    )
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = _make_workspace()
+
+    install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", resume=True)
+
+    assert mock_infra_post_start_action.call_count == 4

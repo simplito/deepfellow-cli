@@ -42,6 +42,17 @@ class SuiteInstallState:
     special-case that, since a `None` config is indistinguishable from "not yet resolved" and the
     corresponding step just runs (and re-prompts) once more, exactly as if it were a fresh install.
 
+    `template` holds the `--template` name this run resolved `infra_config`/`server_config`
+    against, once resolved - persisted (unlike the *result* of resolving it, which is cheap and
+    deterministic to recompute) so a later `--resume` run always reuses it instead of trusting
+    that invocation's own `--template`, which silently defaults back to `"workspace"` if simply
+    forgotten on a retry. Without this, `--resume` would skip `STEP_INFRA_CONFIG`/
+    `STEP_SERVER_CONFIG` (reconstructing them from the *original* template) while still resolving
+    the services/models to install and grant access to from *this* invocation's `--template` -
+    silently mixing two templates with no error or warning. A state file written before this field
+    existed simply has it as `None`, treated by `install()` as "this run's own `--template` is
+    authoritative" - the same one-time fallback every other `None` field above gets.
+
     No schema version field: this file only ever lives for the lifetime of one failed-and-resumed
     `suite install` attempt - `delete()` removes it on any full success, and `--resume` is never
     meant to reattach to a run from a different CLI version. A schema-shape change simply isn't a
@@ -53,6 +64,7 @@ class SuiteInstallState:
     admin: dict[str, str] | None = None
     infra_config: dict[str, Any] | None = None
     server_config: dict[str, Any] | None = None
+    template: str | None = None
 
 
 def load(state_file: Path = DF_SUITE_INSTALL_STATE_FILE) -> SuiteInstallState | None:
@@ -90,6 +102,7 @@ def load(state_file: Path = DF_SUITE_INSTALL_STATE_FILE) -> SuiteInstallState | 
         admin=data.get("admin"),
         infra_config=data.get("infra_config"),
         server_config=data.get("server_config"),
+        template=data.get("template"),
     )
 
 

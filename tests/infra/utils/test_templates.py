@@ -19,7 +19,6 @@ import pytest
 from deepfellow.common.exceptions import InstallError
 from deepfellow.infra.utils.templates import (
     BUILTIN_TEMPLATES,
-    OLLAMA_SERVICE_SPEC,
     POST_START_ACTION_REGISTRY,
     dispatch_post_start_action,
     resolve_template,
@@ -27,6 +26,13 @@ from deepfellow.infra.utils.templates import (
 
 if TYPE_CHECKING:
     from deepfellow.common.templates import PostStartAction
+
+_WORKSPACE_OLLAMA_SPEC = {
+    "hardware": "GPU",
+    "keep_alive": "-1",
+    "is_flash_attention": True,
+    "context_length": 250000,
+}
 
 
 @mock.patch.dict("deepfellow.infra.utils.templates.POST_START_ACTION_REGISTRY", clear=True)
@@ -61,7 +67,7 @@ def test_dispatch_post_start_action_installs_ollama_service_from_builtin_workspa
 
     assert mock_install_with_progress.call_count == 1
     call_kwargs = mock_install_with_progress.call_args[1]
-    assert call_kwargs["data"] == {"spec": OLLAMA_SERVICE_SPEC}
+    assert call_kwargs["data"] == {"spec": _WORKSPACE_OLLAMA_SPEC}
     assert mock_resolve.call_count == 1
     assert mock_resolve.call_args == mock.call(None)
     assert mock_persist.call_count == 1
@@ -91,7 +97,7 @@ def test_dispatch_post_start_action_installs_chat_model_from_builtin_workspace_t
 def test_builtin_workspace_ollama_spec_is_json_serialized_for_service_install() -> None:
     action = BUILTIN_TEMPLATES["workspace"]["post_start_actions"][0]
 
-    assert json.loads(action["kwargs"]["spec"]) == OLLAMA_SERVICE_SPEC
+    assert json.loads(action["kwargs"]["spec"]) == _WORKSPACE_OLLAMA_SPEC
 
 
 def test_builtin_workspace_post_start_actions_leave_server_for_install_to_inject() -> None:

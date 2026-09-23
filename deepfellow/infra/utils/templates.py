@@ -20,7 +20,6 @@ module's own "workspace" template sets port to DF_INFRA_PORT) would be indisting
 import copy
 import json
 from collections.abc import Callable
-from typing import Any
 
 from deepfellow.common.defaults import DF_INFRA_DOCKER_NETWORK, DF_INFRA_NAME, DF_INFRA_PORT, DF_INFRA_URL
 from deepfellow.common.templates import (
@@ -55,16 +54,6 @@ def dispatch_post_start_action(action: PostStartAction) -> None:
     _dispatch_post_start_action(action, registry=POST_START_ACTION_REGISTRY)
 
 
-OLLAMA_SERVICE_SPEC: dict[str, Any] = {
-    "hardware": "GPU",
-    "keep_alive": "-1",
-    "is_flash_attention": True,
-    "context_length": 250000,
-}
-CHAT_MODEL = "gemma4:e4b"
-EMBEDDING_MODEL = "mxbai-embed-large"
-FAST_MODEL = "qwen3.5:4b"
-
 # Keep in sync with whatever config keys wiring infra install --template to actually consume, and
 # the scalar type each key's install() parameter expects — this is a hand-maintained safety net
 # against YAML typos and quoting mismatches (e.g. port: "9000"), not derived from a signature.
@@ -93,20 +82,27 @@ BUILTIN_TEMPLATES: dict[str, InstallTemplate] = {
                 "function": "infra.service.install",
                 "kwargs": {
                     "name": "ollama",
-                    "spec": json.dumps(OLLAMA_SERVICE_SPEC),
+                    "spec": json.dumps(
+                        {
+                            "hardware": "GPU",
+                            "keep_alive": "-1",
+                            "is_flash_attention": True,
+                            "context_length": 250000,
+                        }
+                    ),
                 },
             },
             {
                 "function": "infra.model.install",
-                "kwargs": {"service_name": "ollama", "model_name": CHAT_MODEL},
+                "kwargs": {"service_name": "ollama", "model_name": "gemma4:e4b"},
             },
             {
                 "function": "infra.model.install",
-                "kwargs": {"service_name": "ollama", "model_name": EMBEDDING_MODEL},
+                "kwargs": {"service_name": "ollama", "model_name": "mxbai-embed-large"},
             },
             {
                 "function": "infra.model.install",
-                "kwargs": {"service_name": "ollama", "model_name": FAST_MODEL},
+                "kwargs": {"service_name": "ollama", "model_name": "qwen3.5:4b"},
             },
         ],
     }
