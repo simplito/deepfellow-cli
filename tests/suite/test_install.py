@@ -58,6 +58,7 @@ def default_install_kwargs() -> dict:
         "admin_password": "Sup3r$ecret!",
         "force_install": False,
         "resume": False,
+        "template": "workspace",
         "infra_port": DF_INFRA_PORT,
         "infra_image": DF_INFRA_IMAGE,
         "infra_local_image": False,
@@ -232,6 +233,16 @@ def test_install_command_forwards_force_install_flag(
     install_command(ctx=dummy_ctx(), **{**default_install_kwargs, "force_install": True})
 
     assert mock_install_util.call_args.kwargs["force_install"] is True
+
+
+@mock.patch("deepfellow.suite.install.install_util")
+def test_install_command_forwards_template_option(
+    mock_install_util: Mock,
+    default_install_kwargs: dict,
+) -> None:
+    install_command(ctx=dummy_ctx(), **{**default_install_kwargs, "template": "custom"})
+
+    assert mock_install_util.call_args.kwargs["template"] == "custom"
 
 
 @mock.patch("deepfellow.suite.install.install_util")

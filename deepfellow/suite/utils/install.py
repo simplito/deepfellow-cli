@@ -9,7 +9,6 @@
 
 """Install suite core logic."""
 
-import json
 from collections.abc import Callable, Collection
 from dataclasses import asdict
 from functools import partial
@@ -50,14 +49,16 @@ from deepfellow.common.install import (
     validate_non_interactive_admin_values,
 )
 from deepfellow.common.state import state
+from deepfellow.common.templates import PostStartAction
 from deepfellow.common.validation import PASSWORD_REQUIREMENTS, validate_email, validate_password, validate_truthy
 from deepfellow.infra.utils.docker import start_infra
 from deepfellow.infra.utils.install import InstallConfig as InfraInstallConfig
 from deepfellow.infra.utils.install import apply as infra_apply
 from deepfellow.infra.utils.install import inspect as infra_inspect
 from deepfellow.infra.utils.install import resolve as infra_resolve
-from deepfellow.infra.utils.templates import CHAT_MODEL, EMBEDDING_MODEL, FAST_MODEL, OLLAMA_SERVICE_SPEC
+from deepfellow.infra.utils.templates import BUILTIN_TEMPLATES as INFRA_BUILTIN_TEMPLATES
 from deepfellow.infra.utils.templates import dispatch_post_start_action as infra_dispatch_post_start_action
+from deepfellow.infra.utils.templates import resolve_template as infra_resolve_template
 from deepfellow.server.organization.utils import Organization
 from deepfellow.server.project.api_key.utils import ApiKey
 from deepfellow.server.project.utils import Project, update_project
@@ -69,6 +70,9 @@ from deepfellow.server.utils.install import inspect as server_inspect
 from deepfellow.server.utils.install import resolve as server_resolve
 from deepfellow.server.utils.login import get_token_from_login
 from deepfellow.server.utils.options import set_default_server_directory
+from deepfellow.server.utils.templates import BUILTIN_TEMPLATES as SERVER_BUILTIN_TEMPLATES
+from deepfellow.server.utils.templates import dispatch_post_start_action as server_dispatch_post_start_action
+from deepfellow.server.utils.templates import resolve_template as server_resolve_template
 from deepfellow.server.utils.users import create_admin as create_admin_util
 from deepfellow.server.utils.workspace import Workspace, create_workspace
 from deepfellow.suite.utils.state import SuiteInstallState
@@ -80,47 +84,111 @@ WORKSPACE_ORGANIZATION_NAME = "Workspace"
 WORKSPACE_PROJECT_NAME = "Default"
 WORKSPACE_API_KEY_NAME = "app"
 
+# suite install only accepts a built-in template name recognized by BOTH infra and server, since one
+# --template value is forwarded to each of their independently-schemaed template resolution
+# mechanisms - unlike `infra install --template`/`server install --template`, a YAML template file
+# path isn't supported here.
+_SUITE_BUILTIN_TEMPLATES = frozenset(INFRA_BUILTIN_TEMPLATES) & frozenset(SERVER_BUILTIN_TEMPLATES)
+
+
+def _validate_template(template: str) -> None:
+    """Reject a --template value suite install doesn't support: anything but a shared built-in name.
+
+    Called before any prompt or installation action, so an unsupported value fails immediately
+    instead of surfacing later as a confusing "template file not found" error from
+    infra_inspect()'s/server_inspect()'s own resolve_template() file-path fallback.
+
+    Raises:
+        InstallError: If `template` is not a member of `_SUITE_BUILTIN_TEMPLATES`.
+    """
+    if template in _SUITE_BUILTIN_TEMPLATES:
+        return
+    names = ", ".join(sorted(_SUITE_BUILTIN_TEMPLATES))
+    raise InstallError(
+        f"'{template}' is not a valid suite install template; suite install only accepts a built-in "
+        f"template name (not a path to a template file). Built-in templates: ({names})"
+    )
+
+
 # Canonical step ids, persisted to the state file, and their display names. STEP_INFRA_CONFIG and
 # STEP_SERVER_CONFIG resolve infra's and server's configuration (every prompt each one has) before
-# any installation action runs - see _infra_config()/_server_config(). Steps 3-8 are what a plain
-# `infra install --template workspace` runs internally, minus its own now-separate config/resolve
-# phase (apply, start, then ollama service + 3 model installs); steps 9-11 are what
-# `server install --template workspace` runs internally, likewise minus its config phase (apply,
-# start, then create-admin). suite install drives each individually - instead of delegating
-# wholesale to infra_install()/server_install() - so a failure at any point (e.g. infra installs
-# fine but fails to start) is trackable and resumable at that exact step.
+# any installation action runs - see _infra_config()/_server_config(). The steps between
+# STEP_INFRA_START and STEP_SERVER_INSTALL are what a plain `infra install --template <name>` runs
+# internally as its post-start actions (minus its own now-separate config/resolve phase); the steps
+# between STEP_SERVER_START and STEP_SERVER_LOGIN are what `server install --template <name>` runs
+# internally as ITS post-start actions, likewise minus its config phase. suite install drives each
+# individually - instead of delegating wholesale to infra_install()/server_install() - so a failure
+# at any point (e.g. infra installs fine but fails to start) is trackable and resumable at that
+# exact step.
 STEP_INFRA_CONFIG = "infra_config"
 STEP_SERVER_CONFIG = "server_config"
 STEP_INFRA_INSTALL = "infra_install"
 STEP_INFRA_START = "infra_start"
-STEP_INFRA_SERVICE_INSTALL = "infra_service_install"
-STEP_INFRA_MODEL_INSTALL_CHAT = "infra_model_install_chat"
-STEP_INFRA_MODEL_INSTALL_EMBEDDING = "infra_model_install_embedding"
-STEP_INFRA_MODEL_INSTALL_FAST = "infra_model_install_fast"
 STEP_SERVER_INSTALL = "server_install"
 STEP_SERVER_START = "server_start"
-STEP_SERVER_CREATE_ADMIN = "server_create_admin"
 STEP_SERVER_LOGIN = "server_login"
 STEP_WORKSPACE_CREATION = "workspace_creation"
 STEP_GRANT_MODEL_ACCESS = "grant_model_access"
 
-STEPS: tuple[tuple[str, str], ...] = (
-    (STEP_INFRA_CONFIG, "infra configuration"),
-    (STEP_SERVER_CONFIG, "server configuration"),
-    (STEP_INFRA_INSTALL, "infra install"),
-    (STEP_INFRA_START, "infra start"),
-    (STEP_INFRA_SERVICE_INSTALL, "infra service install (ollama)"),
-    (STEP_INFRA_MODEL_INSTALL_CHAT, "infra model install (chat)"),
-    (STEP_INFRA_MODEL_INSTALL_EMBEDDING, "infra model install (embedding)"),
-    (STEP_INFRA_MODEL_INSTALL_FAST, "infra model install (fast)"),
-    (STEP_SERVER_INSTALL, "server install"),
-    (STEP_SERVER_START, "server start"),
-    (STEP_SERVER_CREATE_ADMIN, "create admin"),
-    (STEP_SERVER_LOGIN, "server login"),
-    (STEP_WORKSPACE_CREATION, "workspace creation"),
-    (STEP_GRANT_MODEL_ACCESS, "grant model access"),
-)
-TOTAL_STEPS = len(STEPS)
+
+def _infra_post_start_action_step_id(index: int) -> str:
+    """Step id for the resolved infra template's post-start action at position `index`."""
+    return f"infra_post_start_action_{index}"
+
+
+def _infra_post_start_action_display_name(action: PostStartAction) -> str:
+    """Human-readable display name for one resolved infra template post-start action."""
+    label = action["kwargs"].get("model_name") or action["kwargs"].get("name") or ""
+    name = action["function"].removeprefix("infra.").replace(".", " ")
+    return f"infra {name}" + (f" ({label})" if label else "")
+
+
+def _server_post_start_action_step_id(index: int) -> str:
+    """Step id for the resolved server template's post-start action at position `index`."""
+    return f"server_post_start_action_{index}"
+
+
+def _server_post_start_action_display_name(action: PostStartAction) -> str:
+    """Human-readable display name for one resolved server template post-start action."""
+    label = action["kwargs"].get("name") or action["kwargs"].get("email") or ""
+    name = action["function"].removeprefix("server.").replace("_", " ")
+    return name + (f" ({label})" if label else "")
+
+
+def _build_steps(
+    infra_post_start_actions: list[PostStartAction], server_post_start_actions: list[PostStartAction]
+) -> tuple[tuple[str, str], ...]:
+    """The full, ordered (step id, display name) list for this run.
+
+    One step per entry of the resolved infra template's post_start_actions is inserted between
+    STEP_INFRA_START and STEP_SERVER_INSTALL, in order - the "workspace" template's 4 actions
+    (ollama service + 3 models) are what made this section look fixed before. Likewise, one step per
+    entry of the resolved server template's post_start_actions is inserted between STEP_SERVER_START
+    and STEP_SERVER_LOGIN - the "workspace" template's single server.create_admin action is what made
+    that section look fixed before. A different --template's action count changes either list's
+    length accordingly, with no other code change needed. Computed once per run (see install()), not
+    a module-level constant, since it depends on the resolved --template.
+    """
+    return (
+        (STEP_INFRA_CONFIG, "infra configuration"),
+        (STEP_SERVER_CONFIG, "server configuration"),
+        (STEP_INFRA_INSTALL, "infra install"),
+        (STEP_INFRA_START, "infra start"),
+        *(
+            (_infra_post_start_action_step_id(i), _infra_post_start_action_display_name(action))
+            for i, action in enumerate(infra_post_start_actions)
+        ),
+        (STEP_SERVER_INSTALL, "server install"),
+        (STEP_SERVER_START, "server start"),
+        *(
+            (_server_post_start_action_step_id(i), _server_post_start_action_display_name(action))
+            for i, action in enumerate(server_post_start_actions)
+        ),
+        (STEP_SERVER_LOGIN, "server login"),
+        (STEP_WORKSPACE_CREATION, "workspace creation"),
+        (STEP_GRANT_MODEL_ACCESS, "grant model access"),
+    )
+
 
 # Suite-level config flag names relevant to each install step, used by _warn_config_flags_ignored()
 # below - a subset of _EXPLICITLY_PROVIDED_FIELDS (deepfellow/suite/install.py). docker_network is
@@ -155,9 +223,9 @@ _SERVER_CONFIG_FIELDS = frozenset(
 )
 
 
-def _step_position(step_id: str) -> tuple[int, str]:
-    """Return a step's 1-based position and display name."""
-    return next((index, name) for index, (id_, name) in enumerate(STEPS, start=1) if id_ == step_id)
+def _step_position(steps: tuple[tuple[str, str], ...], step_id: str) -> tuple[int, str]:
+    """Return a step's 1-based position and display name within `steps`."""
+    return next((index, name) for index, (id_, name) in enumerate(steps, start=1) if id_ == step_id)
 
 
 def _install_directory_intact(directory: Path) -> bool:
@@ -193,7 +261,7 @@ def _warn_config_flags_ignored(
     That happens when `component`'s config step (`STEP_INFRA_CONFIG`/`STEP_SERVER_CONFIG`) was
     already done and skipped outright, reconstructing config from what an earlier run already
     resolved rather than resolving it fresh - the only step these flags are ever read by. Mirrors
-    `_server_create_admin`'s `admin_overridden` warning: an explicit --infra-port/
+    `_server_post_start_action`'s `admin_overridden` warning: an explicit --infra-port/
     --infra-directory/etc. on a `--resume` run against an already-configured component is
     otherwise silently ignored, same as an admin override against an already-existing account.
     """
@@ -224,6 +292,38 @@ def _server_config_on_skip(
     """`on_skip` for `STEP_SERVER_CONFIG` - see `_infra_config_on_skip()`."""
     _warn_config_flags_ignored("server", explicitly_provided, _SERVER_CONFIG_FIELDS)
     return _server_config_from_dict(install_state.server_config)  # type: ignore[arg-type]
+
+
+def _resolve_effective_template(install_state: SuiteInstallState, template: str) -> str:
+    """Reconcile this invocation's `--template` with any persisted template, warning on a mismatch.
+
+    `install_state` continues a run (via `--resume`, or a declined discard - see `install()`)
+    instead of starting fresh whenever it already has a persisted template - reused here instead of
+    silently mixing the two, since a persisted template always wins over this invocation's own.
+
+    A module-level function (not a closure inside `install()`) purely to keep `install()`'s own
+    cyclomatic complexity down - same rationale as `_infra_config_on_skip()`.
+
+    Without this, a `--resume` invocation whose `--template` differs from - or, since it defaults
+    to `"workspace"`, simply omits - the one the original run configured infra/server against would
+    still resolve `infra_post_start_actions`/`granted_models` from *this* invocation's template,
+    installing one template's services/models against the other template's configuration, with no
+    error or warning.
+
+    Returns:
+        The template name `install()` must actually use for the rest of this run. Also writes it
+        onto `install_state.template` as a side effect - a no-op when reusing an already-matching
+        persisted value, and how a freshly-started `install_state` first records its own template.
+    """
+    if install_state.template is not None and install_state.template != template:
+        echo.warning(
+            f"--template {template!r} ignored: this suite install was already started with template "
+            f"{install_state.template!r}; reusing it instead of mixing templates between the "
+            "infra/server configuration and the services/models this run installs."
+        )
+        return install_state.template
+    install_state.template = template
+    return template
 
 
 def _workspace_to_dict(workspace: Workspace) -> dict[str, Any]:
@@ -340,19 +440,20 @@ def _infra_config(
     docker_config: Path | None,
     storage: Path,
     docker_network: str,
+    template: str,
     explicitly_provided: Collection[str],
 ) -> InfraInstallConfig:
     """Infra's ask-phase: inspect() + resolve(), collecting every infra-side prompt. No apply.
 
-    Mirrors `deepfellow.infra.utils.install.install()`'s own body for this phase, always with the
-    built-in "workspace" template - suite install exposes no `--template` option of its own, but does
-    forward the config-level flags (port, image, directory, ...) `infra install` itself accepts.
-    Decorated the same as every other step function - `translate_to_install_error` now propagates
-    a wrapped function's return value unchanged, so this ask-phase function's resolved config still
-    reaches its caller, while `DockerSocketNotFoundError`/`OSError`/`typer.BadParameter` raised
-    anywhere in `inspect()`/`resolve()` (e.g. from `get_socket()`, `ensure_directory()`) still get
-    translated to a clean `InstallError` right here - exactly like `_infra_install_apply` - instead
-    of only being caught much later by `install()`'s own decorator, bypassing `_run_step()`'s
+    Mirrors `deepfellow.infra.utils.install.install()`'s own body for this phase, with the resolved
+    `--template` (see `install()`'s own docstring for suite install's built-in-only restriction on
+    it), and forwards the config-level flags (port, image, directory, ...) `infra install` itself
+    accepts. Decorated the same as every other step function - `translate_to_install_error` now
+    propagates a wrapped function's return value unchanged, so this ask-phase function's resolved
+    config still reaches its caller, while `DockerSocketNotFoundError`/`OSError`/`typer.BadParameter`
+    raised anywhere in `inspect()`/`resolve()` (e.g. from `get_socket()`, `ensure_directory()`) still
+    get translated to a clean `InstallError` right here - exactly like `_infra_install_apply` -
+    instead of only being caught much later by `install()`'s own decorator, bypassing `_run_step()`'s
     per-step "Step N/TOTAL (name) failed: ..." message.
     """
     context = infra_inspect(
@@ -361,7 +462,7 @@ def _infra_config(
         force_install=force_install,
         image=image,
         local_image=local_image,
-        template="workspace",
+        template=template,
     )
     docker_config = docker_config or directory / "docker-config.json"
     return infra_resolve(
@@ -416,46 +517,24 @@ def _infra_localhost_url(directory: Path) -> str:
     return f"http://localhost:{port}"
 
 
-def _infra_service_install(directory: Path, quiet: bool) -> None:
-    """Install the "workspace" template's ollama service.
+def _infra_post_start_action(action: PostStartAction, directory: Path, quiet: bool) -> None:
+    """Run one of the resolved infra template's post-start actions (e.g. a service or model install).
 
     Args:
-        directory: Infra's install directory.
+        action: The post-start action to run, exactly as declared by the resolved infra template
+            (see `install()`'s `infra_post_start_actions`).
+        directory: Infra's install directory, used to inject a localhost server URL - the CLI
+            process runs outside Docker, so a post-start action must reach infra via localhost, not
+            a docker-network hostname the template's own config might otherwise imply.
         quiet: Suppress the "Updated config/secrets" confirmation - passed as `resume`, since only
-            a `--resume` run repeats this call (once per model, all against the exact same,
+            a `--resume` run repeats this call (once per action, all against the exact same,
             already-confirmed connection) enough times for that confirmation to become noise; a
             fresh run only ever sees it once per call and it's still worth showing there.
     """
     infra_dispatch_post_start_action(
         {
-            "function": "infra.service.install",
-            "kwargs": {
-                "name": "ollama",
-                "spec": json.dumps(OLLAMA_SERVICE_SPEC),
-                "server": _infra_localhost_url(directory),
-                "quiet": quiet,
-            },
-        }
-    )
-
-
-def _infra_model_install(model_name: str, directory: Path, quiet: bool) -> None:
-    """Install one of the "workspace" template's ollama models.
-
-    Args:
-        model_name: Name of the model to install.
-        directory: Infra's install directory.
-        quiet: See `_infra_service_install`.
-    """
-    infra_dispatch_post_start_action(
-        {
-            "function": "infra.model.install",
-            "kwargs": {
-                "service_name": "ollama",
-                "model_name": model_name,
-                "server": _infra_localhost_url(directory),
-                "quiet": quiet,
-            },
+            "function": action["function"],
+            "kwargs": {**action["kwargs"], "server": _infra_localhost_url(directory), "quiet": quiet},
         }
     )
 
@@ -481,15 +560,16 @@ def _server_config(
     falkordb_username: str,
     falkordb_password: str,
     otel_local: bool,
+    template: str,
     explicitly_provided: Collection[str],
 ) -> ServerInstallConfig:
     """Server's ask-phase: inspect() + resolve(), collecting every server-side prompt. No apply.
 
-    Mirrors `deepfellow.server.utils.install.install()`'s own body for this phase, always with the
-    built-in "workspace" template - suite install exposes no `--template` option of its own, but does
-    forward the config-level flags (port, image, directory, MongoDB/FalkorDB, ...) `server install`
-    itself accepts. Unlike before this function existed, the infra API key comes straight from
-    infra's own already-resolved (not necessarily yet applied) config - not read back out of
+    Mirrors `deepfellow.server.utils.install.install()`'s own body for this phase, with the resolved
+    `--template` (see `install()`'s own docstring for suite install's built-in-only restriction on
+    it), and forwards the config-level flags (port, image, directory, MongoDB/FalkorDB, ...) `server
+    install` itself accepts. Unlike before this function existed, the infra API key comes straight
+    from infra's own already-resolved (not necessarily yet applied) config - not read back out of
     infra's `.env` after infra's apply-phase has run - which is what lets this run before
     `STEP_INFRA_INSTALL` rather than after it. See `_infra_config()` for why this is decorated.
     """
@@ -504,7 +584,7 @@ def _server_config(
         image=image,
         local_image=local_image,
         force_install=force_install,
-        template="workspace",
+        template=template,
         admin_name=name,
         admin_email=email,
         admin_password=password,
@@ -566,21 +646,40 @@ def _server_start(directory: Path) -> None:
         reraise_if_debug(exc)
 
 
-def _server_create_admin(name: str, email: str, password: str, directory: Path, admin_overridden: bool) -> None:
-    """Create the server admin directly, since suite install already resolved concrete credentials.
+def _server_post_start_action(
+    action: PostStartAction, directory: Path, name: str, email: str, password: str, admin_overridden: bool
+) -> None:
+    """Run one of the resolved server template's post-start actions (e.g. creating the admin account).
+
+    server.create_admin is special-cased to use the exact admin credentials suite install already
+    resolved up front - rather than the template's own (typically None) name/email/password kwargs,
+    which server install would otherwise prompt for - and the actually-installed server directory,
+    rather than whatever the template guessed (mirrors `server.utils.install._run_post_start_actions`'s
+    own override of both). This is what lets create-admin and the later STEP_SERVER_LOGIN log into the
+    exact same account. Any other resolved action type is dispatched unmodified through server's own
+    dispatch_post_start_action(), exactly as `server install --template` itself would run it - so a
+    future server template's post-start action is never silently dropped by suite install.
 
     Args:
-        name: Resolved admin name.
-        email: Resolved admin email.
-        password: Resolved admin password.
-        directory: Server's install directory.
+        action: The post-start action to run, exactly as declared by the resolved server template
+            (see `install()`'s `server_post_start_actions`).
+        directory: Server's install directory, forced onto a server.create_admin action in place of
+            whatever the template guessed.
+        name: Resolved admin name, forced onto a server.create_admin action.
+        email: Resolved admin email, forced onto a server.create_admin action.
+        password: Resolved admin password, forced onto a server.create_admin action.
         admin_overridden: Whether name/email/password were actively supplied on *this* invocation -
             via an explicit --admin-*/env var, or by being interactively prompted for - as opposed
             to purely a prior run's persisted value being reused untouched. When True and an admin
             for `email` already exists, that supplied value was silently ignored (create_admin_util()
             only ever creates or no-ops, it never updates an existing account) - surfaced here as a
-            warning instead of leaving the user to assume it applied.
+            warning instead of leaving the user to assume it applied. Ignored for any action other
+            than server.create_admin.
     """
+    if action["function"] != "server.create_admin":
+        server_dispatch_post_start_action(action)
+        return
+
     created = create_admin_util(directory=directory, name=name, email=email, password=password)
     if not created and admin_overridden:
         echo.warning(
@@ -589,8 +688,38 @@ def _server_create_admin(name: str, email: str, password: str, directory: Path, 
         )
 
 
+def _run_server_post_start_actions(
+    run_step: Callable[..., Any],
+    server_post_start_actions: list[PostStartAction],
+    server_directory: Path,
+    name: str,
+    email: str,
+    password: str,
+    admin_overridden: bool,
+) -> None:
+    """Run one step per entry of the resolved server template's post_start_actions, in order.
+
+    Extracted out of install() purely to keep its own cyclomatic complexity down - same rationale
+    as `_infra_config_on_skip()`. Each step is `always_run=True`: every resolved server post-start
+    action is proven idempotent (server.create_admin's existing-admin response is a clean no-op -
+    see server/utils/users.py) and none of them require the server container to be up/detected via
+    docker ps - server.create_admin runs its own `docker compose run --rm server ...`.
+    """
+    for index, action in enumerate(server_post_start_actions):
+        run_step(
+            _server_post_start_action_step_id(index),
+            # partial() binds `action` at each iteration, not at call time - unlike a bare lambda
+            # closing over the loop variable, which would have every step run against whatever
+            # `action` happened to be last (the classic late-binding closure pitfall) - same as the
+            # matching infra post-start-action loop in install().
+            partial(_server_post_start_action, action, server_directory, name, email, password, admin_overridden),
+            always_run=True,
+        )
+
+
 def _run_step(
     install_state: SuiteInstallState,
+    steps: tuple[tuple[str, str], ...],
     step_id: str,
     func: Callable[[], Any],
     *,
@@ -606,8 +735,22 @@ def _run_step(
     it's *still* true (e.g. a container is still running) rather than blindly trusting the persisted
     flag, so a step whose real-world effect quietly disappeared (a container removed, a directory
     deleted) gets redone instead of skipped and misdiagnosed as some other failure downstream.
+
+    Args:
+        install_state: This run's progress state.
+        steps: This run's full, ordered (step id, display name) list - see `_build_steps()`. Passed
+            in rather than read from a module constant, since it depends on the resolved
+            `--template`'s post-start-action count.
+        step_id: The step being run.
+        func: The step's work.
+        always_run: Run `func` even when already done (e.g. a proven-idempotent action that isn't
+            cheaply live-checkable).
+        is_done: Overrides the default "was it in completed_steps" check.
+        on_success: Called with `func`'s return value on success.
+        on_skip: Called instead of `func` when the step is skipped as already done.
     """
-    index, display_name = _step_position(step_id)
+    index, display_name = _step_position(steps, step_id)
+    total_steps = len(steps)
 
     def _guarded(step_func: Callable[[], Any]) -> Any:
         # Shared by both func() and on_skip() below - a skipped step's own on_skip callback (e.g.
@@ -617,25 +760,25 @@ def _run_step(
         try:
             return step_func()
         except InstallError as exc:
-            echo.error(f"Step {index}/{TOTAL_STEPS} ({display_name}) failed: {exc}")
+            echo.error(f"Step {index}/{total_steps} ({display_name}) failed: {exc}")
             raise typer.Exit(1) from exc
         except typer.Exit as exc:
-            echo.error(f"Step {index}/{TOTAL_STEPS} ({display_name}) failed; see console output above for details.")
+            echo.error(f"Step {index}/{total_steps} ({display_name}) failed; see console output above for details.")
             raise typer.Exit(1) from exc
 
     was_previously_completed = step_id in install_state.completed_steps
     already_done = is_done() if is_done is not None else was_previously_completed
     if already_done and not always_run:
-        echo.info(f"Step {index}/{TOTAL_STEPS}: {display_name}... already completed, skipping.")
+        echo.info(f"Step {index}/{total_steps}: {display_name}... already completed, skipping.")
         return _guarded(on_skip) if on_skip is not None else None
 
     if was_previously_completed and not already_done:
         echo.warning(
-            f"Step {index}/{TOTAL_STEPS}: {display_name}... was marked complete previously, but is "
+            f"Step {index}/{total_steps}: {display_name}... was marked complete previously, but is "
             "no longer detected as up; re-running."
         )
     else:
-        echo.info(f"Step {index}/{TOTAL_STEPS}: {display_name}...")
+        echo.info(f"Step {index}/{total_steps}: {display_name}...")
     result = _guarded(func)
 
     if on_success is not None:
@@ -653,6 +796,7 @@ def install(
     admin_password: str | None = None,
     force_install: bool = False,
     resume: bool = False,
+    template: str = "workspace",
     infra_port: int = DF_INFRA_PORT,
     infra_image: str = DF_INFRA_IMAGE,
     infra_local_image: bool = False,
@@ -676,14 +820,26 @@ def install(
 ) -> None:
     """Provision a complete DeepFellow workspace: Infra, Server, admin user, and a ready-to-use workspace.
 
-    Runs 14 granular steps, in order: infra configuration, server configuration, infra install,
-    infra start, infra service install (ollama), infra model install (chat/embedding/fast), server
-    install, server start, create admin, server login, workspace creation, and grant model access.
-    The two configuration steps resolve every infra- and server-side prompt (directory-overwrite
-    decisions, DF_NAME, vector DB, MongoDB, FalkorDB, ...) before any of the later, purely
-    programmatic steps run - so a user answers every question once at the start instead of partway
-    through a long-running install. `suite install` itself exposes no `--template` option - it
-    always uses each command's built-in `workspace` template.
+    Runs a sequence of granular steps, in order: infra configuration, server configuration, infra
+    install, infra start, one step per service/model the resolved `template` installs on infra (the
+    "workspace" template installs the Ollama service and 3 models), server install, server start,
+    one step per post-start action the resolved `template` runs on server (the "workspace" template
+    creates the admin account), server login, workspace creation, and grant model access. The two
+    configuration steps resolve every infra- and server-side prompt (directory-overwrite decisions,
+    DF_NAME, vector DB, MongoDB, FalkorDB, ...) before any of the later, purely programmatic steps
+    run - so a user answers every question once at the start instead of partway through a
+    long-running install.
+
+    `template` selects the built-in template forwarded to both infra's and server's own
+    configuration/post-start-action resolution. Unlike `infra install`'s/`server install`'s own
+    `--template`, only a name known to both `deepfellow.infra.utils.templates.BUILTIN_TEMPLATES` and
+    `deepfellow.server.utils.templates.BUILTIN_TEMPLATES` is accepted - not a path to a custom
+    template file - validated before any prompt or installation action (see `_validate_template()`).
+    Once resolved, `template` is persisted; a later `--resume` (or a declined discard, which behaves
+    identically) always reuses the persisted value instead of trusting this argument again - warning
+    if it differs - so a `--resume` invocation that passes a different `--template`, or simply omits
+    it and falls back to its own default, can never mix one template's infra/server configuration
+    with another template's installed services/models.
 
     Progress is persisted to a state file after each step succeeds. If a step fails, re-running
     with `--resume` skips every already-completed step and continues from the first incomplete one,
@@ -699,6 +855,10 @@ def install(
         admin_password: Admin user's password. Same fallback order as admin_name.
         force_install: Force a reinstall over an already-existing infra/server directories.
         resume: Continue a previous, incomplete `suite install` run instead of starting fresh.
+        template: Built-in template name forwarded to both infra's and server's own configuration/
+            post-start-action resolution. Only a name known to both commands' own `BUILTIN_TEMPLATES`
+            is accepted - see `_validate_template()`. On `--resume` (or a declined discard), a
+            template already persisted by the run being continued wins over this argument instead.
         infra_port: Published port to serve the DeepFellow Infra from.
         infra_image: DeepFellow Infra docker image.
         infra_local_image: Whether to use a locally built DeepFellow Infra docker image.
@@ -727,9 +887,25 @@ def install(
             skipped (see `_warn_config_flags_ignored`).
 
     Raises:
-        InstallError: If Docker is missing/unusable, if any step fails, or if --non-interactive is
-            set and an admin name, email, or password is missing.
+        InstallError: If `template` isn't a built-in template name known to both infra and server,
+            if Docker is missing/unusable, if any step fails, or if --non-interactive is set and an
+            admin name, email, or password is missing.
     """
+    # Checked before anything else, including the Docker check below: a bad --template value is a
+    # pure input-validation failure, unrelated to Docker/prompting, so it should fail fastest of all.
+    _validate_template(template)
+    # A pure, deterministic lookup for a built-in name (see _validate_template() above) - no Docker,
+    # filesystem, or prompting involved, so safe to resolve fresh here, once, purely to have a step
+    # count for the "N/TOTAL_STEPS done" confirmation message below, in case this run turns out to
+    # be continuing an unfinished previous one. If it is, and that previous run persisted a
+    # DIFFERENT template, `template`/`infra_post_start_actions`/`server_post_start_actions`/`steps`/
+    # `total_steps` all get recomputed below, against the persisted template instead - see the
+    # template-resolution block right after prior_state is settled.
+    infra_post_start_actions = infra_resolve_template(template)["post_start_actions"]
+    server_post_start_actions = server_resolve_template(template)["post_start_actions"]
+    steps = _build_steps(infra_post_start_actions, server_post_start_actions)
+    total_steps = len(steps)
+
     # Checked before any prompting: infra install's own inspect() checks this too, but only once
     # step 1 actually runs, which is after the admin-credential prompts below. Checking it here
     # avoids making the user answer those prompts just to hit an unrelated Docker failure right
@@ -755,7 +931,7 @@ def install(
             else ""
         )
         if state.yes or echo.confirm(
-            f"A previous incomplete suite install exists ({completed}/{TOTAL_STEPS} steps done)."
+            f"A previous incomplete suite install exists ({completed}/{total_steps} steps done)."
             f"{key_warning} Discard it and start fresh instead of continuing it?",
             default=True,
         ):
@@ -776,6 +952,16 @@ def install(
     else:
         install_state = SuiteInstallState()
 
+    # See _resolve_effective_template()'s own docstring: a persisted template from a run being
+    # resumed always wins over this invocation's own --template. Recomputing
+    # infra_post_start_actions/server_post_start_actions/steps/total_steps below (already done once
+    # above, purely for the confirmation message) is free - see that computation's own comment.
+    template = _resolve_effective_template(install_state, template)
+    infra_post_start_actions = infra_resolve_template(template)["post_start_actions"]
+    server_post_start_actions = server_resolve_template(template)["post_start_actions"]
+    steps = _build_steps(infra_post_start_actions, server_post_start_actions)
+    total_steps = len(steps)
+
     # A prior run's persisted admin (if any) is the fallback source, same shape --admin-*/env vars
     # override: this is what lets `--resume` skip re-prompting for name/email/password it already
     # collected, while an --admin-* flag passed on the resuming invocation still wins over it.
@@ -784,7 +970,7 @@ def install(
     # Whether THIS invocation supplied an admin value that wasn't just a passthrough of a prior
     # run's persisted one - either via an explicit --admin-*/env var, or (set further below) by
     # being prompted for it, which only happens when neither a flag nor persisted state had a
-    # value to fall back on. _server_create_admin() uses this to warn instead of silently
+    # value to fall back on. _server_post_start_action() uses this to warn instead of silently
     # discarding an override that turns out to target an already-existing account.
     admin_overridden = bool(admin_name or admin_email or admin_password)
 
@@ -820,7 +1006,7 @@ def install(
         "if you abandon this run, remove it yourself."
     )
 
-    run_step = partial(_run_step, install_state)
+    run_step = partial(_run_step, install_state, steps)
 
     # The only suite-level flags whose CLI option was actually passed also participate in infra's
     # or server's own template-value merging (_MERGEABLE_FIELDS) - mapped here onto infra's and
@@ -852,6 +1038,7 @@ def install(
             docker_config=infra_docker_config,
             storage=infra_storage,
             docker_network=docker_network,
+            template=template,
             explicitly_provided=infra_explicitly_provided,
         ),
         on_success=lambda cfg: setattr(install_state, "infra_config", _infra_config_to_dict(cfg)),
@@ -878,6 +1065,7 @@ def install(
             falkordb_username=falkordb_username,
             falkordb_password=falkordb_password,
             otel_local=otel_local,
+            template=template,
             explicitly_provided=server_explicitly_provided,
         ),
         on_success=lambda cfg: setattr(install_state, "server_config", _server_config_to_dict(cfg)),
@@ -909,23 +1097,18 @@ def install(
     )
     # Always run: not cheaply live-checkable (would need an Infra API round-trip), but proven
     # idempotent - install() already treats "already installed" as a clean no-op. Same rationale
-    # as STEP_SERVER_LOGIN below.
-    run_step(STEP_INFRA_SERVICE_INSTALL, lambda: _infra_service_install(infra_directory, resume), always_run=True)
-    run_step(
-        STEP_INFRA_MODEL_INSTALL_CHAT,
-        lambda: _infra_model_install(CHAT_MODEL, infra_directory, resume),
-        always_run=True,
-    )
-    run_step(
-        STEP_INFRA_MODEL_INSTALL_EMBEDDING,
-        lambda: _infra_model_install(EMBEDDING_MODEL, infra_directory, resume),
-        always_run=True,
-    )
-    run_step(
-        STEP_INFRA_MODEL_INSTALL_FAST,
-        lambda: _infra_model_install(FAST_MODEL, infra_directory, resume),
-        always_run=True,
-    )
+    # as STEP_SERVER_LOGIN below. One step per resolved post-start action, in order - the
+    # "workspace" template's 4 actions (ollama service + 3 models) are what made this section look
+    # fixed before; a different `template`'s action list changes this loop's length accordingly.
+    for index, action in enumerate(infra_post_start_actions):
+        run_step(
+            _infra_post_start_action_step_id(index),
+            # partial() binds `action` at each iteration, not at call time - unlike a bare lambda
+            # closing over the loop variable, which would have every step run against whatever
+            # `action` happened to be last (the classic late-binding closure pitfall).
+            partial(_infra_post_start_action, action, infra_directory, resume),
+            always_run=True,
+        )
 
     # Same as infra_needs_repair above, but purely about server's own directory integrity -
     # repairing infra no longer regenerates DF_INFRA_API_KEY, so it no longer forces a server
@@ -945,14 +1128,12 @@ def install(
             not server_needs_repair and _start_still_done(install_state, STEP_SERVER_START, "server", server_directory)
         ),
     )
-    # Always run: create_admin_util is idempotent (an existing-admin response is a clean no-op -
-    # see server/utils/users.py) and doesn't require the server container to be up/detected via
-    # docker ps - it runs its own `docker compose run --rm server ...`. Same rationale as
-    # STEP_SERVER_LOGIN below.
-    run_step(
-        STEP_SERVER_CREATE_ADMIN,
-        lambda: _server_create_admin(name, email, password, server_directory, admin_overridden),
-        always_run=True,
+    # One step per resolved server post-start action, in order - see
+    # `_run_server_post_start_actions()`'s own docstring for the always_run rationale. Extracted
+    # into its own function purely to keep install()'s own cyclomatic complexity down - same
+    # rationale as `_infra_config_on_skip()`.
+    _run_server_post_start_actions(
+        run_step, server_post_start_actions, server_directory, name, email, password, admin_overridden
     )
     set_default_server_directory(server_directory, force=False)
 
@@ -993,7 +1174,14 @@ def install(
 
     # Always run: not cheaply live-checkable (would need a Server API round-trip), but proven
     # idempotent - update_project() is a plain "set the models field" call. Same rationale as
-    # STEP_SERVER_LOGIN above.
+    # STEP_SERVER_LOGIN above. The granted model list is derived from the same resolved
+    # infra_post_start_actions the install steps above just ran, not a separate hardcoded list, so
+    # the two can never drift apart.
+    granted_models = [
+        action["kwargs"]["model_name"]
+        for action in infra_post_start_actions
+        if action["function"] == "infra.model.install"
+    ]
     run_step(
         STEP_GRANT_MODEL_ACCESS,
         lambda: update_project(
@@ -1001,7 +1189,7 @@ def install(
             token,
             workspace.organization.id,
             workspace.project.id,
-            {"models": [CHAT_MODEL, EMBEDDING_MODEL, FAST_MODEL]},
+            {"models": granted_models},
         ),
         always_run=True,
     )

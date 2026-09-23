@@ -28,9 +28,20 @@ from deepfellow.common.defaults import (
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import InstallError, reraise_if_debug
 from deepfellow.common.validation import validate_email, validate_password
+from deepfellow.infra.utils.templates import BUILTIN_TEMPLATES as INFRA_BUILTIN_TEMPLATES
+from deepfellow.server.utils.templates import BUILTIN_TEMPLATES as SERVER_BUILTIN_TEMPLATES
 from deepfellow.suite.utils.install import install as install_util
 
 app = typer.Typer()
+
+# Unlike infra install's/server install's own --template, suite install only accepts a built-in
+# template name - not a path to a YAML template file - since one value is forwarded to both infra's
+# and server's own, independently-schemaed template resolution. Only a name recognized by both is
+# usable here.
+_TEMPLATE_HELP = (
+    "Built-in template name (a custom template file is not supported by `suite install`).\n\n"
+    f"Built-in templates: ({', '.join(sorted(set(INFRA_BUILTIN_TEMPLATES) & set(SERVER_BUILTIN_TEMPLATES)))})"
+)
 
 # get_parameter_source() returns typer's own vendored ParameterSource enum (typer._click.core),
 # not click.core's public one, so comparing by name is what actually works across typer versions
@@ -105,6 +116,7 @@ def install(
     resume: bool = typer.Option(
         False, "--resume", help="Continue a previous, incomplete `suite install` run instead of starting fresh."
     ),
+    template: str = typer.Option("workspace", help=_TEMPLATE_HELP),
     infra_port: int = typer.Option(
         DF_INFRA_PORT, envvar="DF_INFRA_PORT", help="Published port to serve the DeepFellow Infra from."
     ),
@@ -149,18 +161,27 @@ def install(
 ) -> None:
     """Provision a complete DeepFellow workspace: Infra, Server, admin user, and a ready-to-use workspace.
 
-    Runs 14 granular steps, in order: infra configuration, server configuration, infra install,
-    infra start, infra service install (ollama), infra model install (chat/embedding/fast), server
-    install, server start, create admin, server login, one call to the server's atomic
-    workspace-creation endpoint (organization "Workspace", project "Default", API key "app"), and
-    a follow-up call granting the created project access to the three models just installed. The
-    two configuration steps resolve and persist every infra and server prompt (directory-overwrite
+    Runs a sequence of granular steps, in order: infra configuration, server configuration, infra
+    install, infra start, one step per service/model the resolved `--template` installs (the
+    "workspace" template installs the Ollama service and 3 models), server install, server start, one
+    step per post-start action the resolved `--template` runs on server (the "workspace" template
+    creates the admin account), server login, one call to the server's atomic workspace-creation endpoint
+    (organization "Workspace", project "Default", API key "app"), and a follow-up call granting the
+    created project access to exactly the models the resolved template installed. The two
+    configuration steps resolve and persist every infra and server prompt (directory-overwrite
     decisions, DF_NAME, MongoDB, vector DB, OTel, FalkorDB, ...) before any of the later,
     apply-only steps run, so all questions are answered once at the start instead of partway
     through a long-running install.
 
-    `suite install` itself exposes no `--template` option — it always uses each command's built-in
-    `workspace` template. Progress is persisted after each step; if a step fails, re-run with
+    `--template <name>` selects the built-in template forwarded to both infra's and server's own
+    configuration/post-start-action resolution (default `workspace`); unlike `infra install`'s/
+    `server install`'s own `--template`, only a built-in name is accepted, not a path to a custom
+    template file. A `--resume` (or a declined discard) always reuses the template the run being
+    continued was originally started with, warning if `--template` was passed with a different
+    value - so infra/server configuration and the services/models actually installed can never end
+    up resolved from two different templates.
+
+    Progress is persisted after each step; if a step fails, re-run with
     `--resume` to skip every already-completed step and continue from the first incomplete one.
     Re-running without `--resume` over an unfinished previous run asks for confirmation before
     discarding it and starting fresh (skipped by `--yes`, and defaulting to fresh in
@@ -189,6 +210,7 @@ def install(
             admin_password=admin_password,
             force_install=force_install,
             resume=resume,
+            template=template,
             infra_port=infra_port,
             infra_image=infra_image,
             infra_local_image=infra_local_image,

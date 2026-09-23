@@ -9,12 +9,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 - `deepfellow server project create`/`update` now accept `--webhook-url`/`--webhook-secret` to set a Project's webhook URL and signing secret, and `webhook_secret` is now included (masked as `*****`) when a Project is displayed - previously there was no way to view or set a Project's webhook secret through the CLI.
 - `deepfellow infra model list <service_name>` - lists the models available on an infra service (id, type, size, description, and installed status), so a model name no longer has to be guessed or looked up via the API/WebUI before running `infra model install`. `--installed`/`--no-installed` filters the list to only installed or only not-installed models.
+- `deepfellow suite install` now accepts `--template <name>` (default `workspace`), forwarded to both infra's and server's own template resolution - previously it always used the built-in `workspace` template with no way to select another. Only a built-in name shared by both infra's and server's own templates is accepted, not a path to a custom template file.
 
 ### Changed
 - `server install`'s interactive MongoDB setup now asks for the username and password before the database name and connection URL, instead of asking for the connection details first - this removes ambiguity about whether credentials belong in the URL.
 
 ### Fixed
 - `infra`/`server` commands that run `docker`/`docker compose` (`start`, `stop`, `restart`, `update`, `logs`, `ssl-on`, `env set`, and `infra connect`/`disconnect`) now validate up front that docker is installed, running, and usable, and give a clear DeepFellow error message instead of a raw docker error when it isn't - previously only `install`, `status`, `prune`, and `uninstall` did this check. The check itself (`assert_docker`) now also verifies the `docker compose` plugin is present, not just the `docker` binary.
+- `deepfellow suite install` now actually runs the resolved server template's `post_start_actions` (via `server install --template`'s own dispatch mechanism) instead of always hardcoding a single admin-creation call - previously a `--template` with a server-side post-start action other than `server.create_admin` would have it silently skipped.
 - Every command group (`infra`, `server`, `cli`, and their subgroups such as `infra service`, `infra env`, `server organization`, etc.) invoked without a subcommand now prints its `--help` listing instead of a "Missing command." error - e.g. `deepfellow infra` now shows the available `infra` commands directly.
 
 ## [0.34.0] - 2026-09-16

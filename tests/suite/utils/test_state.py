@@ -200,3 +200,25 @@ def test_save_then_load_round_trips_infra_and_server_config(tmp_path: Path) -> N
     result = load(state_file)
 
     assert result == install_state
+
+
+def test_load_defaults_template_when_absent(tmp_path: Path) -> None:
+    """A state file written before `template` existed must default it to None, not raise - the
+    same one-time fallback every other field above gets."""
+    state_file = tmp_path / "suite_install_state.json"
+    state_file.write_text('{"completed_steps": ["infra_install"]}', encoding="utf-8")
+
+    result = load(state_file)
+
+    assert result is not None
+    assert result.template is None
+
+
+def test_save_then_load_round_trips_template(tmp_path: Path) -> None:
+    state_file = tmp_path / "suite_install_state.json"
+    install_state = SuiteInstallState(completed_steps=["infra_config"], template="workspace")
+
+    save(install_state, state_file)
+    result = load(state_file)
+
+    assert result == install_state

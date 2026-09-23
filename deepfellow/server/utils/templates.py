@@ -62,9 +62,6 @@ def dispatch_post_start_action(action: PostStartAction) -> None:
     _dispatch_post_start_action(action, registry=POST_START_ACTION_REGISTRY)
 
 
-SERVER_EMBEDDING_MODEL = "mxbai-embed-large"
-SERVER_EMBEDDING_SIZE = "1024"
-
 # Keep in sync with the config keys `server install --template` consumes, and the scalar type each
 # key's install() parameter expects — this is a hand-maintained safety net against YAML typos and
 # quoting mismatches (e.g. port: "9000"), not derived from a signature. infra_api_key is included
@@ -92,8 +89,8 @@ BUILTIN_TEMPLATES: dict[str, InstallTemplate] = {
             "vectordb_type": VectorDBTypeChoice.milvus,
             "vectordb_url": MILVUS_DATABASE["provider"]["url"],
             "vectordb_database_name": MILVUS_DATABASE["provider"]["db"],
-            "embedding_model": SERVER_EMBEDDING_MODEL,
-            "embedding_size": SERVER_EMBEDDING_SIZE,
+            "embedding_model": "mxbai-embed-large",
+            "embedding_size": "1024",
             # infra_api_key deliberately absent: generated at infra install time, not knowable by a static template.
         },
         "post_start_actions": [
