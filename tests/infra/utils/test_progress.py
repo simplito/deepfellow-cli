@@ -16,7 +16,7 @@ from unittest.mock import Mock
 import httpx
 import pytest
 
-from deepfellow.infra.utils.progress import _Heartbeat, install_with_progress
+from deepfellow.infra.utils.progress import _Heartbeat, _StageOnlyColumn, install_with_progress
 
 
 def _sse_lines(*events: dict[str, Any]) -> list[str]:
@@ -461,14 +461,16 @@ def test_install_with_progress_adds_indeterminate_task_for_zero_value_stage(
     )
     mock_stream.return_value.__enter__.return_value = response
     progress_instance = mock_progress.return_value.__enter__.return_value
+    progress_instance.add_task.side_effect = ["main-task", "stage-task"]
 
     install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
 
-    assert progress_instance.add_task.call_count == 1
-    assert progress_instance.add_task.call_args == mock.call("Install…", total=None)
-    assert progress_instance.update.call_args_list == [
-        mock.call(progress_instance.add_task.return_value, completed=0.0, total=None)
+    assert progress_instance.add_task.call_count == 2
+    assert progress_instance.add_task.call_args_list == [
+        mock.call("Installing...", total=None, header=True),
+        mock.call("Install…", total=None),
     ]
+    assert progress_instance.update.call_args_list == [mock.call("stage-task", completed=0.0, total=None)]
 
 
 @mock.patch("deepfellow.infra.utils.progress.Progress")
@@ -488,14 +490,14 @@ def test_install_with_progress_promotes_task_to_determinate_on_first_real_value(
     )
     mock_stream.return_value.__enter__.return_value = response
     progress_instance = mock_progress.return_value.__enter__.return_value
-    task_id = progress_instance.add_task.return_value
+    progress_instance.add_task.side_effect = ["main-task", "stage-task"]
 
     install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
 
-    assert progress_instance.add_task.call_count == 1
+    assert progress_instance.add_task.call_count == 2
     assert progress_instance.update.call_args_list == [
-        mock.call(task_id, completed=0.0, total=None),
-        mock.call(task_id, completed=0.5, total=1.0),
+        mock.call("stage-task", completed=0.0, total=None),
+        mock.call("stage-task", completed=0.5, total=1.0),
     ]
 
 
@@ -515,13 +517,14 @@ def test_install_with_progress_snaps_indeterminate_task_to_full_on_success(
     )
     mock_stream.return_value.__enter__.return_value = response
     progress_instance = mock_progress.return_value.__enter__.return_value
-    task_id = progress_instance.add_task.return_value
+    progress_instance.add_task.side_effect = ["main-task", "stage-task"]
 
     install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
 
     assert progress_instance.update.call_args_list == [
-        mock.call(task_id, completed=0.0, total=None),
-        mock.call(task_id, total=1.0, completed=1.0),
+        mock.call("stage-task", completed=0.0, total=None),
+        mock.call("main-task", total=1.0, completed=1.0),
+        mock.call("stage-task", total=1.0, completed=1.0),
     ]
 
 
@@ -670,3 +673,95 @@ def test_heartbeat_stop_skips_join_when_thread_was_never_started(
 
     assert mock_event.return_value.set.call_count == 1
     assert mock_thread.return_value.join.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.progress._consume_sse")
+@mock.patch("deepfellow.infra.utils.progress.echo.spinner")
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_closes_spinner_before_consuming_sse(
+    mock_stream: Mock,
+    mock_spinner: Mock,
+    mock_consume_sse: Mock,
+) -> None:
+    events: list[str] = []
+    mock_stream.return_value.__enter__.return_value = _stream_response()
+    mock_spinner.return_value.__exit__.side_effect = lambda *_: events.append("spinner_exit")
+
+    def consume_sse(_: Mock, __: str) -> dict[str, str]:
+        events.append("consume_sse")
+        return {"type": "finish", "status": "ok"}
+
+    mock_consume_sse.side_effect = consume_sse
+
+    result = install_with_progress(
+        "http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}}, message="Installing model x..."
+    )
+
+    assert result == {"type": "finish", "status": "ok"}
+    assert mock_spinner.call_args == mock.call("Installing model x...")
+    assert events == ["spinner_exit", "consume_sse"]
+
+
+@mock.patch("deepfellow.infra.utils.progress.echo.spinner")
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_shows_spinner_during_plain_json_fallback(
+    mock_stream: Mock,
+    mock_spinner: Mock,
+) -> None:
+    events: list[str] = []
+    response = _stream_response(content_type="application/json", json_body={"status": "OK"})
+    response.read.side_effect = lambda: events.append("read")
+    mock_stream.return_value.__enter__.return_value = response
+    mock_spinner.return_value.__enter__.side_effect = lambda: events.append("spinner_enter")
+    mock_spinner.return_value.__exit__.side_effect = lambda *_: events.append("spinner_exit")
+
+    result = install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert result == {"status": "OK"}
+    assert mock_spinner.call_args == mock.call("Installing...")
+    assert events == ["spinner_enter", "read", "spinner_exit"]
+
+
+@mock.patch("deepfellow.infra.utils.progress.Progress")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=True)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_shows_message_row_for_whole_sse_stream(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_progress: Mock,
+) -> None:
+    progress = mock_progress.return_value.__enter__.return_value
+    progress.add_task.return_value = "main-task"
+    mock_stream.return_value.__enter__.return_value = _stream_response(
+        lines=_sse_lines({"type": "finish", "status": "ok"})
+    )
+
+    install_with_progress(
+        "http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}}, message="Installing service ollama..."
+    )
+
+    assert progress.add_task.call_count == 1
+    assert progress.add_task.call_args == mock.call("Installing service ollama...", total=None, header=True)
+    assert progress.update.call_args_list == [mock.call("main-task", total=1.0, completed=1.0)]
+
+
+def test_stage_only_column_renders_nothing_for_header_row() -> None:
+    wrapped = Mock(name="column")
+    task = Mock(fields={"header": True})
+    column = _StageOnlyColumn(wrapped)
+
+    result = column.render(task)
+
+    assert str(result) == ""
+    assert wrapped.render.call_count == 0
+
+
+def test_stage_only_column_delegates_render_for_stage_row() -> None:
+    wrapped = Mock(name="column")
+    task = Mock(fields={})
+    column = _StageOnlyColumn(wrapped)
+
+    result = column.render(task)
+
+    assert result is wrapped.render.return_value
+    assert wrapped.render.call_args == mock.call(task)

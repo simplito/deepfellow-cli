@@ -693,3 +693,26 @@ def test_prompt_until_valid_reraises_when_not_interactive_on_retry_check(mock_in
             original_default=None,
             default="default_val",
         )
+
+
+@patch.object(Echo, "status")
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_spinner_interactive_shows_status(mock_interactive, mock_status, prompter):
+    """In interactive mode the spinner wraps the block in a rich status."""
+    with prompter.spinner("Installing..."):
+        pass
+
+    assert mock_status.call_count == 1
+    assert mock_status.call_args == mock.call("Installing...")
+    assert mock_status.return_value.__enter__.call_count == 1
+    assert mock_status.return_value.__exit__.call_count == 1
+
+
+@patch.object(Echo, "status")
+@patch(_IS_INTERACTIVE, return_value=False)
+def test_spinner_non_interactive_is_noop(mock_interactive, mock_status, prompter):
+    """In non-interactive mode the spinner does not render anything."""
+    with prompter.spinner("Installing..."):
+        pass
+
+    assert mock_status.call_count == 0

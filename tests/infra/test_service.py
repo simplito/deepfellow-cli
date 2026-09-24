@@ -129,7 +129,7 @@ def test_install_with_valid_spec(
     assert mock_get.call_count == 0
     assert mock_install_with_progress.call_count == 1
     assert mock_install_with_progress.call_args == mock.call(
-        mock.ANY, mock.ANY, data={"spec": {"url": "http://host:11434"}}
+        mock.ANY, mock.ANY, data={"spec": {"url": "http://host:11434"}}, message=f"Installing service {name}..."
     )
     assert mock_env_set.call_count == 2
     assert mock_env_set.call_args_list[0].kwargs["quiet"] is False
@@ -305,7 +305,10 @@ def test_apply_spec_performs_no_prompting(
 
     assert mock_install_with_progress.call_count == 1
     assert mock_install_with_progress.call_args == mock.call(
-        "http://infra:8086/admin/services/name", "test-key", data={"spec": {"url": "http://host:11434"}}
+        "http://infra:8086/admin/services/name",
+        "test-key",
+        data={"spec": {"url": "http://host:11434"}},
+        message="Installing service name...",
     )
     assert mock_echo.prompt.call_count == 0
     assert mock_echo.choice.call_count == 0

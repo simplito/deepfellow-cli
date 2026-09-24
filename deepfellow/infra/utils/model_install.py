@@ -67,7 +67,9 @@ def apply_install(
     try:
         data = cancel_on_interrupt(
             lambda: call_infra(
-                lambda: install_with_progress(url, api_key, data={"spec": {}}),
+                lambda: install_with_progress(
+                    url, api_key, data={"spec": {}}, message=f"Installing model {model_name}..."
+                ),
                 "Unable to install model.",
                 server=server,
                 api_key=api_key,
