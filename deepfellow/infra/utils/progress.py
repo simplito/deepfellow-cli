@@ -19,17 +19,22 @@ CLI looks hung for minutes.
 import json
 import threading
 from collections.abc import Iterator
+from contextlib import ExitStack
 from typing import Any
 
 import httpx
+from rich.console import RenderableType
 from rich.progress import (
     BarColumn,
     Progress,
+    ProgressColumn,
     SpinnerColumn,
+    Task,
     TaskProgressColumn,
     TextColumn,
     TimeElapsedColumn,
 )
+from rich.text import Text
 
 from deepfellow.common.echo import echo, is_interactive
 
@@ -43,6 +48,8 @@ _NON_INTERACTIVE_STEP = 0.1
 _HEARTBEAT_INTERVAL = 15.0
 # How often the worker wakes to measure the silence; also its stop latency.
 _HEARTBEAT_POLL = 1.0
+# Task field marking the install-message row, which shows no bar or percentage of its own.
+_HEADER_FIELD = "header"
 
 
 def install_with_progress(
@@ -50,6 +57,7 @@ def install_with_progress(
     token: str,
     data: dict[str, Any],
     timeout: float = 60 * 60 * 24,
+    message: str = "Installing...",
 ) -> dict[str, Any]:
     """POST with stream=true and render progress; fall back to plain JSON if unsupported.
 
@@ -58,6 +66,7 @@ def install_with_progress(
         token: Bearer token (Infra admin API key).
         data: Request body; ``{"stream": true}`` is injected automatically.
         timeout: Read timeout for the long-running download.
+        message: Install message shown with a spinner for the whole install.
 
     Returns:
         The terminal payload as a dict. For an SSE response this is the
@@ -72,27 +81,30 @@ def install_with_progress(
     headers = {"Authorization": f"Bearer {token}", "Accept": "text/event-stream"}
     echo.debug(f"POST (stream) {url} data={body}")
 
-    with httpx.stream("POST", url, headers=headers, json=body, timeout=timeout) as response:
-        # Any error status must be read here, inside the stream context - `call_infra` reads
-        # `exc.response.json()`/`.text` from the raised error to build its message, and once this
-        # `with` block exits the unread body is gone, raising `httpx.ResponseNotRead` instead.
-        if response.is_error:
-            response.read()
-        response.raise_for_status()
+    with ExitStack() as stack:
+        # Spinner must close before _consume_sse starts Progress — rich allows one live display at a time.
+        with echo.spinner(message):
+            response = stack.enter_context(httpx.stream("POST", url, headers=headers, json=body, timeout=timeout))
+            # Any error status must be read here, inside the stream context - `call_infra` reads
+            # `exc.response.json()`/`.text` from the raised error to build its message, and once this
+            # `with` block exits the unread body is gone, raising `httpx.ResponseNotRead` instead.
+            if response.is_error:
+                response.read()
+            response.raise_for_status()
 
-        content_type = response.headers.get("content-type", "")
-        if "text/event-stream" not in content_type:
-            # Graceful degradation: server returned a single plain JSON response.
-            response.read()
-            return response.json()
+            content_type = response.headers.get("content-type", "")
+            if "text/event-stream" not in content_type:
+                # Graceful degradation: server returned a single plain JSON response.
+                response.read()
+                return response.json()
 
-        return _consume_sse(response)
+        return _consume_sse(response, message)
 
 
-def _consume_sse(response: httpx.Response) -> dict[str, Any]:
+def _consume_sse(response: httpx.Response, message: str) -> dict[str, Any]:
     """Read SSE chunks to the terminal 'finish' event, rendering progress."""
     if is_interactive():
-        return _consume_interactive(response)
+        return _consume_interactive(response, message)
     return _consume_non_interactive(response)
 
 
@@ -111,17 +123,40 @@ def _iter_events(response: httpx.Response) -> Iterator[dict[str, Any]]:
             echo.debug(f"Skipping non-JSON stream line: {line!r}")
 
 
-def _consume_interactive(response: httpx.Response) -> dict[str, Any]:
+class _StageOnlyColumn(ProgressColumn):
+    """Render the wrapped column for stage rows only, leaving the install-message row blank."""
+
+    def __init__(self, column: ProgressColumn) -> None:
+        """Wrap a column so it is skipped on the header row.
+
+        Args:
+            column: Column rendered for every row except the header.
+        """
+        super().__init__()
+        self._column = column
+
+    def render(self, task: Task) -> RenderableType:
+        """Render the wrapped column, or nothing for the header row."""
+        if task.fields.get(_HEADER_FIELD):
+            return Text()
+        return self._column.render(task)
+
+
+def _consume_interactive(response: httpx.Response, message: str) -> dict[str, Any]:
     """Render progress bars; a stage with no intermediate values pulses with a spinner."""
     finish: dict[str, Any] = {"type": "finish", "status": "error"}
     columns = [
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
+        _StageOnlyColumn(BarColumn()),
+        _StageOnlyColumn(TaskProgressColumn()),
         TimeElapsedColumn(),
     ]
     with Progress(*columns, console=echo) as progress:
+        # Headers arrive as soon as the server starts streaming, often long before the first progress
+        # event, so keep a spinner row with the install message visible for the whole stream. It carries no bar:
+        # the stage rows below it show the actual progress.
+        main_task = progress.add_task(message, total=None, **{_HEADER_FIELD: True})
         tasks: dict[str, Any] = {}  # stage -> task_id
         for event in _iter_events(response):
             etype = event.get("type")
@@ -140,6 +175,7 @@ def _consume_interactive(response: httpx.Response) -> dict[str, Any]:
                 # Snap all bars to 100% on success — including any still-indeterminate one,
                 # which needs its total set before it can show completion.
                 if event.get("status") == "ok":
+                    progress.update(main_task, total=1.0, completed=1.0)
                     for task_id in tasks.values():
                         progress.update(task_id, total=1.0, completed=1.0)
                 break

@@ -9,7 +9,8 @@
 
 """Echo the output."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from typing import Any
 
 import questionary
@@ -118,6 +119,15 @@ class Echo(Console):
         """Print an error message to the console."""
         final_msg = f"💀\t[bold red]{add_tabs(message)}[/]" if is_interactive() else message
         self.print(final_msg)
+
+    @contextmanager
+    def spinner(self, message: str) -> Generator[None, None, None]:
+        """Show animated spinner while operation runs. No-op in non-interactive mode."""
+        if is_interactive():
+            with self.status(message):
+                yield
+        else:
+            yield
 
     def confirm(self, message: str, from_args: bool | None = None, **kwargs: Any) -> bool:
         """Prompt the user for confirmation.

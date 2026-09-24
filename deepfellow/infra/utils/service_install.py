@@ -120,7 +120,9 @@ def apply_spec(name: str, install_spec: ServiceInstallSpec, quiet: bool = False)
     try:
         data = cancel_on_interrupt(
             lambda: call_infra(
-                lambda: install_with_progress(url, api_key, data={"spec": install_spec.spec}),
+                lambda: install_with_progress(
+                    url, api_key, data={"spec": install_spec.spec}, message=f"Installing service {name}..."
+                ),
                 "Unable to install service",
                 server=server,
                 api_key=api_key,

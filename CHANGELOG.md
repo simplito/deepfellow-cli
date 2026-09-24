@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- `deepfellow infra service install` and `deepfellow infra model install` now show a spinner with an "Installing service/model ..." line from the moment the install starts - while waiting for the Infra Server to respond, and before its first progress event - so the CLI no longer looks frozen until the first progress bar appears.
 - `deepfellow server project create`/`update` now accept `--webhook-url`/`--webhook-secret` to set a Project's webhook URL and signing secret, and `webhook_secret` is now included (masked as `*****`) when a Project is displayed - previously there was no way to view or set a Project's webhook secret through the CLI.
 - `deepfellow infra model list <service_name>` - lists the models available on an infra service (id, type, size, description, and installed status), so a model name no longer has to be guessed or looked up via the API/WebUI before running `infra model install`. `--installed`/`--no-installed` filters the list to only installed or only not-installed models.
 - `deepfellow suite install` now accepts `--template <name>` (default `workspace`), forwarded to both infra's and server's own template resolution - previously it always used the built-in `workspace` template with no way to select another. Only a built-in name shared by both infra's and server's own templates is accepted, not a path to a custom template file.
