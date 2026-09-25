@@ -128,10 +128,10 @@ def validate_server(value: str | None) -> str | None:
 def validate_df_name(value: str | None) -> str | None:
     """Validate the value for DF_NAME env. It must be non-empty string."""
     if not value:
-        raise typer.BadParameter("Invalid DF_NAME - cannot be empty")
+        raise typer.BadParameter("Invalid Name - cannot be empty")
 
     if not isinstance(value, str):
-        raise typer.BadParameter("Invalid DF_NAME - must be str")
+        raise typer.BadParameter("Invalid Name - must be str")
 
     return value
 

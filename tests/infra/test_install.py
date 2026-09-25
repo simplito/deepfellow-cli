@@ -781,9 +781,9 @@ def test_install_flag_print_keys_true_prints_keys(
     install(**default_install_kwargs)
 
     echo_info_messages = [call.args[0] for call in mock_echo.info.call_args_list]
-    assert any("DF_INFRA_ADMIN_API_KEY" in msg for msg in echo_info_messages)
-    assert any("DF_INFRA_API_KEY" in msg for msg in echo_info_messages)
-    assert any("DF_MESH_KEY" in msg for msg in echo_info_messages)
+    assert "Admin API Key: test-uuid-key" in echo_info_messages
+    assert "Infra API Key: test-uuid-key" in echo_info_messages
+    assert "Mesh Key: test-uuid-key" in echo_info_messages
 
 
 @mock.patch("deepfellow.infra.utils.install.run")
@@ -821,9 +821,9 @@ def test_install_flag_print_keys_false_does_not_print_keys(
     install(**default_install_kwargs)
 
     echo_info_messages = [call.args[0] for call in mock_echo.info.call_args_list]
-    assert not any("DF_INFRA_ADMIN_API_KEY:" in msg for msg in echo_info_messages)
-    assert not any("DF_INFRA_API_KEY:" in msg for msg in echo_info_messages)
-    assert not any("DF_MESH_KEY:" in msg for msg in echo_info_messages)
+    assert not any("Admin API Key:" in msg for msg in echo_info_messages)
+    assert not any("Infra API Key:" in msg for msg in echo_info_messages)
+    assert not any("Mesh Key:" in msg for msg in echo_info_messages)
 
 
 @mock.patch("deepfellow.infra.utils.install.run")
@@ -2078,10 +2078,10 @@ def test_install_util_translates_bad_parameter_to_install_error(
 ) -> None:
     """A caller outside Click (e.g. a future in-process suite install) sees a message-carrying
     InstallError instead of an unhandled, message-less typer.BadParameter."""
-    mock_echo.prompt.side_effect = typer.BadParameter("Invalid DF_NAME - cannot be empty")
+    mock_echo.prompt.side_effect = typer.BadParameter("Invalid Name - cannot be empty")
     mock_read.return_value = {}
 
-    with pytest.raises(InstallError, match="Invalid DF_NAME - cannot be empty"):
+    with pytest.raises(InstallError, match="Invalid Name - cannot be empty"):
         install(**default_install_kwargs)
 
 
