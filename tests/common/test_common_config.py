@@ -492,8 +492,9 @@ def test_read_env_file_comments_and_empty_lines(
         ("=value"),  # Missing key
     ],
 )
+@mock.patch("deepfellow.common.config.echo")
 @mock.patch("deepfellow.common.config.Path")
-def test_read_env_file_malformed_lines_skipped(mock_path_class: mock.Mock, content: str) -> None:
+def test_read_env_file_malformed_lines_skipped(mock_path_class: mock.Mock, mock_echo: mock.Mock, content: str) -> None:
     mock_path = mock.Mock(spec=Path)
     mock_path.exists.return_value = True
     mock_path.read_text.return_value = content
@@ -502,6 +503,7 @@ def test_read_env_file_malformed_lines_skipped(mock_path_class: mock.Mock, conte
     result = read_env_file("/fake/path/.env")
 
     assert result == {}
+    assert mock_echo.warning.call_count == 1
 
 
 @mock.patch("deepfellow.common.config.Path")
@@ -549,8 +551,9 @@ def test_read_env_file_file_not_found(mock_path_class: mock.Mock) -> None:
     assert mock_path.read_text.call_count == 0
 
 
+@mock.patch("deepfellow.common.config.echo")
 @mock.patch("deepfellow.common.config.Path")
-def test_read_env_file_complex_real_world_example(mock_path_class: mock.Mock) -> None:
+def test_read_env_file_complex_real_world_example(mock_path_class: mock.Mock, mock_echo: mock.Mock) -> None:
     content = """
 # Database configuration
 DB_HOST=localhost
@@ -601,6 +604,7 @@ TIMEOUT="30"
         "TIMEOUT": "30",
     }
     assert result == expected
+    assert mock_echo.warning.call_count == 3
 
 
 @mock.patch("deepfellow.common.config.Path")
@@ -640,6 +644,51 @@ KEY5='mixed "quotes" inside'
         "KEY5": 'mixed "quotes" inside',
     }
     assert result == expected
+
+
+@mock.patch("deepfellow.common.config.Path")
+def test_read_env_file_unquoted_value_with_embedded_quotes_not_unescaped(mock_path_class: mock.Mock) -> None:
+    # Regression for DFCLI-107: an unquoted value containing a literal `"` (e.g. embedded JSON)
+    # must not be treated as a quoted value and run through the escape-sequence decoder.
+    content = r'DF_PLUGINS_SETUP={"regex": "x\\d+", "prompt": "a\nb"}'
+    mock_path = mock.Mock(spec=Path)
+    mock_path.exists.return_value = True
+    mock_path.read_text.return_value = content
+    mock_path_class.return_value = mock_path
+
+    result = read_env_file("/fake/path/.env")
+
+    assert result == {"DF_PLUGINS_SETUP": r'{"regex": "x\\d+", "prompt": "a\nb"}'}
+
+
+def test_save_env_file_then_read_env_file_json_value_with_backslash_and_newline_round_trips(
+    tmp_path: Path,
+) -> None:
+    # Regression for DFCLI-107: values written by save_env_file must be read back byte-for-byte,
+    # including a JSON blob containing backslashes and a real newline.
+    env_file = tmp_path / ".env"
+    value = '{"regex": "x\\\\d+", "prompt": "a\nb"}'
+
+    save_env_file(env_file, {"DF_PLUGINS_SETUP": value}, docker_note=False)
+    result = read_env_file(env_file)
+
+    assert result == {"DF_PLUGINS_SETUP": value}
+
+
+def test_save_env_file_quotes_value_containing_double_quote(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+
+    save_env_file(env_file, {"KEY": 'say "hi"'}, docker_note=False)
+
+    assert env_file.read_text() == 'KEY="say \\"hi\\""\n'
+
+
+def test_save_env_file_leaves_plain_value_unquoted(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+
+    save_env_file(env_file, {"KEY": "plain-value"}, docker_note=False)
+
+    assert env_file.read_text() == "KEY=plain-value\n"
 
 
 @pytest.mark.parametrize(
