@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased]
+## [0.34.1] - 2026-09-25
 
 ### Added
 - `deepfellow infra service install` and `deepfellow infra model install` now show a spinner with an "Installing service/model ..." line from the moment the install starts - while waiting for the Infra Server to respond, and before its first progress event - so the CLI no longer looks frozen until the first progress bar appears.
