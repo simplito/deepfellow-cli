@@ -20,6 +20,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `deepfellow suite install` now actually runs the resolved server template's `post_start_actions` (via `server install --template`'s own dispatch mechanism) instead of always hardcoding a single admin-creation call - previously a `--template` with a server-side post-start action other than `server.create_admin` would have it silently skipped.
 - Every command group (`infra`, `server`, `cli`, and their subgroups such as `infra service`, `infra env`, `server organization`, etc.) invoked without a subcommand now prints its `--help` listing instead of a "Missing command." error - e.g. `deepfellow infra` now shows the available `infra` commands directly.
 
+### Changed
+- `deepfellow infra install` prompts now use human-readable names ("Name", "URL", "Admin API Key", "Infra API Key", "Mesh Key") instead of raw environment variable names like `DF_NAME` or `DF_MESH_KEY`. The `.env` keys themselves are unchanged.
+
 ## [0.34.0] - 2026-09-16
 ### Fixed
 - `deepfellow suite install` (and `server install --template`) no longer crashes with an unhandled `TypeError` during the workspace-creation step against a server that returns a `webhook_url` field on project objects - the CLI's `Project` model now accounts for it.

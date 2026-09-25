@@ -359,7 +359,7 @@ def resolve(
     )
 
     df_name = echo.prompt(
-        "Provide a DF_NAME for this Infra",
+        "Provide a Name for this Infra",
         validation=validate_df_name,
         from_args=infra_name,
         original_default=DF_INFRA_NAME,
@@ -368,9 +368,9 @@ def resolve(
     )
 
     df_infra_url = echo.prompt_until_valid(
-        "Provide a DF_INFRA_URL for this Infra",
+        "Provide a URL for this Infra",
         validate_url,
-        error_message="Invalid DF_INFRA_URL. Please try again.",
+        error_message="Invalid URL. Please try again.",
         from_args=infra_url,
         original_default=DF_INFRA_URL,
         default=original_env_content.get("df_infra_url", infra_url),
@@ -389,27 +389,27 @@ def resolve(
     flag_print_keys = echo.confirm("Is it safe to print API keys here?", from_args=allow_print_keys)
 
     # Collect DF_INFRA_ADMIN_API_KEY
-    echo.info("Configuration of DF_INFRA_ADMIN_API_KEY\nkey required for an admin identify in DeepFellow Infra.")
-    admin_api_key = configure_uuid_key("DF_INFRA_ADMIN_API_KEY", original_env_content.get("df_infra_admin_api_key"))
+    echo.info("Configuration of Admin API Key\nkey required for an admin to identify in DeepFellow Infra.")
+    admin_api_key = configure_uuid_key("Admin API Key", original_env_content.get("df_infra_admin_api_key"))
     if flag_print_keys:
-        echo.info(f"DF_INFRA_ADMIN_API_KEY: {admin_api_key}")
+        echo.info(f"Admin API Key: {admin_api_key}")
 
     # Collect DF_INFRA_API_KEY
     echo.info(
-        "Configuration of DF_INFRA_API_KEY\nkey needed to communication between DeepFellow Infra and DeepFellow Server."
+        "Configuration of Infra API Key\nkey needed for communication between DeepFellow Infra and DeepFellow Server."
     )
-    api_key = configure_uuid_key("DF_INFRA_API_KEY", original_env_content.get("df_infra_api_key"))
+    api_key = configure_uuid_key("Infra API Key", original_env_content.get("df_infra_api_key"))
     if flag_print_keys:
-        echo.info(f"DF_INFRA_API_KEY: {api_key}")
+        echo.info(f"Infra API Key: {api_key}")
 
     # Collect DF_MESH_KEY
     echo.info(
-        "Configuration of DF_MESH_KEY\n"
+        "Configuration of Mesh Key\n"
         "key needed by other DeepFellow Infra to attach to this DeepFellow Infra and thus extend the Mesh."
     )
-    mesh_key = configure_uuid_key("DF_MESH_KEY", original_env_content.get("df_mesh_key"))
+    mesh_key = configure_uuid_key("Mesh Key", original_env_content.get("df_mesh_key"))
     if flag_print_keys:
-        echo.info(f"DF_MESH_KEY: {mesh_key}")
+        echo.info(f"Mesh Key: {mesh_key}")
 
     # Find out the compose prefix
     original_compose_prefix = original_env_content.get("df_infra_compose_prefix")
