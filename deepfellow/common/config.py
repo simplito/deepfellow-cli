@@ -99,6 +99,30 @@ def env_to_dict(env_vars: dict[str, str], prefix: str = "") -> EnvDict:
     return result
 
 
+_ENV_VALUE_ESCAPES: dict[str, str] = {"\\": "\\\\", '"': '\\"', "\n": "\\n", "\t": "\\t"}
+_ENV_VALUE_UNESCAPES: dict[str, str] = {"\\": "\\", '"': '"', "n": "\n", "t": "\t"}
+
+
+def _needs_env_value_quoting(value: str) -> bool:
+    """Whether `value` contains a character that requires double-quoting to round-trip."""
+    return any(ch in _ENV_VALUE_ESCAPES for ch in value)
+
+
+def _escape_env_value(value: str) -> str:
+    """Escape `value` for storage inside a double-quoted .env entry, one character at a time.
+
+    A single left-to-right pass (as opposed to `str.replace()` chained per escape sequence) is
+    required so that a literal backslash already in the value can never combine with an
+    adjacent, unrelated character to form a bogus escape sequence on decode.
+    """
+    return "".join(_ENV_VALUE_ESCAPES.get(char, char) for char in value)
+
+
+def _unescape_env_value(value: str) -> str:
+    """Reverse `_escape_env_value` in a single left-to-right pass (see its docstring for why)."""
+    return re.sub(r"\\(.)", lambda m: _ENV_VALUE_UNESCAPES.get(m.group(1), m.group(0)), value)
+
+
 def read_env_file(file_path: str | Path) -> dict[str, str]:
     """Read environment variables from a .env file.
 
@@ -125,17 +149,22 @@ def read_env_file(file_path: str | Path) -> dict[str, str]:
         # Match KEY=VALUE pattern (with optional quotes)
         match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$", line)
         if not match:
-            continue  # Skip malformed lines
+            echo.warning(f"Skipping malformed line in {file_path.as_posix()}: {line!r}")
+            continue
 
         key, value = match.groups()
 
-        # Remove surrounding quotes if present
-        if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+        # A value only counts as quoted when the quotes actually wrap it, not merely appear in it -
+        # otherwise an unquoted value that happens to contain a lone `"` (e.g. embedded JSON) is
+        # mistaken for a quoted one and corrupted by the unescape step below.
+        is_double_quoted = len(value) >= 2 and value.startswith('"') and value.endswith('"')
+        is_single_quoted = len(value) >= 2 and value.startswith("'") and value.endswith("'")
+
+        if is_double_quoted or is_single_quoted:
             value = value[1:-1]
 
-        # Handle escape sequences in double quotes
-        if '"' in line and not value.startswith("'"):
-            value = value.replace("\\n", "\n").replace("\\t", "\t").replace('\\"', '"').replace("\\\\", "\\")
+        if is_double_quoted:
+            value = _unescape_env_value(value)
 
         env_vars[key] = value
 
@@ -248,7 +277,11 @@ def save_env_file(
 
     content = "# Docker Compose Environment Variables\n# Edit these values as needed\n\n" if docker_note else ""
     for key, value in final_vars.items():
-        content += f"{key}={value}\n"
+        str_value = str(value)
+        if _needs_env_value_quoting(str_value):
+            content += f'{key}="{_escape_env_value(str_value)}"\n'
+        else:
+            content += f"{key}={str_value}\n"
 
     env_file.write_text(content)
 
