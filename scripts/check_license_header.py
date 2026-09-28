@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
 
-# DeepFellow Software Framework.
-# Copyright © 2026 Simplito sp. z o.o.
-#
-# This file is part of the DeepFellow Software Framework (https://deepfellow.ai).
-# This software is Licensed under the DeepFellow Free License.
-#
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-License-Identifier: LicenseRef-DeepFellow-Free
+# SPDX-FileCopyrightText: 2026 Simplito sp. z o.o.
 
 """License header validation script for Python files."""
+
+# ruff: noqa: T201
 
 import re
 from datetime import datetime, timezone
@@ -18,29 +14,34 @@ from typing import Annotated
 
 import typer
 
-# ruff: noqa: T201
+LICENSE_LINE = "# SPDX-License-Identifier: LicenseRef-DeepFellow-Free"
+COPYRIGHT_LINE_TEMPLATE = "# SPDX-FileCopyrightText: {year} Simplito sp. z o.o."
 
-LICENSE_HEADER_TEMPLATE = """\
-# DeepFellow Software Framework.
-# Copyright © {year} Simplito sp. z o.o.
-#
-# This file is part of the DeepFellow Software Framework (https://deepfellow.ai).
-# This software is Licensed under the DeepFellow Free License.
-#
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
+LICENSE_HEADER_TEMPLATE = f"{LICENSE_LINE}\n{COPYRIGHT_LINE_TEMPLATE}\n"
 
-# Pattern to match the license header with any year
+LICENSE_LINE_PATTERN = re.compile(rf"^{re.escape(LICENSE_LINE)}[ \t]*$", re.MULTILINE)
+COPYRIGHT_LINE_PATTERN = re.compile(r"^# SPDX-FileCopyrightText: (\d{4}) Simplito sp\. z o\.o\.[ \t]*$", re.MULTILINE)
+
 LICENSE_HEADER_PATTERN = re.compile(
+    rf"^{re.escape(LICENSE_LINE)}[ \t]*\n"
+    r"^# SPDX-FileCopyrightText: (\d{4}) Simplito sp\. z o\.o\.\s*$",
+    re.MULTILINE,
+)
+
+OLD_LICENSE_HEADER_MARKER_PATTERN = re.compile(r"^# DeepFellow Software Framework\.\s*$", re.MULTILINE)
+
+# Old prose DFFL header, stripped by --fix.
+OLD_LICENSE_HEADER_PATTERN = re.compile(
+    r"\A(?:"
     r"# DeepFellow Software Framework\.\s*\n"
-    r"# Copyright © (\d{4}) Simplito sp\. z o\.o\.\s*\n"
+    r"# Copyright © \d{4} Simplito sp\. z o\.o\.\s*\n"
     r"#\s*\n"
     r"# This file is part of the DeepFellow Software Framework \(https://deepfellow\.ai\)\.\s*\n"
     r"# This software is Licensed under the DeepFellow Free License\.\s*\n"
     r"#\s*\n"
     r"# See the License for the specific language governing permissions and\s*\n"
-    r"# limitations under the License\."
+    r"# limitations under the License\.\s*\n*"
+    r")+"
 )
 
 DEFAULT_EXCLUDES = frozenset({".git", ".uv-cache"})
@@ -58,10 +59,6 @@ def get_license_header(year: int | None = None) -> str:
     if year is None:
         year = get_current_year()
     return LICENSE_HEADER_TEMPLATE.format(year=year)
-
-
-# Keep LICENSE_HEADER for backward compatibility
-LICENSE_HEADER = get_license_header()
 
 
 def parse_gitignore(path: Path) -> frozenset[str]:
@@ -85,13 +82,8 @@ def parse_gitignore(path: Path) -> frozenset[str]:
     return frozenset(patterns)
 
 
-def normalize_header(text: str) -> str:
-    """Normalize header text by stripping trailing whitespace."""
-    return "\n".join(line.rstrip() for line in text.strip().split("\n"))
-
-
-def extract_content_after_preamble(content: str) -> str:
-    """Extract file content after optional shebang/encoding lines."""
+def split_preamble(content: str) -> tuple[str, str]:
+    """Split off any leading shebang/encoding lines, returning (preamble, remainder)."""
     lines = content.split("\n")
     start_idx = 0
 
@@ -104,73 +96,64 @@ def extract_content_after_preamble(content: str) -> str:
         else:
             break
 
-    return "\n".join(lines[start_idx:])
+    return "\n".join(lines[:start_idx]), "\n".join(lines[start_idx:])
+
+
+def join_preamble(preamble: str, remainder: str) -> str:
+    """Reassemble content from a (preamble, remainder) pair produced by split_preamble."""
+    if not preamble:
+        return remainder
+    return f"{preamble}\n{remainder}" if remainder else preamble
+
+
+def find_license_line(content: str) -> re.Match[str] | None:
+    """Find the SPDX-License-Identifier line in the file content, if present."""
+    return LICENSE_LINE_PATTERN.search(content)
+
+
+def find_copyright_line(content: str) -> re.Match[str] | None:
+    """Find the SPDX-FileCopyrightText line in the file content, if present."""
+    return COPYRIGHT_LINE_PATTERN.search(content)
 
 
 def extract_header_year(content: str) -> int | None:
-    """Extract the year from the license header if present."""
-    remaining = extract_content_after_preamble(content)
-    match = LICENSE_HEADER_PATTERN.search(remaining)
-    if match:
-        return int(match.group(1))
-    return None
+    """Extract the year from the license header if present, requiring the two lines adjacent."""
+    match = LICENSE_HEADER_PATTERN.search(content)
+    return int(match.group(1)) if match else None
 
 
-def check_file_header(filepath: Path) -> tuple[bool, int | None]:
-    """Check if a file contains the required license header.
+def has_stale_old_header(content: str) -> bool:
+    """Check whether an old-header comment line remains anywhere in the file."""
+    return OLD_LICENSE_HEADER_MARKER_PATTERN.search(content) is not None
 
-    Returns:
-        Tuple of (has_valid_header, year_in_header).
-        - has_valid_header: True if header exists with current year
-        - year_in_header: The year found in header, or None if no header
-    """
+
+def has_duplicate_header(content: str) -> bool:
+    """Check whether the license or copyright line appears more than once in the file."""
+    return len(LICENSE_LINE_PATTERN.findall(content)) > 1 or len(COPYRIGHT_LINE_PATTERN.findall(content)) > 1
+
+
+def strip_old_header(content: str) -> str:
+    """Remove a leading old-style prose DFFL header (and any accidental repeats of it)."""
+    preamble, remainder = split_preamble(content)
+    remainder = OLD_LICENSE_HEADER_PATTERN.sub("", remainder, count=1)
+    return join_preamble(preamble, remainder)
+
+
+def write_text(filepath: Path, content: str) -> bool:
+    """Write content to filepath, returning False (instead of raising) on an OS-level failure."""
     try:
-        content = filepath.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return False, None
-
-    if not content.strip():
-        return True, None
-
-    year = extract_header_year(content)
-    if year is None:
-        return False, None
-
-    current_year = get_current_year()
-    return year == current_year, year
-
-
-def fix_file_header(filepath: Path) -> bool:
-    """Add or update license header in a file."""
-    try:
-        content = filepath.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+        filepath.write_text(content, encoding="utf-8")
+    except OSError:
         return False
+    return True
 
-    current_year = get_current_year()
-    current_header = get_license_header(current_year)
 
-    if not content.strip():
-        filepath.write_text(current_header, encoding="utf-8")
-        return True
-
-    # Check if header exists with wrong year
-    existing_year = extract_header_year(content)
-    if existing_year is not None and existing_year != current_year:
-        # Replace year in existing header
-        new_content = content.replace(
-            f"# Copyright © {existing_year} Simplito sp. z o.o.",
-            f"# Copyright © {current_year} Simplito sp. z o.o.",
-        )
-        filepath.write_text(new_content, encoding="utf-8")
-        return True
-
-    # No header present - add new one
+def insert_header_lines(content: str, header_lines: list[str]) -> str:
+    """Insert header_lines after any shebang/encoding preamble, ahead of the rest of the content."""
     lines = content.split("\n")
     preamble_lines = []
     start_idx = 0
 
-    # Extract shebang and encoding lines
     for i, line in enumerate(lines):
         stripped = line.strip()
         if stripped.startswith("#!") or "coding" in stripped[:20]:
@@ -179,7 +162,6 @@ def fix_file_header(filepath: Path) -> bool:
         else:
             break
 
-    # Build new content
     rest = "\n".join(lines[start_idx:]).lstrip("\n")
     parts = []
 
@@ -187,7 +169,7 @@ def fix_file_header(filepath: Path) -> bool:
         parts.append("\n".join(preamble_lines))
         parts.append("")
 
-    parts.append(current_header.rstrip())
+    parts.append("\n".join(header_lines))
 
     if rest:
         parts.append("")
@@ -197,8 +179,69 @@ def fix_file_header(filepath: Path) -> bool:
     if not new_content.endswith("\n"):
         new_content += "\n"
 
-    filepath.write_text(new_content, encoding="utf-8")
-    return True
+    return new_content
+
+
+def check_file_header(filepath: Path) -> bool:
+    """Check if a file contains the required license header.
+
+    Returns:
+        True if a well-formed header is present, regardless of the year's value.
+    """
+    try:
+        content = filepath.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+
+    if not content.strip():
+        return True
+
+    if has_stale_old_header(content) or has_duplicate_header(content):
+        return False
+
+    return extract_header_year(content) is not None
+
+
+def fix_file_header(filepath: Path) -> bool:
+    """Remove a stale DFFL header if present, then add the SPDX header."""
+    try:
+        original_content = filepath.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+
+    content = strip_old_header(original_content)
+
+    if has_stale_old_header(content) or has_duplicate_header(content):
+        return False
+
+    current_year = get_current_year()
+
+    if not content.strip():
+        return write_text(filepath, get_license_header(current_year))
+
+    if LICENSE_HEADER_PATTERN.search(content):
+        return True if content == original_content else write_text(filepath, content)
+
+    license_match = find_license_line(content)
+    copyright_match = find_copyright_line(content)
+
+    if license_match and not copyright_match:
+        pos = license_match.end()
+        copyright_line = COPYRIGHT_LINE_TEMPLATE.format(year=current_year)
+        new_content = content[:pos] + "\n" + copyright_line + content[pos:]
+        return write_text(filepath, new_content)
+
+    if copyright_match and not license_match:
+        pos = copyright_match.start()
+        new_content = content[:pos] + LICENSE_LINE + "\n" + content[pos:]
+        return write_text(filepath, new_content)
+
+    if license_match and copyright_match:
+        # Present but not adjacent - ambiguous, don't guess.
+        return False
+
+    header_lines = [LICENSE_LINE, COPYRIGHT_LINE_TEMPLATE.format(year=current_year)]
+    return write_text(filepath, insert_header_lines(content, header_lines))
 
 
 def should_exclude(path: Path, excludes: frozenset[str]) -> bool:
@@ -275,52 +318,36 @@ def get_files_to_check(
 
 def classify_files(
     files_to_check: list[Path],
-) -> tuple[list[Path], list[Path]]:
-    """Classify files into missing header and invalid year lists."""
-    missing_header: list[Path] = []
-    invalid_year: list[Path] = []
-
-    for f in files_to_check:
-        has_valid, year = check_file_header(f)
-        if not has_valid:
-            if year is None:
-                missing_header.append(f)
-            else:
-                invalid_year.append(f)
-
-    return missing_header, invalid_year
+) -> list[Path]:
+    """Return the files missing a valid license header."""
+    return [f for f in files_to_check if not check_file_header(f)]
 
 
-def apply_fixes(files: list[Path]) -> None:
-    """Apply fixes to all files and print results."""
+def apply_fixes(files: list[Path]) -> bool:
+    """Apply fixes to all files, print results, and report whether every fix succeeded."""
+    all_fixed = True
     for f in files:
         if fix_file_header(f):
             print(f"Fixed: {f}")
         else:
             print(f"Error: {f}")
+            all_fixed = False
+    return all_fixed
 
 
 def report_issues(
     missing_header: list[Path],
-    invalid_year: list[Path],
     verbose: bool,
 ) -> None:
     """Report validation issues to stdout."""
-    if missing_header:
-        if verbose:
-            for f in missing_header:
-                print(f)
-        else:
-            print(f"Missing license header in {len(missing_header)} files")
+    if not missing_header:
+        return
 
-    if invalid_year:
-        if verbose:
-            for f in invalid_year:
-                print(f)
-        else:
-            print(f"Invalid year in {len(invalid_year)} files")
-
-    if (missing_header or invalid_year) and not verbose:
+    if verbose:
+        for f in missing_header:
+            print(f)
+    else:
+        print(f"Missing license header in {len(missing_header)} files")
         print("Use --verbose to see individual files")
         print("Use --fix to automatically repair")
 
@@ -349,7 +376,7 @@ def main(
     ] = False,
     fix: Annotated[
         bool,
-        typer.Option("--fix", help="Add missing license headers or update year"),
+        typer.Option("--fix", help="Add missing license headers"),
     ] = False,
     verbose: Annotated[
         bool,
@@ -362,15 +389,16 @@ def main(
 
     excludes = build_excludes(paths, exclude, use_gitignore=not no_gitignore)
     files_to_check = get_files_to_check(paths, files, excludes, recursive=not no_recursive)
-    missing_header, invalid_year = classify_files(files_to_check)
+    missing_header = classify_files(files_to_check)
 
-    if fix and (missing_header or invalid_year):
-        apply_fixes(missing_header + invalid_year)
-        raise typer.Exit(0)
+    if fix and missing_header:
+        if apply_fixes(missing_header):
+            raise typer.Exit(0)
+        raise typer.Exit(1)
 
-    report_issues(missing_header, invalid_year, verbose)
+    report_issues(missing_header, verbose)
 
-    if missing_header or invalid_year:
+    if missing_header:
         raise typer.Exit(1)
 
     print("All Python files have valid license headers")

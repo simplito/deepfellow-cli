@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- Every Python file's license header is now the two-line SPDX form (`SPDX-License-Identifier: LicenseRef-DeepFellow-Free` + `SPDX-FileCopyrightText`) instead of the prose DeepFellow Free License block, matching DeepFellow Server and Infra. `just license-check --fix` migrates old headers automatically, and the copyright year is no longer bumped each year.
 - `deepfellow server config get`/`set` and `deepfellow infra config get`/`set` now print their output as `key: value` lines, matching every other `list`/`get` command, instead of a raw JSON dump. For Infra, each line also shows the field name in parentheses (e.g. `DF_NAME (name): my-infra`) - the name `config set` expects, distinct from the `DF_`-prefixed env key.
 
 ## [0.34.1] - 2026-09-25
