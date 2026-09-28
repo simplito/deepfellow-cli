@@ -1,11 +1,5 @@
-# DeepFellow Software Framework.
-# Copyright © 2026 Simplito sp. z o.o.
-#
-# This file is part of the DeepFellow Software Framework (https://deepfellow.ai).
-# This software is Licensed under the DeepFellow Free License.
-#
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-License-Identifier: LicenseRef-DeepFellow-Free
+# SPDX-FileCopyrightText: 2026 Simplito sp. z o.o.
 
 """Tests for configure_otel, configure_embedding, configure_infra and configure_milvus_specific_fields."""
 
