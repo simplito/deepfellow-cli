@@ -333,6 +333,61 @@ def reveal_secret_entries(config: dict[str, Any], reveal: Callable[[str], str]) 
 SECRET_MASK = "••••••••"
 
 
+def _render_value(value: Any) -> str:
+    """Render a config leaf value the way ``config set`` expects to parse it back.
+
+    Strings are printed as-is; everything else is JSON-encoded, so booleans, ``None``, and lists
+    round-trip through ``config set``'s ``json.loads`` parsing instead of printing as Python reprs.
+    """
+    return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+
+
+def _render_entry_line(entry: dict[str, Any]) -> str:
+    """Render a single Infra ``entries`` item as a ``key: value`` line.
+
+    ``config set`` takes the entry's ``field_name`` (e.g. ``name``), not its ``key`` (e.g.
+    ``DF_NAME``), so the field name is appended in parentheses whenever it differs from the key -
+    otherwise a user reading `config get`'s output has no way to discover what to pass to `config set`.
+    """
+    key = entry.get("key")
+    field_name = entry.get("field_name")
+    label = f"{key} ({field_name})" if field_name and field_name != key else key
+    return f"{label}: {_render_value(entry.get('value'))}"
+
+
+def format_config(config: dict[str, Any]) -> str:
+    """Render an admin ``/admin/config`` response as readable ``key: value`` lines.
+
+    Handles both known response shapes: Infra's ``{"entries": [{"key": ..., "value": ...}, ...]}``
+    and Server's plain (possibly nested) dict, which is flattened to dotted-path keys.
+
+    Args:
+        config: The config response to render.
+
+    Returns:
+        A ``\\n``-joined block of ``key: value`` lines, or "No configuration entries." if empty.
+    """
+    entries = config.get("entries")
+    if isinstance(entries, list):
+        lines = [_render_entry_line(entry) for entry in entries]
+        return "\n".join(lines) if lines else "No configuration entries."
+
+    def _flatten(node: dict[str, Any], prefix: tuple[str, ...]) -> list[tuple[str, Any]]:
+        lines: list[tuple[str, Any]] = []
+        for key, value in node.items():
+            path = (*prefix, key)
+            if isinstance(value, dict) and value:
+                lines.extend(_flatten(value, path))
+            else:
+                lines.append((".".join(path), value))
+        return lines
+
+    flattened = _flatten(config, ())
+    if not flattened:
+        return "No configuration entries."
+    return "\n".join(f"{key}: {_render_value(value)}" for key, value in flattened)
+
+
 def reveal_masked_paths(config: dict[str, Any], reveal: Callable[[str], str], mask: str = SECRET_MASK) -> None:
     """Replace masked leaf values in a Server-style /admin/config response with their revealed values.
 

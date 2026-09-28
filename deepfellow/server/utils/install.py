@@ -15,7 +15,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import typer
 
@@ -771,8 +771,7 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
     services: dict[str, Any] = {}
     depends_on = {}
     compose_server = deepcopy(DOCKER_COMPOSE_SERVER)
-    # TODO Clean up the `cast` after https://gitlab2.simplito.com/df/df-cli/-/issues/258
-    server_docker_envs = cast("list[str]", compose_server["server"]["environment"])
+    server_docker_envs = compose_server["server"]["environment"]
 
     if config.is_vectordb_active:
         # Update server's docker environment
@@ -906,7 +905,7 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
             echo.error(f"Unable to write {init_mongo_path.as_posix()}: {exc}.")
             reraise_if_debug(exc)
 
-    environment = cast("list", compose_server["server"]["environment"])
+    environment = compose_server["server"]["environment"]
     for api_endpoint_key in config.infra_env:
         environment.append(api_endpoint_key + "=${" + api_endpoint_key + "}")
 

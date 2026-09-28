@@ -20,6 +20,7 @@ from deepfellow.common.config import (
     configure_uuid_key,
     dict_to_env,
     env_to_dict,
+    format_config,
     merge_config_json_into_env,
     parse_key_value_updates,
     read_config_json_settings,
@@ -1094,6 +1095,88 @@ def test_parse_key_value_updates_missing_equals_raises_exit(mock_echo: mock.Mock
         parse_key_value_updates(["not-a-pair"])
 
     assert mock_echo.error.call_count == 1
+
+
+def test_format_config_renders_entries_list_as_key_value_lines():
+    config = {
+        "entries": [
+            {"key": "DF_MESH_KEY", "value": "the-secret", "is_secret": True},
+            {"key": "DF_NAME", "value": "my-infra", "is_secret": False},
+        ]
+    }
+
+    result = format_config(config)
+
+    assert result == "DF_MESH_KEY: the-secret\nDF_NAME: my-infra"
+
+
+def test_format_config_renders_entries_list_with_field_name_in_parentheses_when_it_differs_from_key():
+    config = {
+        "entries": [
+            {"key": "DF_MESH_KEY", "value": "the-secret", "is_secret": True, "field_name": "mesh_key"},
+            {"key": "DF_NAME", "value": "my-infra", "is_secret": False, "field_name": "name"},
+        ]
+    }
+
+    result = format_config(config)
+
+    assert result == "DF_MESH_KEY (mesh_key): the-secret\nDF_NAME (name): my-infra"
+
+
+def test_format_config_omits_field_name_when_it_equals_key():
+    config = {"entries": [{"key": "name", "value": "my-infra", "is_secret": False, "field_name": "name"}]}
+
+    result = format_config(config)
+
+    assert result == "name: my-infra"
+
+
+def test_format_config_flattens_nested_dict_to_dotted_keys():
+    config = {"smtp": {"password": "the-secret", "host": "smtp.example.com"}, "name": "my-server"}
+
+    result = format_config(config)
+
+    assert result == "smtp.password: the-secret\nsmtp.host: smtp.example.com\nname: my-server"
+
+
+def test_format_config_renders_flat_dict_without_dotted_prefix():
+    config = {"otel_tracing_enabled": True}
+
+    result = format_config(config)
+
+    assert result == "otel_tracing_enabled: true"
+
+
+def test_format_config_renders_empty_nested_dict_as_leaf():
+    config = {"plugins_setup": {}, "name": "my-server"}
+
+    result = format_config(config)
+
+    assert result == "plugins_setup: {}\nname: my-server"
+
+
+def test_format_config_renders_non_string_leaves_as_json_for_round_tripping():
+    config = {"allowed_origins": ["a", "b"], "max_retries": 3, "fallback": None}
+
+    result = format_config(config)
+
+    assert result == 'allowed_origins: ["a", "b"]\nmax_retries: 3\nfallback: null'
+
+
+def test_format_config_renders_empty_entries_list_as_no_entries_message():
+    config = {"entries": []}
+
+    result = format_config(config)
+
+    assert result == "No configuration entries."
+
+
+def test_format_config_renders_empty_dict_as_no_entries_message():
+    config = {}
+
+    result = format_config(config)
+
+    assert result == "No configuration entries."
 
 
 def test_reveal_secret_entries_replaces_only_secret_entries():

@@ -9,11 +9,9 @@
 
 """server config set command."""
 
-import json
-
 import typer
 
-from deepfellow.common.config import parse_key_value_updates, reveal_masked_paths
+from deepfellow.common.config import format_config, parse_key_value_updates, reveal_masked_paths
 from deepfellow.common.echo import echo
 from deepfellow.common.rest import get as http_get
 from deepfellow.common.rest import get_server_url, make_request
@@ -48,4 +46,4 @@ def set_(
             )["value"],
         )
 
-    echo.info(json.dumps(result, indent=2, ensure_ascii=False))
+    echo.info(format_config(result))

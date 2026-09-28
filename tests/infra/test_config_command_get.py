@@ -7,7 +7,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 from unittest import mock
 from unittest.mock import Mock
 
@@ -75,6 +74,7 @@ def test_get_without_secret_flag_does_not_reveal(
     get_(server=None, api_key=None, secret=False)
 
     assert mock_request.call_count == 1
+    assert mock_echo.info.call_args == mock.call("DF_MESH_KEY (mesh_key): ••••••••")
 
 
 @mock.patch("deepfellow.infra.config_command.get.echo")
@@ -107,9 +107,7 @@ def test_get_with_secret_flag_reveals_secret_entries(
     assert mock_request.call_args_list[1] == mock.call(
         "GET", f"{SERVER}/admin/config/DF_MESH_KEY/reveal", SERVER, "the-key", quiet=True
     )
-    printed = json.loads(mock_echo.info.call_args[0][0])
-    assert printed["entries"][0]["value"] == "the-real-secret"
-    assert printed["entries"][1]["value"] == "my-infra"
+    assert mock_echo.info.call_args == mock.call("DF_MESH_KEY (mesh_key): the-real-secret\nDF_NAME (name): my-infra")
 
 
 def test_get_cli_rejects_old_server_option():
