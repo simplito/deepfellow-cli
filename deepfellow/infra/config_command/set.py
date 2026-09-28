@@ -9,11 +9,9 @@
 
 """infra config set command."""
 
-import json
-
 import typer
 
-from deepfellow.common.config import parse_key_value_updates, reveal_secret_entries
+from deepfellow.common.config import format_config, parse_key_value_updates, reveal_secret_entries
 from deepfellow.common.echo import echo
 from deepfellow.common.validation import validate_server
 from deepfellow.infra.utils.admin import infra_admin_request, resolve_infra_admin
@@ -46,4 +44,4 @@ def set_(
             )["value"],
         )
 
-    echo.info(json.dumps(result, indent=2, ensure_ascii=False))
+    echo.info(format_config(result))

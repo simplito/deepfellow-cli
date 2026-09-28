@@ -9,11 +9,9 @@
 
 """infra config get command."""
 
-import json
-
 import typer
 
-from deepfellow.common.config import reveal_secret_entries
+from deepfellow.common.config import format_config, reveal_secret_entries
 from deepfellow.common.echo import echo
 from deepfellow.common.validation import validate_server
 from deepfellow.infra.utils.admin import infra_admin_request, resolve_infra_admin
@@ -42,4 +40,4 @@ def get_(
             )["value"],
         )
 
-    echo.info(json.dumps(config, indent=2, ensure_ascii=False))
+    echo.info(format_config(config))

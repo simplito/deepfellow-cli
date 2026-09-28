@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Changed
+- `deepfellow server config get`/`set` and `deepfellow infra config get`/`set` now print their output as `key: value` lines, matching every other `list`/`get` command, instead of a raw JSON dump. For Infra, each line also shows the field name in parentheses (e.g. `DF_NAME (name): my-infra`) - the name `config set` expects, distinct from the `DF_`-prefixed env key.
+
 ## [0.34.1] - 2026-09-25
 
 ### Added

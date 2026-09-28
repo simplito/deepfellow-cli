@@ -9,11 +9,9 @@
 
 """server config get command."""
 
-import json
-
 import typer
 
-from deepfellow.common.config import reveal_masked_paths
+from deepfellow.common.config import format_config, reveal_masked_paths
 from deepfellow.common.echo import echo
 from deepfellow.common.rest import get as http_get
 from deepfellow.common.rest import get_server_url
@@ -44,4 +42,4 @@ def get_(
             )["value"],
         )
 
-    echo.info(json.dumps(config, indent=2, ensure_ascii=False))
+    echo.info(format_config(config))

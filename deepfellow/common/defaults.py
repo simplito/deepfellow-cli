@@ -11,7 +11,7 @@
 
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 DF_DEEPFELLOW_DIRECTORY = Path.home() / ".deepfellow"
 
@@ -84,6 +84,26 @@ DEFAULT_VECTOR_DATABASE = VECTOR_DATABASES[DEFAULT_VECTOR_DATABASE_TYPE]
 # ==============
 # Docker compose
 # ==============
+
+
+class _ServiceConfigOptional(TypedDict, total=False):
+    """Optional fields of a Docker Compose service definition."""
+
+    depends_on: dict[str, Any]
+    pull_policy: str
+
+
+class ServiceConfig(_ServiceConfigOptional):
+    """Shape of a single Docker Compose service definition."""
+
+    container_name: str
+    image: str
+    ports: list[str]
+    environment: list[str]
+    restart: str
+    healthcheck: dict[str, Any]
+
+
 DOCKER_COMPOSE_INFRA = {
     DF_INFRA_NAME: {
         "image": "${DF_INFRA_IMAGE}",
@@ -119,7 +139,7 @@ DOCKER_COMPOSE_INFRA = {
     },
 }
 
-DOCKER_COMPOSE_SERVER = {
+DOCKER_COMPOSE_SERVER: dict[str, ServiceConfig] = {
     "server": {
         "container_name": "server",
         "image": "${DF_SERVER_IMAGE}",

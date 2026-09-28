@@ -7,7 +7,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 from unittest import mock
 from unittest.mock import Mock
 
@@ -64,6 +63,7 @@ def test_set_without_secret_flag_does_not_reveal(
 
     assert mock_make_request.call_count == 1
     assert mock_http_get.call_count == 0
+    assert mock_echo.info.call_args == mock.call("smtp.password: ••••••••")
 
 
 @mock.patch("deepfellow.server.config_command.set.echo")
@@ -87,9 +87,7 @@ def test_set_with_secret_flag_reveals_masked_paths(
     assert mock_http_get.call_args == mock.call(
         f"{SERVER}/admin/config/reveal/smtp.password", "dfuser_abc", item_name="secret value for smtp.password"
     )
-    printed = json.loads(mock_echo.info.call_args[0][0])
-    assert printed["smtp"]["password"] == "the-real-secret"
-    assert printed["name"] == "my-server"
+    assert mock_echo.info.call_args == mock.call("smtp.password: the-real-secret\nname: my-server")
 
 
 def test_set_cli_rejects_old_server_option():
