@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: LicenseRef-DeepFellow-Free
 # SPDX-FileCopyrightText: 2026 Simplito sp. z o.o.
 
+import subprocess
 from pathlib import Path
 from unittest import mock
 
@@ -9,7 +10,23 @@ import typer
 
 from deepfellow.common.docker import DockerError
 from deepfellow.common.state import state
-from deepfellow.server.utils.docker import start_server, stop_server
+from deepfellow.server.utils.docker import (
+    NIGHTSHIFT_NOT_INSTALLED_HINT,
+    _nightshift_should_be_up,
+    _nightshift_should_stay_down,
+    assert_nightshift_installed,
+    has_nightshift_service,
+    print_nightshift_status,
+    reconcile_nightshift_running_state,
+    restart_nightshift,
+    service_running_or_exit,
+    start_nightshift,
+    start_server,
+    stop_nightshift,
+    stop_server,
+    wait_for_docker,
+    wait_for_service_running,
+)
 
 
 @mock.patch("deepfellow.server.utils.docker.run")
@@ -257,3 +274,633 @@ def test_stop_server_stops_compose_service(mock_run: mock.MagicMock, tmp_path: P
 
     assert mock_run.call_count == 1
     assert mock_run.call_args == mock.call(["docker", "compose", "stop", "server"], cwd=tmp_path)
+
+
+@mock.patch("deepfellow.server.utils.docker.run")
+@mock.patch("deepfellow.server.utils.docker.ensure_network")
+@mock.patch("deepfellow.server.utils.docker.get_docker_network")
+def test_start_nightshift_uses_up_dash_d_no_deps_scoped_to_nightshift_only(
+    mock_get_docker_network: mock.MagicMock,
+    mock_ensure_network: mock.MagicMock,
+    mock_run: mock.MagicMock,
+    tmp_path: Path,
+):
+    mock_get_docker_network.return_value = "df_network"
+
+    start_nightshift(tmp_path)
+
+    assert mock_ensure_network.call_args == mock.call("df_network")
+    assert mock_run.call_count == 1
+    # No `raises=DockerError` (unlike start_server()'s own call) - nothing catches a DockerError
+    # here, so passing it would let a docker failure escape uncaught with a raw traceback instead
+    # of run()'s own clean echo.error + reraise_if_debug() default handling.
+    assert mock_run.call_args == mock.call(["docker", "compose", "up", "-d", "--no-deps", "nightshift"], cwd=tmp_path)
+
+
+@mock.patch("deepfellow.server.utils.docker.run")
+def test_stop_nightshift_stops_only_nightshift_service(mock_run: mock.MagicMock, tmp_path: Path):
+    stop_nightshift(tmp_path)
+
+    assert mock_run.call_count == 1
+    assert mock_run.call_args == mock.call(["docker", "compose", "stop", "nightshift"], cwd=tmp_path)
+
+
+@mock.patch("deepfellow.server.utils.docker.start_nightshift")
+@mock.patch("deepfellow.server.utils.docker.stop_nightshift")
+def test_restart_nightshift_stops_then_starts(
+    mock_stop_nightshift: mock.MagicMock, mock_start_nightshift: mock.MagicMock, tmp_path: Path
+):
+    restart_nightshift(tmp_path)
+
+    assert mock_stop_nightshift.call_count == 1
+    assert mock_start_nightshift.call_count == 1
+
+
+@mock.patch("deepfellow.server.utils.docker.read_env_file_to_dict", return_value={"df_nightshift_mode": "always"})
+def test_nightshift_should_stay_down_false_when_mode_always(mock_read_env: mock.MagicMock, tmp_path: Path):
+    assert _nightshift_should_stay_down(tmp_path) is False
+
+
+@mock.patch(
+    "deepfellow.server.utils.docker.read_env_file_to_dict",
+    return_value={"df_nightshift_mode": "shift", "df_nightshift_start": "", "df_nightshift_stop": ""},
+)
+def test_nightshift_should_stay_down_false_when_hours_missing(mock_read_env: mock.MagicMock, tmp_path: Path):
+    assert _nightshift_should_stay_down(tmp_path) is False
+
+
+@mock.patch("deepfellow.server.utils.docker.is_within_shift_window", return_value=False)
+@mock.patch(
+    "deepfellow.server.utils.docker.read_env_file_to_dict",
+    return_value={"df_nightshift_mode": "shift", "df_nightshift_start": "22:00", "df_nightshift_stop": "06:00"},
+)
+def test_nightshift_should_stay_down_true_when_shift_and_outside_window(
+    mock_read_env: mock.MagicMock, mock_is_within_window: mock.MagicMock, tmp_path: Path
+):
+    assert _nightshift_should_stay_down(tmp_path) is True
+    assert mock_is_within_window.call_args == mock.call("22:00", "06:00")
+
+
+@mock.patch("deepfellow.server.utils.docker.is_within_shift_window", return_value=True)
+@mock.patch(
+    "deepfellow.server.utils.docker.read_env_file_to_dict",
+    return_value={"df_nightshift_mode": "shift", "df_nightshift_start": "22:00", "df_nightshift_stop": "06:00"},
+)
+def test_nightshift_should_stay_down_false_when_shift_and_within_window(
+    mock_read_env: mock.MagicMock, mock_is_within_window: mock.MagicMock, tmp_path: Path
+):
+    assert _nightshift_should_stay_down(tmp_path) is False
+
+
+@mock.patch("deepfellow.server.utils.docker._nightshift_should_stay_down", return_value=True)
+@mock.patch("deepfellow.server.utils.docker.echo")
+@mock.patch("deepfellow.server.utils.docker.run")
+@mock.patch("deepfellow.server.utils.docker.ensure_network")
+@mock.patch("deepfellow.server.utils.docker.get_docker_network")
+def test_start_server_scales_nightshift_to_zero_when_it_should_stay_down(
+    mock_get_docker_network: mock.MagicMock,
+    mock_ensure_network: mock.MagicMock,
+    mock_run: mock.MagicMock,
+    mock_echo: mock.MagicMock,
+    mock_should_stay_down: mock.MagicMock,
+    tmp_path: Path,
+):
+    """Nightshift must never be started at all when it's outside its shift window - not started
+    and then immediately stopped back down, which would be pointless and could let it briefly pick
+    up a task before being killed."""
+    start_server(tmp_path)
+
+    assert mock_run.call_args == mock.call(
+        ["docker", "compose", "up", "-d", "--wait", "--remove-orphans", "--scale", "nightshift=0"],
+        cwd=tmp_path,
+        raises=DockerError,
+    )
+    assert mock_echo.info.call_count == 1
+
+
+@mock.patch("deepfellow.server.utils.docker._nightshift_should_stay_down", return_value=False)
+@mock.patch("deepfellow.server.utils.docker.run")
+@mock.patch("deepfellow.server.utils.docker.ensure_network")
+@mock.patch("deepfellow.server.utils.docker.get_docker_network")
+def test_start_server_does_not_scale_when_nightshift_should_run(
+    mock_get_docker_network: mock.MagicMock,
+    mock_ensure_network: mock.MagicMock,
+    mock_run: mock.MagicMock,
+    mock_should_stay_down: mock.MagicMock,
+    tmp_path: Path,
+):
+    start_server(tmp_path)
+
+    assert mock_run.call_args == mock.call(
+        ["docker", "compose", "up", "-d", "--wait", "--remove-orphans"], cwd=tmp_path, raises=DockerError
+    )
+
+
+@mock.patch("deepfellow.server.utils.docker.read_env_file_to_dict", return_value={"df_nightshift_mode": "always"})
+def test_nightshift_should_be_up_true_when_mode_always(mock_read_env: mock.MagicMock, tmp_path: Path):
+    assert _nightshift_should_be_up(tmp_path) is True
+
+
+@mock.patch(
+    "deepfellow.server.utils.docker.read_env_file_to_dict",
+    return_value={"df_nightshift_mode": "shift", "df_nightshift_start": "", "df_nightshift_stop": ""},
+)
+def test_nightshift_should_be_up_true_when_hours_missing(mock_read_env: mock.MagicMock, tmp_path: Path):
+    assert _nightshift_should_be_up(tmp_path) is True
+
+
+@mock.patch("deepfellow.server.utils.docker.is_within_shift_window", return_value=True)
+@mock.patch(
+    "deepfellow.server.utils.docker.read_env_file_to_dict",
+    return_value={"df_nightshift_mode": "shift", "df_nightshift_start": "22:00", "df_nightshift_stop": "06:00"},
+)
+def test_nightshift_should_be_up_matches_shift_window(
+    mock_read_env: mock.MagicMock, mock_is_within_window: mock.MagicMock, tmp_path: Path
+):
+    assert _nightshift_should_be_up(tmp_path) is True
+    assert mock_is_within_window.call_args == mock.call("22:00", "06:00")
+
+
+@mock.patch("deepfellow.server.utils.docker.is_within_shift_window", side_effect=ValueError)
+@mock.patch(
+    "deepfellow.server.utils.docker.read_env_file_to_dict",
+    return_value={"df_nightshift_mode": "shift", "df_nightshift_start": "bad", "df_nightshift_stop": "06:00"},
+)
+def test_nightshift_should_be_up_true_when_schedule_malformed(
+    mock_read_env: mock.MagicMock, mock_is_within_window: mock.MagicMock, tmp_path: Path
+):
+    """A hand-edited/corrupted .env bypasses the CLI's own HH:MM validation - falls back to the
+    same conservative "up" default as a missing schedule, instead of crashing every
+    start_server()/status call."""
+    assert _nightshift_should_be_up(tmp_path) is True
+
+
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.utils.docker.start_nightshift")
+@mock.patch("deepfellow.server.utils.docker.stop_nightshift")
+@mock.patch("deepfellow.server.utils.docker.service_running_or_exit")
+@mock.patch("deepfellow.server.utils.docker._nightshift_should_be_up", return_value=True)
+@mock.patch("deepfellow.server.utils.docker.echo")
+def test_reconcile_running_state_starts_when_should_be_up_but_is_down(
+    mock_echo: mock.MagicMock,
+    mock_should_be_up: mock.MagicMock,
+    mock_is_running: mock.MagicMock,
+    mock_stop: mock.MagicMock,
+    mock_start: mock.MagicMock,
+    mock_has_nightshift: mock.MagicMock,
+    tmp_path: Path,
+):
+    mock_is_running.side_effect = lambda service, directory: service == "server"
+
+    reconcile_nightshift_running_state(tmp_path)
+
+    assert mock_start.call_args == mock.call(tmp_path)
+    assert mock_stop.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.utils.docker.start_nightshift")
+@mock.patch("deepfellow.server.utils.docker.stop_nightshift")
+@mock.patch("deepfellow.server.utils.docker.service_running_or_exit")
+@mock.patch("deepfellow.server.utils.docker._nightshift_should_be_up", return_value=True)
+@mock.patch("deepfellow.server.utils.docker.echo")
+def test_reconcile_running_state_starts_when_server_is_running(
+    mock_echo: mock.MagicMock,
+    mock_should_be_up: mock.MagicMock,
+    mock_is_running: mock.MagicMock,
+    mock_stop: mock.MagicMock,
+    mock_start: mock.MagicMock,
+    mock_has_nightshift: mock.MagicMock,
+    tmp_path: Path,
+):
+    mock_is_running.side_effect = lambda service, directory: service == "server"
+
+    reconcile_nightshift_running_state(tmp_path)
+
+    assert mock_start.call_args == mock.call(tmp_path)
+
+
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.utils.docker.start_nightshift")
+@mock.patch("deepfellow.server.utils.docker.wait_for_service_running", return_value=True)
+@mock.patch("deepfellow.server.utils.docker.service_running_or_exit", return_value=False)
+@mock.patch("deepfellow.server.utils.docker._nightshift_should_be_up", return_value=True)
+@mock.patch("deepfellow.server.utils.docker.echo")
+def test_reconcile_running_state_starts_once_server_comes_up_within_the_wait(
+    mock_echo: mock.MagicMock,
+    mock_should_be_up: mock.MagicMock,
+    mock_is_running: mock.MagicMock,
+    mock_wait: mock.MagicMock,
+    mock_start: mock.MagicMock,
+    mock_has_nightshift: mock.MagicMock,
+    tmp_path: Path,
+):
+    """After boot, the timer waits for Docker's restart policy to bring `server` back."""
+    reconcile_nightshift_running_state(tmp_path, server_wait_seconds=120)
+
+    assert mock_wait.call_args == mock.call("server", tmp_path, 120)
+    assert mock_start.call_args == mock.call(tmp_path)
+
+
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.utils.docker.start_nightshift")
+@mock.patch("deepfellow.server.utils.docker.wait_for_service_running", return_value=False)
+@mock.patch("deepfellow.server.utils.docker.service_running_or_exit", return_value=False)
+@mock.patch("deepfellow.server.utils.docker._nightshift_should_be_up", return_value=True)
+@mock.patch("deepfellow.server.utils.docker.echo")
+def test_reconcile_running_state_does_not_start_when_server_never_comes_up_within_the_wait(
+    mock_echo: mock.MagicMock,
+    mock_should_be_up: mock.MagicMock,
+    mock_is_running: mock.MagicMock,
+    mock_wait: mock.MagicMock,
+    mock_start: mock.MagicMock,
+    mock_has_nightshift: mock.MagicMock,
+    tmp_path: Path,
+):
+    reconcile_nightshift_running_state(tmp_path, server_wait_seconds=120)
+
+    assert mock_wait.call_args == mock.call("server", tmp_path, 120)
+    assert mock_start.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.utils.docker.start_nightshift")
+@mock.patch("deepfellow.server.utils.docker.stop_nightshift")
+@mock.patch("deepfellow.server.utils.docker.service_running_or_exit", return_value=False)
+@mock.patch("deepfellow.server.utils.docker._nightshift_should_be_up", return_value=True)
+@mock.patch("deepfellow.server.utils.docker.echo")
+def test_reconcile_running_state_does_not_start_when_server_is_not_running(
+    mock_echo: mock.MagicMock,
+    mock_should_be_up: mock.MagicMock,
+    mock_is_running: mock.MagicMock,
+    mock_stop: mock.MagicMock,
+    mock_start: mock.MagicMock,
+    mock_has_nightshift: mock.MagicMock,
+    tmp_path: Path,
+):
+    """A timer firing on a stack that was stopped on purpose must not bring part of it back up."""
+    reconcile_nightshift_running_state(tmp_path)
+
+    assert mock_start.call_count == 0
+    assert mock_stop.call_count == 0
+    assert mock_echo.info.call_count == 1
+
+
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.utils.docker.start_nightshift")
+@mock.patch("deepfellow.server.utils.docker.stop_nightshift")
+@mock.patch("deepfellow.server.utils.docker.service_running_or_exit", return_value=True)
+@mock.patch("deepfellow.server.utils.docker._nightshift_should_be_up", return_value=False)
+@mock.patch("deepfellow.server.utils.docker.echo")
+def test_reconcile_running_state_stops_the_worker_outside_its_window_even_without_the_server(
+    mock_echo: mock.MagicMock,
+    mock_should_be_up: mock.MagicMock,
+    mock_is_running: mock.MagicMock,
+    mock_stop: mock.MagicMock,
+    mock_start: mock.MagicMock,
+    mock_has_nightshift: mock.MagicMock,
+    tmp_path: Path,
+):
+    reconcile_nightshift_running_state(tmp_path)
+
+    assert mock_stop.call_args == mock.call(tmp_path)
+    assert mock_start.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.utils.docker.start_nightshift")
+@mock.patch("deepfellow.server.utils.docker.stop_nightshift")
+@mock.patch("deepfellow.server.utils.docker.service_running_or_exit", return_value=True)
+@mock.patch("deepfellow.server.utils.docker._nightshift_should_be_up", return_value=False)
+@mock.patch("deepfellow.server.utils.docker.echo")
+def test_reconcile_running_state_stops_when_should_be_down_but_is_up(
+    mock_echo: mock.MagicMock,
+    mock_should_be_up: mock.MagicMock,
+    mock_is_running: mock.MagicMock,
+    mock_stop: mock.MagicMock,
+    mock_start: mock.MagicMock,
+    mock_has_nightshift: mock.MagicMock,
+    tmp_path: Path,
+):
+    reconcile_nightshift_running_state(tmp_path)
+
+    assert mock_stop.call_count == 1
+    assert mock_start.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.utils.docker.start_nightshift")
+@mock.patch("deepfellow.server.utils.docker.stop_nightshift")
+@mock.patch("deepfellow.server.utils.docker.service_running_or_exit", return_value=True)
+@mock.patch("deepfellow.server.utils.docker._nightshift_should_be_up", return_value=True)
+@mock.patch("deepfellow.server.utils.docker.echo")
+def test_reconcile_running_state_does_nothing_when_already_correct(
+    mock_echo: mock.MagicMock,
+    mock_should_be_up: mock.MagicMock,
+    mock_is_running: mock.MagicMock,
+    mock_stop: mock.MagicMock,
+    mock_start: mock.MagicMock,
+    mock_has_nightshift: mock.MagicMock,
+    tmp_path: Path,
+):
+    """The whole point - never restart an already-correctly-running worker, which would
+    interrupt whatever task it's mid-processing for nothing."""
+    reconcile_nightshift_running_state(tmp_path)
+
+    assert mock_start.call_count == 0
+    assert mock_stop.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.utils.docker.print_docker_status")
+@mock.patch("deepfellow.server.utils.docker.is_service_running", return_value=False)
+@mock.patch("deepfellow.server.utils.docker.read_env_file_to_dict")
+@mock.patch("deepfellow.server.utils.docker.echo")
+def test_print_nightshift_status_shift_mode_down_shows_mode_and_status(
+    mock_echo: mock.MagicMock,
+    mock_read_env: mock.MagicMock,
+    mock_is_service_running: mock.MagicMock,
+    mock_print_docker_status: mock.MagicMock,
+    mock_has_nightshift: mock.MagicMock,
+    tmp_path: Path,
+) -> None:
+    mock_read_env.return_value = {
+        "df_nightshift_mode": "shift",
+        "df_nightshift_start": "22:00",
+        "df_nightshift_stop": "06:00",
+    }
+
+    print_nightshift_status(tmp_path)
+
+    info_messages = [call.args[0] for call in mock_echo.info.call_args_list]
+    assert "nightshift mode: shift (start 22:00, stop 06:00)" in info_messages
+    assert "nightshift status: down" in info_messages
+    # is_service_running() already told us it's down - no point also asking docker for live
+    # stats/ps on a container that isn't there, which print_docker_status() would otherwise
+    # surface as a cascade of confusing errors ("invalid container name or ID: value is empty").
+    assert mock_print_docker_status.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.utils.docker.print_docker_status")
+@mock.patch("deepfellow.server.utils.docker.is_service_running", return_value=True)
+@mock.patch("deepfellow.server.utils.docker.read_env_file_to_dict")
+@mock.patch("deepfellow.server.utils.docker.echo")
+def test_print_nightshift_status_shift_mode_up_shows_mode_and_status(
+    mock_echo: mock.MagicMock,
+    mock_read_env: mock.MagicMock,
+    mock_is_service_running: mock.MagicMock,
+    mock_print_docker_status: mock.MagicMock,
+    mock_has_nightshift: mock.MagicMock,
+    tmp_path: Path,
+) -> None:
+    mock_read_env.return_value = {
+        "df_nightshift_mode": "shift",
+        "df_nightshift_start": "22:00",
+        "df_nightshift_stop": "06:00",
+    }
+
+    print_nightshift_status(tmp_path)
+
+    info_messages = [call.args[0] for call in mock_echo.info.call_args_list]
+    assert "nightshift mode: shift (start 22:00, stop 06:00)" in info_messages
+    assert "nightshift status: up" in info_messages
+    assert mock_print_docker_status.call_args == mock.call(tmp_path, "nightshift")
+
+
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.utils.docker.print_docker_status")
+@mock.patch("deepfellow.server.utils.docker.is_service_running", return_value=True)
+@mock.patch("deepfellow.server.utils.docker.read_env_file_to_dict")
+@mock.patch("deepfellow.server.utils.docker.echo")
+def test_print_nightshift_status_always_mode_shows_no_schedule(
+    mock_echo: mock.MagicMock,
+    mock_read_env: mock.MagicMock,
+    mock_is_service_running: mock.MagicMock,
+    mock_print_docker_status: mock.MagicMock,
+    mock_has_nightshift: mock.MagicMock,
+    tmp_path: Path,
+) -> None:
+    mock_read_env.return_value = {"df_nightshift_mode": "always"}
+
+    print_nightshift_status(tmp_path)
+
+    info_messages = [call.args[0] for call in mock_echo.info.call_args_list]
+    assert "nightshift mode: always" in info_messages
+    assert "nightshift status: up" in info_messages
+    assert not any("start" in msg or "stop" in msg for msg in info_messages)
+
+
+@mock.patch("deepfellow.server.utils.docker.time.sleep")
+@mock.patch("deepfellow.server.utils.docker.run")
+def test_wait_for_docker_returns_true_immediately_when_docker_answers(
+    mock_run: mock.MagicMock, mock_sleep: mock.MagicMock
+):
+    assert wait_for_docker(300) is True
+
+    assert mock_run.call_count == 1
+    assert mock_sleep.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.docker.time.sleep")
+@mock.patch("deepfellow.server.utils.docker.run")
+def test_wait_for_docker_retries_until_the_daemon_comes_up(mock_run: mock.MagicMock, mock_sleep: mock.MagicMock):
+    """Right after boot the scheduled action can fire before the daemon is up."""
+    mock_run.side_effect = [DockerError("down"), DockerError("down"), None]
+
+    assert wait_for_docker(300, poll_interval_seconds=5) is True
+
+    assert mock_run.call_count == 3
+    assert mock_sleep.call_args_list == [mock.call(5), mock.call(5)]
+
+
+@mock.patch("deepfellow.server.utils.docker.time.monotonic", side_effect=[0, 10, 301])
+@mock.patch("deepfellow.server.utils.docker.time.sleep")
+@mock.patch("deepfellow.server.utils.docker.run", side_effect=DockerError("down"))
+def test_wait_for_docker_returns_false_when_the_daemon_never_answers(
+    mock_run: mock.MagicMock, mock_sleep: mock.MagicMock, mock_monotonic: mock.MagicMock
+):
+    assert wait_for_docker(300) is False
+
+    assert mock_run.call_count == 2
+
+
+@mock.patch("deepfellow.server.utils.docker.time.sleep")
+@mock.patch("deepfellow.server.utils.docker.service_running_or_exit", return_value=True)
+def test_wait_for_service_running_returns_true_immediately_when_running(
+    mock_is_running: mock.MagicMock, mock_sleep: mock.MagicMock, tmp_path: Path
+):
+    assert wait_for_service_running("server", tmp_path, 120) is True
+
+    assert mock_is_running.call_args == mock.call("server", tmp_path)
+    assert mock_sleep.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.docker.time.monotonic", side_effect=[0, 10, 20])
+@mock.patch("deepfellow.server.utils.docker.time.sleep")
+@mock.patch("deepfellow.server.utils.docker.service_running_or_exit", side_effect=[False, False, True])
+def test_wait_for_service_running_retries_until_the_service_comes_up(
+    mock_is_running: mock.MagicMock, mock_sleep: mock.MagicMock, mock_monotonic: mock.MagicMock, tmp_path: Path
+):
+    """Right after boot Docker answers before its restart policy has brought the stack back."""
+    assert wait_for_service_running("server", tmp_path, 120, poll_interval_seconds=5) is True
+
+    assert mock_is_running.call_count == 3
+    assert mock_sleep.call_args_list == [mock.call(5), mock.call(5)]
+
+
+@mock.patch("deepfellow.server.utils.docker.time.monotonic", side_effect=[0, 10, 121])
+@mock.patch("deepfellow.server.utils.docker.time.sleep")
+@mock.patch("deepfellow.server.utils.docker.service_running_or_exit", return_value=False)
+def test_wait_for_service_running_returns_false_when_the_service_never_comes_up(
+    mock_is_running: mock.MagicMock, mock_sleep: mock.MagicMock, mock_monotonic: mock.MagicMock, tmp_path: Path
+):
+    assert wait_for_service_running("server", tmp_path, 120) is False
+
+    assert mock_is_running.call_count == 2
+
+
+@mock.patch("deepfellow.server.utils.docker.time.sleep")
+@mock.patch("deepfellow.server.utils.docker.service_running_or_exit", return_value=False)
+def test_wait_for_service_running_checks_once_with_zero_timeout(
+    mock_is_running: mock.MagicMock, mock_sleep: mock.MagicMock, tmp_path: Path
+):
+    assert wait_for_service_running("server", tmp_path, 0) is False
+
+    assert mock_is_running.call_count == 1
+    assert mock_sleep.call_count == 0
+
+
+@mock.patch("deepfellow.common.system.subprocess.run")
+def test_wait_for_docker_works_through_the_real_run_helper(mock_subprocess_run: mock.MagicMock):
+    """run() refuses `quiet=True` together with `capture_output=True` (SystemError) - a mocked run()
+    can't catch that, so exercise the real one with only subprocess.run mocked."""
+    mock_subprocess_run.return_value = subprocess.CompletedProcess(["docker", "info"], 0, stdout="", stderr="")
+
+    assert wait_for_docker(0) is True
+
+
+@mock.patch("deepfellow.common.system.subprocess.run")
+def test_wait_for_docker_gives_up_through_the_real_run_helper(mock_subprocess_run: mock.MagicMock):
+    mock_subprocess_run.side_effect = subprocess.CalledProcessError(1, ["docker", "info"], stderr="daemon down")
+
+    assert wait_for_docker(0) is False
+
+
+@pytest.mark.parametrize(
+    ("compose", "expected"),
+    [
+        ("services:\n  server: {}\n  nightshift: {}\n", True),
+        ("services:\n  server: {}\n", False),
+        (None, False),
+    ],
+)
+def test_has_nightshift_service_reads_the_installs_compose_file(tmp_path: Path, compose: str | None, expected: bool):
+    if compose is not None:
+        (tmp_path / "compose.yaml").write_text(compose)
+
+    assert has_nightshift_service(tmp_path) is expected
+
+
+@mock.patch("deepfellow.server.utils.docker.echo")
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service", return_value=False)
+def test_assert_nightshift_installed_exits_with_a_hint_when_the_service_is_missing(
+    mock_has_nightshift: mock.MagicMock, mock_echo: mock.MagicMock, tmp_path: Path
+):
+    with pytest.raises(typer.Exit) as exc_info:
+        assert_nightshift_installed(tmp_path)
+
+    assert exc_info.value.exit_code == 1
+    assert mock_echo.error.call_args == mock.call(NIGHTSHIFT_NOT_INSTALLED_HINT)
+
+
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service", return_value=True)
+def test_assert_nightshift_installed_passes_when_the_service_exists(
+    mock_has_nightshift: mock.MagicMock, tmp_path: Path
+):
+    assert_nightshift_installed(tmp_path)
+
+
+@pytest.mark.parametrize("running", [True, False])
+@mock.patch("deepfellow.server.utils.docker.is_service_running_or_raise")
+def test_service_running_or_exit_returns_what_docker_reports(
+    mock_is_running: mock.MagicMock, running: bool, tmp_path: Path
+):
+    mock_is_running.return_value = running
+
+    assert service_running_or_exit("server", tmp_path) is running
+    assert mock_is_running.call_args == mock.call("server", cwd=tmp_path)
+
+
+@mock.patch("deepfellow.server.utils.docker.echo")
+@mock.patch("deepfellow.server.utils.docker.is_service_running_or_raise", side_effect=DockerError("daemon is down"))
+def test_service_running_or_exit_stops_instead_of_reading_a_failed_check_as_not_running(
+    mock_is_running: mock.MagicMock, mock_echo: mock.MagicMock, tmp_path: Path
+):
+    with pytest.raises(typer.Exit) as exc_info:
+        service_running_or_exit("server", tmp_path)
+
+    assert exc_info.value.exit_code == 1
+    assert mock_echo.error.call_count == 1
+    assert "daemon is down" in mock_echo.error.call_args.args[0]
+
+
+@mock.patch("deepfellow.server.utils.docker.start_nightshift")
+@mock.patch("deepfellow.server.utils.docker.stop_nightshift")
+@mock.patch("deepfellow.server.utils.docker.service_running_or_exit")
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service", return_value=False)
+def test_reconcile_running_state_is_a_noop_when_the_install_has_no_nightshift_service(
+    mock_has_nightshift: mock.MagicMock,
+    mock_running: mock.MagicMock,
+    mock_stop: mock.MagicMock,
+    mock_start: mock.MagicMock,
+    tmp_path: Path,
+):
+    reconcile_nightshift_running_state(tmp_path)
+
+    assert mock_running.call_count == 0
+    assert mock_start.call_count == 0
+    assert mock_stop.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.docker.start_nightshift")
+@mock.patch("deepfellow.server.utils.docker.stop_nightshift")
+@mock.patch("deepfellow.server.utils.docker.echo")
+@mock.patch("deepfellow.server.utils.docker.is_service_running_or_raise", side_effect=DockerError("ps failed"))
+@mock.patch("deepfellow.server.utils.docker._nightshift_should_be_up", return_value=False)
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service", return_value=True)
+def test_reconcile_running_state_fails_instead_of_acting_on_a_failed_state_check(
+    mock_has_nightshift: mock.MagicMock,
+    mock_should_be_up: mock.MagicMock,
+    mock_is_running: mock.MagicMock,
+    mock_echo: mock.MagicMock,
+    mock_stop: mock.MagicMock,
+    mock_start: mock.MagicMock,
+    tmp_path: Path,
+):
+    """A failing `docker compose ps` is not "worker not running" - starting or stopping on that guess
+    could leave the worker in the wrong state."""
+    with pytest.raises(typer.Exit):
+        reconcile_nightshift_running_state(tmp_path)
+
+    assert mock_start.call_count == 0
+    assert mock_stop.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.docker.print_docker_status")
+@mock.patch("deepfellow.server.utils.docker.is_service_running")
+@mock.patch("deepfellow.server.utils.docker.echo")
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service", return_value=False)
+def test_print_nightshift_status_says_not_installed_when_the_install_has_no_nightshift_service(
+    mock_has_nightshift: mock.MagicMock,
+    mock_echo: mock.MagicMock,
+    mock_is_service_running: mock.MagicMock,
+    mock_print_docker_status: mock.MagicMock,
+    tmp_path: Path,
+):
+    print_nightshift_status(tmp_path)
+
+    assert mock_echo.info.call_count == 1
+    assert "not installed" in mock_echo.info.call_args.args[0]
+    assert mock_is_service_running.call_count == 0
+    assert mock_print_docker_status.call_count == 0

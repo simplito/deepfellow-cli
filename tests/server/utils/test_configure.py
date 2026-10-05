@@ -19,8 +19,11 @@ from deepfellow.common.defaults import (
     DF_INFRA_URL,
     DF_MONGO_DB,
     DF_MONGO_URL,
+    DF_RABBITMQ_PORT,
+    DF_RABBITMQ_URL,
     DOCKER_COMPOSE_FALKORDB,
     DOCKER_COMPOSE_OTEL_COLLECTOR,
+    DOCKER_COMPOSE_RABBITMQ,
     MILVUS_DATABASE,
     QDRANT_DATABASE,
     SPARSE_EMBEDDING_MODEL,
@@ -28,7 +31,7 @@ from deepfellow.common.defaults import (
 )
 from deepfellow.common.docker import DockerError
 from deepfellow.common.state import state
-from deepfellow.common.validation import validate_truthy, validate_url
+from deepfellow.common.validation import validate_rabbitmq_credential, validate_truthy, validate_url
 from deepfellow.server.utils.configure import (
     _resolve_mongo_volume_conflict,
     configure_embedding,
@@ -36,9 +39,11 @@ from deepfellow.server.utils.configure import (
     configure_infra,
     configure_milvus_specific_fields,
     configure_mongo,
+    configure_nightshift,
     configure_otel,
     configure_vector_db,
     is_custom_falkordb,
+    is_custom_rabbitmq,
     is_custom_vectordb,
     should_use_falkordb,
     should_use_vector_db,
@@ -1299,3 +1304,253 @@ def test_configure_falkordb_custom_prompts_for_host_port_and_password(
         "DF_GRAPH__PASSWORD": "custom-password",
     }
     assert result.docker_compose == {}
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_is_custom_rabbitmq_true_when_url_changed(mock_echo):
+    result = is_custom_rabbitmq("custom-rabbitmq:5672")
+
+    assert result is True
+    assert mock_echo.confirm.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_is_custom_rabbitmq_false_when_default_and_local_confirmed(mock_echo):
+    mock_echo.confirm.return_value = True
+
+    result = is_custom_rabbitmq(DF_RABBITMQ_URL)
+
+    assert result is False
+    assert mock_echo.confirm.call_args == mock.call("Install a local RabbitMQ for DeepFellow Server?", default=True)
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_is_custom_rabbitmq_true_when_default_and_local_declined(mock_echo):
+    mock_echo.confirm.return_value = False
+
+    result = is_custom_rabbitmq(DF_RABBITMQ_URL)
+
+    assert result is True
+
+
+@mock.patch("deepfellow.server.utils.configure.generate_password")
+@mock.patch("deepfellow.server.utils.configure.is_custom_rabbitmq", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_nightshift_always_mode_generates_missing_rabbitmq_credentials(
+    mock_echo, mock_is_custom, mock_generate_password
+):
+    mock_echo.choice.return_value = "always"
+    mock_generate_password.side_effect = ["generated-password", "generated-user"]
+
+    result = configure_nightshift("always", "", "", DF_RABBITMQ_URL, "", "")
+
+    assert result.envs == {
+        "DF_NIGHTSHIFT_ENABLED": "true",
+        "DF_NIGHTSHIFT_MODE": "always",
+        "DF_RABBITMQ_URL": f"rabbitmq:{DF_RABBITMQ_PORT}",
+        "DF_RABBITMQ_USER": "generated-user",
+        "DF_RABBITMQ_PASSWORD": "generated-password",
+    }
+    assert result.docker_compose == DOCKER_COMPOSE_RABBITMQ
+    assert mock_echo.warning.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.generate_password")
+@mock.patch("deepfellow.server.utils.configure.is_custom_rabbitmq", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_nightshift_managed_preserves_existing_password_on_reconfigure(
+    mock_echo, mock_is_custom, mock_generate_password
+):
+    mock_echo.choice.return_value = "always"
+    original_env = {"df_rabbitmq_user": "existing-user", "df_rabbitmq_password": "existing-password"}
+
+    result = configure_nightshift("always", "", "", DF_RABBITMQ_URL, "", "", original_env)
+
+    assert result.envs["DF_RABBITMQ_USER"] == "existing-user"
+    assert result.envs["DF_RABBITMQ_PASSWORD"] == "existing-password"
+    assert mock_generate_password.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.is_custom_rabbitmq", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_nightshift_custom_rabbitmq_prompts_for_host_port_username_and_password(mock_echo, mock_is_custom):
+    mock_echo.choice.return_value = "always"
+    mock_echo.prompt_until_valid.side_effect = ["custom-rabbitmq:5672", "custom-user", "custom-password"]
+
+    result = configure_nightshift("always", "", "", "custom-rabbitmq:5672", "custom-user", "custom-password")
+
+    assert result.envs == {
+        "DF_NIGHTSHIFT_ENABLED": "true",
+        "DF_NIGHTSHIFT_MODE": "always",
+        "DF_RABBITMQ_URL": "custom-rabbitmq:5672",
+        "DF_RABBITMQ_USER": "custom-user",
+        "DF_RABBITMQ_PASSWORD": "custom-password",
+    }
+    assert result.docker_compose == {}
+
+
+@mock.patch("deepfellow.server.utils.configure.ensure_linger_enabled")
+@mock.patch("deepfellow.server.utils.configure.assert_systemd_available")
+@mock.patch("deepfellow.server.utils.configure.is_custom_rabbitmq", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_nightshift_shift_mode_prompts_for_hours_and_warns(
+    mock_echo, mock_is_custom, mock_assert_systemd, mock_ensure_linger
+):
+    mock_echo.choice.return_value = "shift"
+    mock_echo.prompt_until_valid.side_effect = ["22:00", "06:00"]
+
+    result = configure_nightshift("shift", "", "", DF_RABBITMQ_URL, "user", "password")
+
+    assert result.envs["DF_NIGHTSHIFT_MODE"] == "shift"
+    assert result.envs["DF_NIGHTSHIFT_START"] == "22:00"
+    assert result.envs["DF_NIGHTSHIFT_STOP"] == "06:00"
+    assert mock_echo.warning.call_count == 1
+    assert mock_assert_systemd.call_count == 1
+    # Enabling linger belongs at resolve()-time too - it can prompt/exit, which apply() must
+    # never do. See deepfellow.server.utils.systemd.ensure_linger_enabled.
+    assert mock_ensure_linger.call_count == 1
+
+
+@mock.patch("deepfellow.server.utils.configure.ensure_linger_enabled")
+@mock.patch("deepfellow.server.utils.configure.assert_systemd_available")
+@mock.patch("deepfellow.server.utils.configure.is_custom_rabbitmq", return_value=False)
+def test_configure_nightshift_shift_mode_non_interactive_uses_default_hours_without_prompting(
+    mock_is_custom, mock_assert_systemd, mock_ensure_linger
+):
+    """Regression test: `original_default` for the start/stop prompts must match the CLI flags'
+    own blank ("") default, not the suggested hour ("22:00"/"06:00") - otherwise an unprovided
+    --nightshift-start/--nightshift-stop looks like an explicitly-given empty string, which
+    validate_truthy("") rejects. Interactively that's only a spurious error message before the
+    real prompt still appears; non-interactively there's no retry loop, so it crashed the whole
+    install with `typer.BadParameter: Value can't be empty.`. Deliberately does NOT mock `echo` -
+    this exercises the real get_return_value()/prompt_until_valid() logic, which a fully-mocked
+    echo would hide."""
+    state.non_interactive = True
+
+    result = configure_nightshift("shift", "", "", DF_RABBITMQ_URL, "user", "password")
+
+    assert result.envs["DF_NIGHTSHIFT_START"] == "22:00"
+    assert result.envs["DF_NIGHTSHIFT_STOP"] == "06:00"
+
+
+@mock.patch("deepfellow.server.utils.configure.assert_systemd_available")
+@mock.patch("deepfellow.server.utils.configure.is_custom_rabbitmq", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_nightshift_always_mode_does_not_check_systemd(mock_echo, mock_is_custom, mock_assert_systemd):
+    mock_echo.choice.return_value = "always"
+
+    configure_nightshift("always", "", "", DF_RABBITMQ_URL, "user", "password")
+
+    assert mock_assert_systemd.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.is_systemd_available", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.is_custom_rabbitmq", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_nightshift_offers_shift_choice_when_systemd_available(
+    mock_echo, mock_is_custom, mock_is_systemd_available
+):
+    mock_echo.choice.return_value = "always"
+
+    configure_nightshift("always", "", "", DF_RABBITMQ_URL, "user", "password")
+
+    assert mock_echo.choice.call_args.kwargs["choices"] == ["always", "shift"]
+
+
+@mock.patch("deepfellow.server.utils.configure.is_systemd_available", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.is_custom_rabbitmq", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_nightshift_hides_shift_choice_when_systemd_unavailable(
+    mock_echo, mock_is_custom, mock_is_systemd_available
+):
+    mock_echo.choice.return_value = "always"
+
+    configure_nightshift("always", "", "", DF_RABBITMQ_URL, "user", "password")
+
+    assert mock_echo.choice.call_args.kwargs["choices"] == ["always"]
+
+
+@mock.patch("deepfellow.server.utils.configure.is_systemd_available", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.is_custom_rabbitmq", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_nightshift_clamps_default_when_stored_mode_unavailable(
+    mock_echo, mock_is_custom, mock_is_systemd_available
+):
+    """A prior install had `shift` stored (systemd was available then); this run's host no longer
+    has systemd, so `shift` is filtered out of `choices` - `default` must be clamped to something
+    still in `choices`, or questionary.select() raises ValueError instead of prompting."""
+    mock_echo.choice.return_value = "always"
+
+    configure_nightshift("always", "", "", DF_RABBITMQ_URL, "user", "password", {"df_nightshift_mode": "shift"})
+
+    assert mock_echo.choice.call_args.kwargs["choices"] == ["always"]
+    assert mock_echo.choice.call_args.kwargs["default"] == "always"
+
+
+@mock.patch("deepfellow.server.utils.configure.is_custom_rabbitmq", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_nightshift_always_mode_has_no_schedule_envs(mock_echo, mock_is_custom):
+    mock_echo.choice.return_value = "always"
+
+    result = configure_nightshift("always", "", "", DF_RABBITMQ_URL, "user", "password")
+
+    assert "DF_NIGHTSHIFT_START" not in result.envs
+    assert "DF_NIGHTSHIFT_STOP" not in result.envs
+
+
+@mock.patch("deepfellow.server.utils.configure.is_custom_rabbitmq", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_nightshift_custom_rabbitmq_requires_username_and_password_to_be_uri_safe(mock_echo, mock_is_custom):
+    """Unlike FalkorDB, RabbitMQ effectively requires a username, and both values are interpolated
+    into an amqp:// URI as-is - so both go through the same non-empty, URI-safe validator."""
+    mock_echo.choice.return_value = "always"
+    mock_echo.prompt_until_valid.side_effect = ["custom-rabbitmq:5672", "custom-user", "custom-password"]
+
+    configure_nightshift("always", "", "", "custom-rabbitmq:5672", "", "")
+
+    username_call, password_call = mock_echo.prompt_until_valid.call_args_list[1:]
+    assert username_call.args[0] == "Provide RabbitMQ username"
+    assert username_call.args[1] is validate_rabbitmq_credential
+    assert password_call.args[1] is validate_rabbitmq_credential
+
+
+@pytest.mark.parametrize(("username", "password"), [("bad@user", ""), ("", "pass/word")])
+@mock.patch("deepfellow.server.utils.configure.is_custom_rabbitmq", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_nightshift_local_rabbitmq_rejects_credentials_that_break_the_uri(
+    mock_echo, mock_is_custom, username, password
+):
+    mock_echo.choice.return_value = "always"
+
+    with pytest.raises(typer.BadParameter):
+        configure_nightshift("always", "", "", DF_RABBITMQ_URL, username, password)
+
+
+@mock.patch("deepfellow.server.utils.configure.ensure_linger_enabled")
+@mock.patch("deepfellow.server.utils.configure.assert_systemd_available")
+@mock.patch("deepfellow.server.utils.configure.is_custom_rabbitmq", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_nightshift_shift_mode_rejects_equal_start_and_stop(
+    mock_echo, mock_is_custom, mock_assert_systemd, mock_ensure_linger
+):
+    """start == stop is never "within" the window, so the worker would always be stopped."""
+    mock_echo.choice.return_value = "shift"
+    mock_echo.prompt_until_valid.side_effect = ["22:00", "22:00"]
+
+    with pytest.raises(typer.BadParameter):
+        configure_nightshift("shift", "", "", DF_RABBITMQ_URL, "user", "password")
+
+
+@pytest.mark.parametrize("force_provided_mode", [True, False])
+@mock.patch("deepfellow.server.utils.configure.is_custom_rabbitmq", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_nightshift_passes_force_provided_mode_to_the_mode_choice(
+    mock_echo, mock_is_custom, force_provided_mode
+):
+    """An explicit `--nightshift-mode always` equals the flag's own default, so without
+    force_provided a stored `shift` would silently win on reinstall."""
+    mock_echo.choice.return_value = "always"
+
+    configure_nightshift("always", "", "", DF_RABBITMQ_URL, "user", "password", force_provided_mode=force_provided_mode)
+
+    assert mock_echo.choice.call_args.kwargs["force_provided"] is force_provided_mode

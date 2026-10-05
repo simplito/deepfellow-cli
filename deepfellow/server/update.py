@@ -15,7 +15,13 @@ from deepfellow.common.env import env_set
 from deepfellow.common.install import assert_docker
 from deepfellow.common.registry import get_newest_image_tag
 from deepfellow.common.system import run
-from deepfellow.server.utils.docker import start_server, stop_server
+from deepfellow.server.utils.docker import (
+    NIGHTSHIFT_NOT_INSTALLED_HINT,
+    has_nightshift_service,
+    reconcile_nightshift_running_state,
+    start_server,
+    stop_server,
+)
 from deepfellow.server.utils.options import directory_option
 from deepfellow.server.utils.validation import check_server_directory
 
@@ -78,8 +84,19 @@ def update(
     if values["df_server_image"] != image:
         env_set(env_file, "SERVER_IMAGE", image, quiet=False, docker_note=False)
 
-    run(["docker", "compose", "pull", "server"], cwd=directory)
+    # nightshift reuses the exact same image (DF_SERVER_IMAGE) - pull it too, so a subsequent
+    # restart (below) picks up the new version for the worker as well, not just the server. An
+    # install created before Nightshift existed has no such service (compose fails on an unknown
+    # one), so it only gets the server pulled.
+    has_nightshift = has_nightshift_service(directory)
+    run(["docker", "compose", "pull", "server", *(["nightshift"] if has_nightshift else [])], cwd=directory)
     echo.success("DeepFellow Server updated.")
+    if not has_nightshift:
+        echo.info(NIGHTSHIFT_NOT_INSTALLED_HINT)
     if echo.confirm("Do you want to restart the server?", default=True):
         stop_server(directory)
         start_server(directory)
+        # start_server()'s blanket `up` already recreates nightshift with the pulled image if it
+        # should be up - this makes that schedule compliance an explicit, tested step rather than
+        # an incidental side effect, matching `server restart`.
+        reconcile_nightshift_running_state(directory)

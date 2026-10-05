@@ -378,6 +378,75 @@ DOCKER_COMPOSE_FALKORDB = {
     }
 }
 
+DF_RABBITMQ_URL = "rabbitmq:5672"
+DF_RABBITMQ_PORT = 5672
+DF_RABBITMQ_MANAGEMENT_PORT = 15672
+
+
+class NightshiftModeChoice(str, Enum):
+    always = "always"
+    shift = "shift"
+
+
+DEFAULT_NIGHTSHIFT_MODE = NightshiftModeChoice.always.value
+
+DOCKER_COMPOSE_SERVER_NIGHTSHIFT_ENVS = [
+    "DF_NIGHTSHIFT_ENABLED=${DF_NIGHTSHIFT_ENABLED}",
+    # AppSettings.rabbitmq_url expects a full "amqp://user:pass@host:port/" URI
+    "DF_RABBITMQ_URL=amqp://${DF_RABBITMQ_USER}:${DF_RABBITMQ_PASSWORD}@${DF_RABBITMQ_URL}/",
+    "DF_RABBITMQ_USER=${DF_RABBITMQ_USER}",
+    "DF_RABBITMQ_PASSWORD=${DF_RABBITMQ_PASSWORD}",
+]
+
+DOCKER_COMPOSE_RABBITMQ: dict[str, Any] = {
+    "rabbitmq": {
+        "container_name": "rabbitmq",
+        "image": "rabbitmq:3.13-management",
+        "hostname": "rabbitmq",
+        "restart": "always",
+        "expose": [str(DF_RABBITMQ_PORT), str(DF_RABBITMQ_MANAGEMENT_PORT)],
+        "volumes": ["rabbitmq_data:/var/lib/rabbitmq"],
+        "environment": [
+            "RABBITMQ_DEFAULT_USER=${DF_RABBITMQ_USER}",
+            "RABBITMQ_DEFAULT_PASS=${DF_RABBITMQ_PASSWORD}",
+            "RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS=-rabbit consumer_timeout 14400000",
+        ],
+        "healthcheck": {
+            "test": ["CMD", "rabbitmq-diagnostics", "-q", "check_running"],
+            "interval": "30s",
+            "timeout": "10s",
+            "retries": 5,
+            "start_period": "30s",
+        },
+    }
+}
+
+# NOTE: nightshift reuses the server image, running the worker module instead of the API. Its
+# storage/plugins volumes and Mongo/vector-DB/FalkorDB envs are added onto this base by apply() -
+# see deepfellow/server/utils/install.py - since they depend on which backing services are active.
+# The image's own CMD runs "./.venv/bin/uvicorn" (not bare "uvicorn") because every dependency -
+# including pydantic - lives in a venv at /app/.venv, not on the system Python; the worker command
+# must use that same venv's interpreter for the same reason, or it fails with ModuleNotFoundError.
+DOCKER_COMPOSE_NIGHTSHIFT: dict[str, Any] = {
+    "nightshift": {
+        "container_name": "nightshift",
+        "image": "${DF_SERVER_IMAGE}",
+        "command": ["./.venv/bin/python", "-m", "server.workers.nightshift"],
+        "environment": [
+            "DF_METRICS_USERNAME=${DF_METRICS_USERNAME}",
+            "DF_METRICS_PASSWORD=${DF_METRICS_PASSWORD}",
+            "DF_MONGO_URL=${DF_MONGO_URL}",
+            "DF_MONGO_USER=${DF_MONGO_USER}",
+            "DF_MONGO_PASSWORD=${DF_MONGO_PASSWORD}",
+            "DF_MONGO_DB=${DF_MONGO_DB}",
+            "DF_LOG_LEVEL=${DF_LOG_LEVEL}",
+            "DF_VECTOR_DATABASE__PROVIDER__ACTIVE=${DF_VECTOR_DATABASE__PROVIDER__ACTIVE}",
+            "DF_NIGHTSHIFT_METRICS_HOST=0.0.0.0",
+        ],
+        "restart": "unless-stopped",
+    }
+}
+
 DEFAULT_OTEL_URL = "http://otel-collector:4317"
 
 DOCKER_COMPOSE_OTEL_COLLECTOR = {

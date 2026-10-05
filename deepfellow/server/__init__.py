@@ -11,6 +11,7 @@ from .install import app as install_app
 from .login import app as login_app
 from .logout import app as logout_app
 from .logs import app as logs_app
+from .nightshift import app as nightshift_app
 from .opentelemetry import app as opentelemetry_app
 from .organization import app as organization_app
 from .password_reset import app as reset_password_app
@@ -43,6 +44,7 @@ app.add_typer(update_app)
 app.add_typer(ssl_on_app)
 app.add_typer(logs_app)
 app.add_typer(env_app, name="env", help="Manage DeepFellow Server environment variables.")
+app.add_typer(nightshift_app, name="nightshift", help="Manage the Nightshift background worker.")
 app.add_typer(login_app)
 app.add_typer(logout_app)
 app.add_typer(organization_app, name="organization", help="Manage Organizations.")

@@ -12,6 +12,7 @@ from typing import Any
 import typer
 
 from deepfellow.common.defaults import (
+    DEFAULT_NIGHTSHIFT_MODE,
     DEFAULT_VECTOR_DATABASE,
     DEFAULT_VECTOR_DATABASE_TYPE,
     DF_FALKORDB_URL,
@@ -25,6 +26,7 @@ from deepfellow.common.defaults import (
     DF_MONGO_DB,
     DF_MONGO_PORT,
     DF_MONGO_URL,
+    DF_RABBITMQ_URL,
     DF_SERVER_DIRECTORY,
     DF_SERVER_IMAGE,
     DF_SERVER_PORT,
@@ -56,7 +58,7 @@ from deepfellow.infra.utils.templates import resolve_template as infra_resolve_t
 from deepfellow.server.organization.utils import Organization
 from deepfellow.server.project.api_key.utils import ApiKey
 from deepfellow.server.project.utils import Project, update_project
-from deepfellow.server.utils.configure import FalkorDBConfig, OtelConfig
+from deepfellow.server.utils.configure import FalkorDBConfig, NightshiftConfig, OtelConfig
 from deepfellow.server.utils.docker import start_server
 from deepfellow.server.utils.install import InstallConfig as ServerInstallConfig
 from deepfellow.server.utils.install import apply as server_apply
@@ -212,6 +214,12 @@ _SERVER_CONFIG_FIELDS = frozenset(
         "falkordb_url",
         "falkordb_username",
         "falkordb_password",
+        "nightshift_mode",
+        "nightshift_start",
+        "nightshift_stop",
+        "rabbitmq_url",
+        "rabbitmq_username",
+        "rabbitmq_password",
         "otel_local",
     }
 )
@@ -267,6 +275,24 @@ def _warn_config_flags_ignored(
     echo.warning(
         f"{flags} {verb} ignored: {component} is already installed for this run; its configuration is unchanged."
     )
+
+
+# The only suite-level flags whose CLI option was actually passed that infra's or server's own
+# config step also needs to know about - mapped onto infra's and server's own "port"/
+# "docker_network" keys (their template-value merging, _MERGEABLE_FIELDS), per install()'s own
+# docstring. "nightshift_mode" is forwarded to server as-is, so an explicit --nightshift-mode
+# overrides a stored DF_NIGHTSHIFT_MODE the same way it does for `server install`.
+_INFRA_EXPLICIT_KEYS = {"infra_port": "port", "docker_network": "docker_network"}
+_SERVER_EXPLICIT_KEYS = {
+    "server_port": "port",
+    "docker_network": "docker_network",
+    "nightshift_mode": "nightshift_mode",
+}
+
+
+def _map_explicitly_provided(explicitly_provided: Collection[str], keys: dict[str, str]) -> set[str]:
+    """Translate suite-level explicitly provided flag names into a component's own key names."""
+    return {component_key for suite_key, component_key in keys.items() if suite_key in explicitly_provided}
 
 
 def _infra_config_on_skip(install_state: SuiteInstallState, explicitly_provided: Collection[str]) -> InfraInstallConfig:
@@ -414,6 +440,7 @@ def _server_config_from_dict(data: dict[str, Any]) -> ServerInstallConfig:
                 "directory": Path(data["directory"]),
                 "otel": OtelConfig(**data["otel"]),
                 "falkordb": FalkorDBConfig(**data["falkordb"]),
+                "nightshift": NightshiftConfig(**data["nightshift"]),
             }
         )
     except (KeyError, TypeError) as exc:
@@ -553,6 +580,12 @@ def _server_config(
     falkordb_url: str,
     falkordb_username: str,
     falkordb_password: str,
+    nightshift_mode: str,
+    nightshift_start: str,
+    nightshift_stop: str,
+    rabbitmq_url: str,
+    rabbitmq_username: str,
+    rabbitmq_password: str,
     otel_local: bool,
     template: str,
     explicitly_provided: Collection[str],
@@ -610,6 +643,12 @@ def _server_config(
         falkordb_url=falkordb_url,
         falkordb_username=falkordb_username,
         falkordb_password=falkordb_password,
+        nightshift_mode=nightshift_mode,
+        nightshift_start=nightshift_start,
+        nightshift_stop=nightshift_stop,
+        rabbitmq_url=rabbitmq_url,
+        rabbitmq_username=rabbitmq_username,
+        rabbitmq_password=rabbitmq_password,
         local_image=local_image,
         dev=False,
         explicitly_provided=explicitly_provided,
@@ -809,6 +848,12 @@ def install(
     falkordb_url: str = DF_FALKORDB_URL,
     falkordb_username: str = "",
     falkordb_password: str = "",
+    nightshift_mode: str = DEFAULT_NIGHTSHIFT_MODE,
+    nightshift_start: str = "",
+    nightshift_stop: str = "",
+    rabbitmq_url: str = DF_RABBITMQ_URL,
+    rabbitmq_username: str = "",
+    rabbitmq_password: str = "",
     otel_local: bool = False,
     explicitly_provided: Collection[str] = frozenset(),
 ) -> None:
@@ -871,6 +916,14 @@ def install(
         falkordb_url: The host:port for the FalkorDB instance.
         falkordb_username: Username for FalkorDB authentication.
         falkordb_password: Password for FalkorDB authentication.
+        nightshift_mode: Nightshift worker operating mode ("always" or "shift"). Nightshift/
+            RabbitMQ are mandatory infrastructure, unlike FalkorDB - there is no active/inactive
+            choice, only this mode.
+        nightshift_start: Hour Nightshift worker should start (HH:MM, host timezone), shift mode only.
+        nightshift_stop: Hour Nightshift worker should stop (HH:MM, host timezone), shift mode only.
+        rabbitmq_url: The host:port for the RabbitMQ instance.
+        rabbitmq_username: Username for RabbitMQ authentication.
+        rabbitmq_password: Password for RabbitMQ authentication.
         otel_local: Whether to install a local debug-only OpenTelemetry collector.
         explicitly_provided: The subset of suite install's own config-flag names whose CLI option
             was actually passed on the command line or via envvar (not merely equal to its own
@@ -1002,16 +1055,8 @@ def install(
 
     run_step = partial(_run_step, install_state, steps)
 
-    # The only suite-level flags whose CLI option was actually passed also participate in infra's
-    # or server's own template-value merging (_MERGEABLE_FIELDS) - mapped here onto infra's and
-    # server's own "port"/"docker_network" keys, per install()'s own docstring.
-    infra_explicitly_provided = {"port"} if "infra_port" in explicitly_provided else set()
-    if "docker_network" in explicitly_provided:
-        infra_explicitly_provided.add("docker_network")
-
-    server_explicitly_provided = {"port"} if "server_port" in explicitly_provided else set()
-    if "docker_network" in explicitly_provided:
-        server_explicitly_provided.add("docker_network")
+    infra_explicitly_provided = _map_explicitly_provided(explicitly_provided, _INFRA_EXPLICIT_KEYS)
+    server_explicitly_provided = _map_explicitly_provided(explicitly_provided, _SERVER_EXPLICIT_KEYS)
 
     # Both ask-phase steps run before any apply-phase step, so every infra and server prompt fires
     # up front. Each is only ever run once: after it succeeds, `on_skip` reconstructs the same
@@ -1058,6 +1103,12 @@ def install(
             falkordb_url=falkordb_url,
             falkordb_username=falkordb_username,
             falkordb_password=falkordb_password,
+            nightshift_mode=nightshift_mode,
+            nightshift_start=nightshift_start,
+            nightshift_stop=nightshift_stop,
+            rabbitmq_url=rabbitmq_url,
+            rabbitmq_username=rabbitmq_username,
+            rabbitmq_password=rabbitmq_password,
             otel_local=otel_local,
             template=template,
             explicitly_provided=server_explicitly_provided,

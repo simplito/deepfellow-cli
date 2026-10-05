@@ -138,6 +138,39 @@ def validate_truthy(value: Any) -> Any:
     return value
 
 
+def validate_distinct_hours(start: str, stop: str) -> None:
+    """Reject a shift window whose start and stop hours are equal (it would never be open)."""
+    if start == stop:
+        raise typer.BadParameter("Start and stop hours must differ.")
+
+
+_RABBITMQ_CREDENTIAL_FORBIDDEN = re.compile(r"[\s@/:?#\[\]%]")
+
+
+def validate_rabbitmq_credential(value: str | None) -> str:
+    """Validate a RabbitMQ username/password: non-empty and safe to embed in an amqp:// URI."""
+    if not value:
+        raise typer.BadParameter("Value can't be empty.")
+
+    if _RABBITMQ_CREDENTIAL_FORBIDDEN.search(value):
+        raise typer.BadParameter(
+            "Invalid value - can't contain whitespace or any of @ / : ? # [ ] % (they would break the amqp:// URI)."
+        )
+
+    return value
+
+
+def validate_hhmm(value: str | None) -> str | None:
+    """Validate value is an "HH:MM" 24-hour time (00-23:00-59)."""
+    if value is None:
+        return None
+
+    if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", value):
+        raise typer.BadParameter("Invalid time - must be HH:MM, 24-hour (e.g. 22:00).")
+
+    return value
+
+
 def validate_username(value: str | None) -> str | None:
     """Validate value is a sane username."""
     if value is None:

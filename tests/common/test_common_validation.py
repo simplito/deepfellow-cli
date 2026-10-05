@@ -13,9 +13,12 @@ from email_validator import EmailNotValidError
 from deepfellow.common.validation import (
     validate_connection_string,
     validate_df_name,
+    validate_distinct_hours,
     validate_email,
+    validate_hhmm,
     validate_password,
     validate_port,
+    validate_rabbitmq_credential,
     validate_server,
     validate_system,
     validate_truthy,
@@ -252,6 +255,33 @@ def test_validate_username_none_returns_none() -> None:
     assert validate_username(None) is None
 
 
+def test_validate_hhmm_none_returns_none() -> None:
+    assert validate_hhmm(None) is None
+
+
+@pytest.mark.parametrize("value", ["00:00", "22:00", "23:59", "06:05"])
+def test_validate_hhmm_returns_value_when_valid(value: str) -> None:
+    assert validate_hhmm(value) == value
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "bad",
+        "25:00",
+        "22:60",
+        "9:00",
+        "22:0",
+        "22-00",
+        "22:00:00",
+    ],
+)
+def test_validate_hhmm_raises_when_malformed(value: str) -> None:
+    with pytest.raises(typer.BadParameter):
+        validate_hhmm(value)
+
+
 @pytest.mark.parametrize(
     "value",
     [
@@ -318,3 +348,23 @@ def test_validate_password_valid(password: str) -> None:
 def test_validate_password_raises_when_invalid(password: str) -> None:
     with pytest.raises(typer.BadParameter):
         validate_password(password)
+
+
+def test_validate_distinct_hours_accepts_different_hours() -> None:
+    validate_distinct_hours("22:00", "06:00")
+
+
+def test_validate_distinct_hours_rejects_equal_hours() -> None:
+    with pytest.raises(typer.BadParameter):
+        validate_distinct_hours("22:00", "22:00")
+
+
+@pytest.mark.parametrize("value", ["user", "p4ssw0rd", "Some_Long-Pass.word!"])
+def test_validate_rabbitmq_credential_returns_value_when_safe(value: str) -> None:
+    assert validate_rabbitmq_credential(value) == value
+
+
+@pytest.mark.parametrize("value", ["", None, "a@b", "a/b", "a:b", "a?b", "a#b", "a[b", "a]b", "a%b", "a b"])
+def test_validate_rabbitmq_credential_raises_when_empty_or_breaks_uri(value: str | None) -> None:
+    with pytest.raises(typer.BadParameter):
+        validate_rabbitmq_credential(value)

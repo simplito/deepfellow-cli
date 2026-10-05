@@ -139,3 +139,37 @@ def test_uninstall_reports_success(
 
     assert mock_echo.success.call_count == 1
     assert mock_echo.success.call_args == mock.call("DeepFellow Server uninstalled.")
+
+
+@mock.patch("deepfellow.server.uninstall.echo")
+@mock.patch("deepfellow.server.uninstall.set_default_server_directory")
+@mock.patch("deepfellow.server.uninstall.get_default_server_directory")
+@mock.patch("deepfellow.server.uninstall.remove_nightshift_timers")
+@mock.patch("deepfellow.server.uninstall.rmtree")
+@mock.patch("deepfellow.server.uninstall.run")
+@mock.patch("deepfellow.server.uninstall.assert_docker")
+@mock.patch("deepfellow.server.uninstall.check_server_directory")
+def test_uninstall_removes_nightshift_systemd_timers_before_removing_files(
+    mock_check_server_directory: Mock,
+    mock_assert_docker: Mock,
+    mock_run: Mock,
+    mock_rmtree: Mock,
+    mock_remove_nightshift_timers: Mock,
+    mock_get_default_server_directory: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_echo: Mock,
+    directory: Path,
+) -> None:
+    mock_get_default_server_directory.return_value = Path("/other/dir")
+    _mock_manager = Mock()
+    _mock_manager.attach_mock(mock_remove_nightshift_timers, "remove_nightshift_timers")
+    _mock_manager.attach_mock(mock_rmtree, "rmtree")
+
+    uninstall(directory=directory)
+
+    assert mock_remove_nightshift_timers.call_count == 1
+    assert mock_remove_nightshift_timers.call_args == mock.call(directory)
+    assert _mock_manager.mock_calls == [
+        mock.call.remove_nightshift_timers(directory),
+        mock.call.rmtree(directory),
+    ]
