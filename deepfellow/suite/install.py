@@ -8,6 +8,7 @@ from pathlib import Path
 import typer
 
 from deepfellow.common.defaults import (
+    DEFAULT_NIGHTSHIFT_MODE,
     DF_FALKORDB_URL,
     DF_INFRA_DIRECTORY,
     DF_INFRA_DOCKER_NETWORK,
@@ -15,9 +16,11 @@ from deepfellow.common.defaults import (
     DF_INFRA_PORT,
     DF_INFRA_STORAGE_DIR,
     DF_MONGO_PORT,
+    DF_RABBITMQ_URL,
     DF_SERVER_DIRECTORY,
     DF_SERVER_IMAGE,
     DF_SERVER_PORT,
+    NightshiftModeChoice,
 )
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import InstallError, reraise_if_debug
@@ -67,6 +70,12 @@ _EXPLICITLY_PROVIDED_FIELDS = frozenset(
         "falkordb_url",
         "falkordb_username",
         "falkordb_password",
+        "nightshift_mode",
+        "nightshift_start",
+        "nightshift_stop",
+        "rabbitmq_url",
+        "rabbitmq_username",
+        "rabbitmq_password",
         "otel_local",
     }
 )
@@ -151,6 +160,18 @@ def install(
     falkordb_url: str = typer.Option(DF_FALKORDB_URL, help="The host:port for the FalkorDB instance"),
     falkordb_username: str = typer.Option("", help="Username for FalkorDB authentication"),
     falkordb_password: str = typer.Option("", help="Password for FalkorDB authentication"),
+    nightshift_mode: NightshiftModeChoice = typer.Option(
+        DEFAULT_NIGHTSHIFT_MODE, help="Nightshift worker operating mode."
+    ),
+    nightshift_start: str = typer.Option(
+        "", help="Hour Nightshift worker should start (HH:MM, host timezone). Only used with shift mode."
+    ),
+    nightshift_stop: str = typer.Option(
+        "", help="Hour Nightshift worker should stop (HH:MM, host timezone). Only used with shift mode."
+    ),
+    rabbitmq_url: str = typer.Option(DF_RABBITMQ_URL, help="The host:port for the RabbitMQ instance"),
+    rabbitmq_username: str = typer.Option("", help="Username for RabbitMQ authentication"),
+    rabbitmq_password: str = typer.Option("", help="Password for RabbitMQ authentication"),
     otel_local: bool = typer.Option(False, "--otel-local", help="Install a local debug-only OpenTelemetry collector."),
 ) -> None:
     """Provision a complete DeepFellow workspace: Infra, Server, admin user, and a ready-to-use workspace.
@@ -223,6 +244,12 @@ def install(
             falkordb_url=falkordb_url,
             falkordb_username=falkordb_username,
             falkordb_password=falkordb_password,
+            nightshift_mode=NightshiftModeChoice(nightshift_mode).value,
+            nightshift_start=nightshift_start,
+            nightshift_stop=nightshift_stop,
+            rabbitmq_url=rabbitmq_url,
+            rabbitmq_username=rabbitmq_username,
+            rabbitmq_password=rabbitmq_password,
             otel_local=otel_local,
             explicitly_provided=explicitly_provided,
         )

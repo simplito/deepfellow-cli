@@ -13,6 +13,7 @@ import typer
 from deepfellow.common.config import dict_to_env
 from deepfellow.common.defaults import (
     ALLOWED_VECTOR_DB_TYPES,
+    DEFAULT_NIGHTSHIFT_MODE,
     DEFAULT_OTEL_URL,
     DEFAULT_VECTOR_DATABASE,
     DEFAULT_VECTOR_DATABASE_TYPE,
@@ -22,8 +23,11 @@ from deepfellow.common.defaults import (
     DF_MONGO_DB,
     DF_MONGO_PORT,
     DF_MONGO_URL,
+    DF_RABBITMQ_PORT,
+    DF_RABBITMQ_URL,
     DOCKER_COMPOSE_FALKORDB,
     DOCKER_COMPOSE_OTEL_COLLECTOR,
+    DOCKER_COMPOSE_RABBITMQ,
     MILVUS_DATABASE,
     OTEL_COLLECTOR_CONFIG,
     OTEL_COLLECTOR_CONFIG_DEBUG_ONLY,
@@ -31,6 +35,7 @@ from deepfellow.common.defaults import (
     SPARSE_EMBEDDING_MODEL,
     SPARSE_EMBEDDING_SIZE,
     VECTOR_DATABASES,
+    NightshiftModeChoice,
 )
 from deepfellow.common.docker import (
     DockerError,
@@ -43,7 +48,16 @@ from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
 from deepfellow.common.generate import generate_password
 from deepfellow.common.state import state
-from deepfellow.common.validation import validate_connection_string, validate_truthy, validate_url, validate_username
+from deepfellow.common.validation import (
+    validate_connection_string,
+    validate_distinct_hours,
+    validate_hhmm,
+    validate_rabbitmq_credential,
+    validate_truthy,
+    validate_url,
+    validate_username,
+)
+from deepfellow.server.utils.systemd import assert_systemd_available, ensure_linger_enabled, is_systemd_available
 
 
 def should_use_vector_db(
@@ -726,3 +740,145 @@ def configure_falkordb(
         },
         docker_compose={},
     )
+
+
+@dataclass
+class NightshiftConfig:
+    envs: dict[str, Any]
+    docker_compose: dict[str, Any]
+
+
+def is_custom_rabbitmq(rabbitmq_url: str) -> bool:
+    """Check if user wants to connect an existing RabbitMQ instance instead of a local one."""
+    if rabbitmq_url != DF_RABBITMQ_URL:
+        return True
+    return not echo.confirm("Install a local RabbitMQ for DeepFellow Server?", default=True)
+
+
+def _split_rabbitmq_host_port(value: str) -> tuple[str, str]:
+    """Split a validated host[:port] connection string into (host, port)."""
+    host, _, port = value.partition(":")
+    return host, port or str(DF_RABBITMQ_PORT)
+
+
+def configure_nightshift(
+    nightshift_mode: str,
+    nightshift_start: str,
+    nightshift_stop: str,
+    rabbitmq_url: str,
+    rabbitmq_username: str,
+    rabbitmq_password: str,
+    original_env: dict[str, Any] | None = None,
+    *,
+    force_provided_mode: bool = False,
+) -> NightshiftConfig:
+    """Collect info about the Nightshift worker's schedule and its RabbitMQ queue.
+
+    Unlike FalkorDB/VectorDB, Nightshift is mandatory infrastructure - there is no
+    active/inactive choice, only the operating mode (always vs a scheduled shift) and, for a
+    local RabbitMQ, whether to reuse an existing one.
+    """
+    original_env = original_env or {}
+
+    # `shift` is left out of the interactive choices entirely on a host that could never support
+    # it (no systemd) - no point offering a mode that's guaranteed to fail. An explicit
+    # --nightshift-mode shift flag still reaches assert_systemd_available()'s hard rejection below
+    # regardless of what's offered here, since echo.choice() returns an explicitly-provided
+    # from_args value without consulting `choices` at all.
+    available_modes = [NightshiftModeChoice.always.value]
+    if is_systemd_available():
+        available_modes.append(NightshiftModeChoice.shift.value)
+
+    default_mode = original_env.get("df_nightshift_mode", nightshift_mode) or DEFAULT_NIGHTSHIFT_MODE
+    if default_mode not in available_modes:
+        # A prior install had `shift` stored (systemd was available then), but this run's host/
+        # moment no longer has systemd - questionary.select() raises if `default` isn't one of
+        # `choices`, so fall back to the one mode that's always available instead of crashing.
+        default_mode = DEFAULT_NIGHTSHIFT_MODE
+
+    mode = echo.choice(
+        "Choose Nightshift worker operating mode",
+        choices=available_modes,
+        from_args=nightshift_mode,
+        original_default=DEFAULT_NIGHTSHIFT_MODE,
+        default=default_mode,
+        force_provided=force_provided_mode,
+    )
+
+    envs: dict[str, Any] = {"DF_NIGHTSHIFT_ENABLED": "true", "DF_NIGHTSHIFT_MODE": mode}
+
+    if mode == NightshiftModeChoice.shift.value:
+        # Fail here, at resolve()-time, rather than later inside apply() - apply() is documented
+        # as prompt-free and side-effect-safe to retry, so validation belongs before it, not after
+        # it has already pulled images/written files. See deepfellow.server.utils.systemd.
+        assert_systemd_available()
+        # Same reasoning for enabling linger: it can prompt ("Retry with sudo?") and exit on
+        # failure, which apply() must never do. Idempotent - a no-op if already enabled, so
+        # apply()'s own later reconcile_nightshift_schedule() call just finds it already done.
+        ensure_linger_enabled()
+        echo.warning(
+            "In shift mode, tasks queued outside the worker's active hours wait in RabbitMQ "
+            "until its next scheduled start - they are not processed by the server in the meantime."
+        )
+        envs["DF_NIGHTSHIFT_START"] = echo.prompt_until_valid(
+            "Provide the hour Nightshift worker should start (HH:MM, host timezone)",
+            validate_hhmm,
+            from_args=nightshift_start,
+            # "" (not "22:00") - matches the CLI flag's own blank default, so get_return_value()
+            # correctly sees an unprovided --nightshift-start as "nothing given" (from_args ==
+            # original_default) rather than as an explicitly-provided empty string, which would
+            # otherwise run validate_hhmm("") before ever prompting and print a spurious
+            # "Invalid time" message ahead of the real, interactive prompt.
+            original_default="",
+            default=original_env.get("df_nightshift_start") or nightshift_start or "22:00",
+        )
+        envs["DF_NIGHTSHIFT_STOP"] = echo.prompt_until_valid(
+            "Provide the hour Nightshift worker should stop (HH:MM, host timezone)",
+            validate_hhmm,
+            from_args=nightshift_stop,
+            original_default="",
+            default=original_env.get("df_nightshift_stop") or nightshift_stop or "06:00",
+        )
+        validate_distinct_hours(envs["DF_NIGHTSHIFT_START"], envs["DF_NIGHTSHIFT_STOP"])
+
+    if not is_custom_rabbitmq(rabbitmq_url):
+        if rabbitmq_username:
+            validate_rabbitmq_credential(rabbitmq_username)
+        if rabbitmq_password:
+            validate_rabbitmq_credential(rabbitmq_password)
+        rabbitmq_password = rabbitmq_password or str(original_env.get("df_rabbitmq_password") or generate_password(12))
+        host, port = _split_rabbitmq_host_port(DF_RABBITMQ_URL)
+        echo.info("A default RabbitMQ setup is created.")
+        envs |= {
+            "DF_RABBITMQ_URL": f"{host}:{port}",
+            "DF_RABBITMQ_USER": rabbitmq_username or str(original_env.get("df_rabbitmq_user") or generate_password(8)),
+            "DF_RABBITMQ_PASSWORD": rabbitmq_password,
+        }
+        return NightshiftConfig(envs=envs, docker_compose=DOCKER_COMPOSE_RABBITMQ)
+
+    rabbitmq_url = echo.prompt_until_valid(
+        "Provide host:port for RabbitMQ e.g. 192.168.1.5:5672",
+        validate_connection_string,
+        from_args=rabbitmq_url,
+        original_default=DF_RABBITMQ_URL,
+        default=original_env.get("df_rabbitmq_url", rabbitmq_url),
+    )
+    envs |= {
+        "DF_RABBITMQ_URL": rabbitmq_url,
+        "DF_RABBITMQ_USER": echo.prompt_until_valid(
+            "Provide RabbitMQ username",
+            validate_rabbitmq_credential,
+            from_args=rabbitmq_username,
+            original_default="",
+            default=original_env.get("df_rabbitmq_user", ""),
+        ),
+        "DF_RABBITMQ_PASSWORD": echo.prompt_until_valid(
+            "Provide RabbitMQ password",
+            validate_rabbitmq_credential,
+            from_args=rabbitmq_password,
+            original_default="",
+            default=original_env.get("df_rabbitmq_password", ""),
+            password=True,
+        ),
+    }
+    return NightshiftConfig(envs=envs, docker_compose={})

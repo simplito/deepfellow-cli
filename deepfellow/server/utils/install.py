@@ -21,6 +21,7 @@ from deepfellow.common.config import (
     save_env_file,
 )
 from deepfellow.common.defaults import (
+    DEFAULT_NIGHTSHIFT_MODE,
     DEFAULT_VECTOR_DATABASE,
     DEFAULT_VECTOR_DATABASE_TYPE,
     DF_FALKORDB_URL,
@@ -30,6 +31,7 @@ from deepfellow.common.defaults import (
     DF_MONGO_DB,
     DF_MONGO_PORT,
     DF_MONGO_URL,
+    DF_RABBITMQ_URL,
     DF_SERVER_DIRECTORY,
     DF_SERVER_IMAGE,
     DF_SERVER_IMAGE_HUB,
@@ -38,9 +40,11 @@ from deepfellow.common.defaults import (
     DOCKER_COMPOSE_CONFIG_FILENAME,
     DOCKER_COMPOSE_MILVUS,
     DOCKER_COMPOSE_MONGO_DB,
+    DOCKER_COMPOSE_NIGHTSHIFT,
     DOCKER_COMPOSE_QDRANT,
     DOCKER_COMPOSE_SERVER,
     DOCKER_COMPOSE_SERVER_FALKORDB_ENVS,
+    DOCKER_COMPOSE_SERVER_NIGHTSHIFT_ENVS,
     DOCKER_COMPOSE_SERVER_VECTOR_DB_ENVS,
     DOCKER_COMPOSE_SERVER_VECTOR_DB_MILVUS_ENVS,
     MILVUS_DATABASE,
@@ -70,10 +74,12 @@ from deepfellow.common.system import run
 from deepfellow.common.templates import InstallTemplate, PostStartAction
 from deepfellow.server.utils.configure import (
     FalkorDBConfig,
+    NightshiftConfig,
     OtelConfig,
     configure_falkordb,
     configure_infra,
     configure_mongo,
+    configure_nightshift,
     configure_otel,
     configure_vector_db,
 )
@@ -89,6 +95,7 @@ from deepfellow.server.utils.minio_migration import (
     should_keep_existing_minio,
 )
 from deepfellow.server.utils.storage import config_json_exists
+from deepfellow.server.utils.systemd import reconcile_nightshift_schedule
 from deepfellow.server.utils.templates import dispatch_post_start_action, resolve_template
 from deepfellow.server.utils.users import apply_admin, resolve_admin_creds
 
@@ -420,6 +427,7 @@ class InstallConfig:
     vectordb_type: str
     otel: OtelConfig
     falkordb: FalkorDBConfig
+    nightshift: NightshiftConfig
     local_image: bool
     dev: bool
     legacy_minio_service: dict[str, Any] | None = None
@@ -494,6 +502,12 @@ def resolve(
     falkordb_url: str,
     falkordb_username: str,
     falkordb_password: str,
+    nightshift_mode: str,
+    nightshift_start: str,
+    nightshift_stop: str,
+    rabbitmq_url: str,
+    rabbitmq_username: str,
+    rabbitmq_password: str,
     local_image: bool,
     dev: bool,
     explicitly_provided: Collection[str] = frozenset(),
@@ -541,6 +555,16 @@ def resolve(
         falkordb_url: Requested FalkorDB connection host:port.
         falkordb_username: Requested FalkorDB username.
         falkordb_password: Requested FalkorDB password.
+        nightshift_mode: Requested Nightshift worker operating mode ("always" or "shift").
+            Nightshift/RabbitMQ are mandatory infrastructure - unlike FalkorDB, there is no
+            active/inactive choice, only this mode.
+        nightshift_start: Requested Nightshift worker start hour (HH:MM, host timezone),
+            only used when nightshift_mode is "shift".
+        nightshift_stop: Requested Nightshift worker stop hour (HH:MM, host timezone),
+            only used when nightshift_mode is "shift".
+        rabbitmq_url: Requested RabbitMQ connection host:port.
+        rabbitmq_username: Requested RabbitMQ username.
+        rabbitmq_password: Requested RabbitMQ password.
         local_image: Whether a locally built docker image is used.
         dev: Whether to expose internal service ports to the host.
         explicitly_provided: The subset of `_MERGEABLE_FIELDS` keys actually passed on the command
@@ -701,6 +725,17 @@ def resolve(
         falkordb_active, falkordb_url, falkordb_username, falkordb_password, original_env_content
     )
 
+    nightshift = configure_nightshift(
+        nightshift_mode,
+        nightshift_start,
+        nightshift_stop,
+        rabbitmq_url,
+        rabbitmq_username,
+        rabbitmq_password,
+        original_env_content,
+        force_provided_mode="nightshift_mode" in explicitly_provided,
+    )
+
     return InstallConfig(
         directory=directory,
         port=port,
@@ -719,6 +754,7 @@ def resolve(
         vectordb_type=vectordb_type_str,
         otel=otel,
         falkordb=falkordb,
+        nightshift=nightshift,
         local_image=local_image,
         dev=dev,
         legacy_minio_service=legacy_minio_service,
@@ -758,6 +794,7 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
             **config.vectordb_envs,
             **config.otel.envs,
             **config.falkordb.envs,
+            **config.nightshift.envs,
         },
     )
 
@@ -930,11 +967,56 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
     if config.falkordb.envs.get("DF_GRAPH__ENABLED") == "true":
         server_docker_envs.extend(DOCKER_COMPOSE_SERVER_FALKORDB_ENVS)
 
+    # Nightshift/RabbitMQ are mandatory infrastructure (configure_nightshift() always returns
+    # DF_NIGHTSHIFT_ENABLED=true) - unlike the other optional backing services above, the worker
+    # service itself is always added, not gated behind an active/inactive check.
+    if config.nightshift.docker_compose:
+        services.update(deepcopy(config.nightshift.docker_compose))
+        volumes["rabbitmq_data"] = None
+        depends_on["rabbitmq"] = {"condition": "service_healthy"}
+
+    server_docker_envs.extend(DOCKER_COMPOSE_SERVER_NIGHTSHIFT_ENVS)
+
+    nightshift_service = deepcopy(DOCKER_COMPOSE_NIGHTSHIFT)
+    nightshift_envs = nightshift_service["nightshift"]["environment"]
+    nightshift_envs.extend(DOCKER_COMPOSE_SERVER_NIGHTSHIFT_ENVS)
+    for api_endpoint_key in config.infra_env:
+        nightshift_envs.append(api_endpoint_key + "=${" + api_endpoint_key + "}")
+    if config.is_vectordb_active:
+        nightshift_envs.extend(DOCKER_COMPOSE_SERVER_VECTOR_DB_ENVS)
+        if config.vectordb_type == "milvus":
+            nightshift_envs.extend(DOCKER_COMPOSE_SERVER_VECTOR_DB_MILVUS_ENVS)
+    if config.falkordb.envs.get("DF_GRAPH__ENABLED") == "true":
+        nightshift_envs.extend(DOCKER_COMPOSE_SERVER_FALKORDB_ENVS)
+    nightshift_depends_on: dict[str, dict[str, str]] = {}
+    if config.nightshift.docker_compose:
+        # Only when RabbitMQ is locally managed - an external RabbitMQ has no "rabbitmq" service
+        # in this compose.yaml at all, and depending on an undefined service fails validation.
+        nightshift_depends_on["rabbitmq"] = {"condition": "service_healthy"}
+    # nightshift's own boot sequence (init_vectordb()/init_db()/init_graph_service(), same code as
+    # the server) needs a working vector DB/Mongo/FalkorDB connection just as much as the server does - without this, it
+    # crashes on startup if it happens to come up before them (no ordering guarantee otherwise),
+    # then self-heals via `restart: unless-stopped` once they catch up. Reuses whichever entries
+    # the server's own `depends_on` already has for them (absent entirely when that backing
+    # service is external, exactly like the server's own dependency).
+    for backing_service in ("qdrant", "milvus", "mongo", "falkordb"):
+        if backing_service in depends_on:
+            nightshift_depends_on[backing_service] = depends_on[backing_service]
+    if nightshift_depends_on:
+        nightshift_service["nightshift"]["depends_on"] = nightshift_depends_on
+    if config.local_image:
+        nightshift_service["nightshift"]["pull_policy"] = "never"
+    services.update(nightshift_service)
+
     if config.otel.envs.get("DF_OTEL_TRACING_ENABLED") == "true" and config.otel.envs.get(
         "DF_OTEL_EXPORTER_OTLP_ENDPOINT"
     ):
         environment.append("DF_OTEL_EXPORTER_OTLP_ENDPOINT=${DF_OTEL_EXPORTER_OTLP_ENDPOINT}")
         environment.append("DF_OTEL_TRACING_ENABLED=${DF_OTEL_TRACING_ENABLED}")
+        # nightshift.py itself calls otel_setup.reconfigure() - it needs these same two envs to
+        # actually emit traces, not just the server.
+        nightshift_envs.append("DF_OTEL_EXPORTER_OTLP_ENDPOINT=${DF_OTEL_EXPORTER_OTLP_ENDPOINT}")
+        nightshift_envs.append("DF_OTEL_TRACING_ENABLED=${DF_OTEL_TRACING_ENABLED}")
 
     if not config.is_vectordb_active:
         compose_server["server"]["environment"] = [
@@ -966,10 +1048,14 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
         echo.error(f"Unable to create {DF_SERVER_STORAGE_DIRECTORY}: {exc}.")
         reraise_if_debug(exc)
 
-    services["server"]["volumes"] = [
+    server_volumes = [
         f"{DF_SERVER_STORAGE_DIRECTORY}:/app/storage",
         f"{plugins_directory.as_posix()}:/app/plugins",
     ]
+    services["server"]["volumes"] = server_volumes
+    # Nightshift reads/watches the same storage (files to process, config.json) and plugins as
+    # the server - see requirement in the ticket that the worker mount identical directories.
+    services["nightshift"]["volumes"] = list(server_volumes)
 
     if config.dev:
         expose_ports_to_host(services)
@@ -983,6 +1069,19 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
     # begin with), so the marker that covered the gap between a successful migration and this
     # write is no longer needed - see `migrate_minio_data_to_seaweedfs()`.
     clear_migration_marker(config.directory)
+
+    # Reconciles the systemd timers to match the resolved mode/schedule - so choosing `shift` at
+    # install time actually creates working timers here, not only via a later `server nightshift
+    # mode`. Runs after compose.yaml is written, so a timer never points at a missing or stale one.
+    # Safe to call unconditionally (idempotent, and a no-op when mode is `always`) - see
+    # deepfellow.server.utils.systemd.reconcile_nightshift_schedule.
+    reconcile_nightshift_schedule(
+        config.directory,
+        config.nightshift.envs.get("DF_NIGHTSHIFT_MODE", DEFAULT_NIGHTSHIFT_MODE),
+        config.nightshift.envs.get("DF_NIGHTSHIFT_START", ""),
+        config.nightshift.envs.get("DF_NIGHTSHIFT_STOP", ""),
+    )
+
     try:
         run(["docker", "compose", "pull"], config.directory, raises=DockerError)
     except DockerError as exc:
@@ -1149,6 +1248,12 @@ def install(
     falkordb_url: str = DF_FALKORDB_URL,
     falkordb_username: str = "",
     falkordb_password: str = "",
+    nightshift_mode: str = DEFAULT_NIGHTSHIFT_MODE,
+    nightshift_start: str = "",
+    nightshift_stop: str = "",
+    rabbitmq_url: str = DF_RABBITMQ_URL,
+    rabbitmq_username: str = "",
+    rabbitmq_password: str = "",
     force_install: bool = False,
     dev: bool = False,
     template: str | None = None,
@@ -1202,6 +1307,12 @@ def install(
         falkordb_url=falkordb_url,
         falkordb_username=falkordb_username,
         falkordb_password=falkordb_password,
+        nightshift_mode=nightshift_mode,
+        nightshift_start=nightshift_start,
+        nightshift_stop=nightshift_stop,
+        rabbitmq_url=rabbitmq_url,
+        rabbitmq_username=rabbitmq_username,
+        rabbitmq_password=rabbitmq_password,
         local_image=local_image,
         dev=dev,
         explicitly_provided=explicitly_provided,

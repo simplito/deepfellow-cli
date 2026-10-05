@@ -13,6 +13,7 @@ from click.core import ParameterSource
 from typer.testing import CliRunner
 
 from deepfellow.common.defaults import (
+    DEFAULT_NIGHTSHIFT_MODE,
     DF_FALKORDB_URL,
     DF_INFRA_DIRECTORY,
     DF_INFRA_DOCKER_NETWORK,
@@ -20,6 +21,7 @@ from deepfellow.common.defaults import (
     DF_INFRA_PORT,
     DF_INFRA_STORAGE_DIR,
     DF_MONGO_PORT,
+    DF_RABBITMQ_URL,
     DF_SERVER_DIRECTORY,
     DF_SERVER_IMAGE,
     DF_SERVER_PORT,
@@ -71,6 +73,12 @@ def default_install_kwargs() -> dict:
         "falkordb_url": DF_FALKORDB_URL,
         "falkordb_username": "",
         "falkordb_password": "",
+        "nightshift_mode": DEFAULT_NIGHTSHIFT_MODE,
+        "nightshift_start": "",
+        "nightshift_stop": "",
+        "rabbitmq_url": DF_RABBITMQ_URL,
+        "rabbitmq_username": "",
+        "rabbitmq_password": "",
         "otel_local": False,
     }
 

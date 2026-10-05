@@ -8,6 +8,7 @@ from pathlib import Path
 import typer
 
 from deepfellow.common.defaults import (
+    DEFAULT_NIGHTSHIFT_MODE,
     DEFAULT_VECTOR_DATABASE,
     DEFAULT_VECTOR_DATABASE_TYPE,
     DF_FALKORDB_URL,
@@ -16,9 +17,11 @@ from deepfellow.common.defaults import (
     DF_MONGO_DB,
     DF_MONGO_PORT,
     DF_MONGO_URL,
+    DF_RABBITMQ_URL,
     DF_SERVER_IMAGE,
     DF_SERVER_PORT,
     MILVUS_DATABASE,
+    NightshiftModeChoice,
     VectorDBTypeChoice,
 )
 from deepfellow.common.echo import echo
@@ -105,6 +108,18 @@ def install(
     falkordb_url: str = typer.Option(DF_FALKORDB_URL, help="The host:port for the FalkorDB instance"),
     falkordb_username: str = typer.Option("", help="Username for FalkorDB authentication"),
     falkordb_password: str = typer.Option("", help="Password for FalkorDB authentication"),
+    nightshift_mode: NightshiftModeChoice = typer.Option(
+        DEFAULT_NIGHTSHIFT_MODE, help="Nightshift worker operating mode."
+    ),
+    nightshift_start: str = typer.Option(
+        "", help="Hour Nightshift worker should start (HH:MM, host timezone). Only used with shift mode."
+    ),
+    nightshift_stop: str = typer.Option(
+        "", help="Hour Nightshift worker should stop (HH:MM, host timezone). Only used with shift mode."
+    ),
+    rabbitmq_url: str = typer.Option(DF_RABBITMQ_URL, help="The host:port for the RabbitMQ instance"),
+    rabbitmq_username: str = typer.Option("", help="Username for RabbitMQ authentication"),
+    rabbitmq_password: str = typer.Option("", help="Password for RabbitMQ authentication"),
     force_install: bool = typer.Option(False, help="Force a reinstall over an already-existing server directory."),
     dev: bool = typer.Option(False, "--dev", help="Expose internal service ports to host for development."),
     template: str | None = typer.Option(None, help=_TEMPLATE_HELP),
@@ -133,7 +148,7 @@ def install(
     # the live Click invocation, and handed to install_util() instead of being re-derived from values.
     explicitly_provided = {
         key
-        for key in mergeable_field_names()
+        for key in mergeable_field_names() | {"nightshift_mode"}
         if (source := ctx.get_parameter_source(key)) is not None and source.name in _EXPLICIT_PARAMETER_SOURCE_NAMES
     }
     try:
@@ -165,6 +180,12 @@ def install(
             falkordb_url=falkordb_url,
             falkordb_username=falkordb_username,
             falkordb_password=falkordb_password,
+            nightshift_mode=NightshiftModeChoice(nightshift_mode).value,
+            nightshift_start=nightshift_start,
+            nightshift_stop=nightshift_stop,
+            rabbitmq_url=rabbitmq_url,
+            rabbitmq_username=rabbitmq_username,
+            rabbitmq_password=rabbitmq_password,
             force_install=force_install,
             dev=dev,
             template=template,

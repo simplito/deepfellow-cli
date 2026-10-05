@@ -11,6 +11,7 @@ from deepfellow.common.echo import echo
 from deepfellow.common.install import assert_docker
 from deepfellow.common.system import rmtree, run
 from deepfellow.server.utils.options import directory_option, get_default_server_directory, set_default_server_directory
+from deepfellow.server.utils.systemd import remove_nightshift_timers
 from deepfellow.server.utils.validation import check_server_directory
 
 app = typer.Typer()
@@ -27,6 +28,9 @@ def prune(
 
     echo.info("Removing DeepFellow Server containers and volumes.")
     run(["docker", "compose", "down", "-v"], directory, quiet=True)
+
+    echo.info("Removing Nightshift systemd timers, if any.")
+    remove_nightshift_timers(directory)
 
     echo.info("Removing DeepFellow Server files.")
     rmtree(directory)

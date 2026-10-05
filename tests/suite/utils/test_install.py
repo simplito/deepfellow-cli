@@ -10,6 +10,7 @@ import pytest
 import typer
 
 from deepfellow.common.defaults import (
+    DEFAULT_NIGHTSHIFT_MODE,
     DF_FALKORDB_URL,
     DF_INFRA_DIRECTORY,
     DF_INFRA_DOCKER_NETWORK,
@@ -17,6 +18,7 @@ from deepfellow.common.defaults import (
     DF_INFRA_PORT,
     DF_INFRA_STORAGE_DIR,
     DF_MONGO_PORT,
+    DF_RABBITMQ_URL,
     DF_SERVER_DIRECTORY,
     DF_SERVER_IMAGE,
     DF_SERVER_PORT,
@@ -30,7 +32,7 @@ from deepfellow.infra.utils.templates import BUILTIN_TEMPLATES as INFRA_BUILTIN_
 from deepfellow.server.organization.utils import Organization
 from deepfellow.server.project.api_key.utils import ApiKey
 from deepfellow.server.project.utils import Project
-from deepfellow.server.utils.configure import FalkorDBConfig, OtelConfig
+from deepfellow.server.utils.configure import FalkorDBConfig, NightshiftConfig, OtelConfig
 from deepfellow.server.utils.install import InstallConfig as ServerInstallConfig
 from deepfellow.server.utils.templates import BUILTIN_TEMPLATES as SERVER_BUILTIN_TEMPLATES
 from deepfellow.server.utils.workspace import Workspace
@@ -133,6 +135,7 @@ def _make_server_config(**overrides: object) -> ServerInstallConfig:
         "vectordb_type": "milvus",
         "otel": OtelConfig(envs={}, docker_compose={}),
         "falkordb": FalkorDBConfig(envs={}, docker_compose={}),
+        "nightshift": NightshiftConfig(envs={}, docker_compose={}),
         "local_image": False,
         "dev": False,
     }
@@ -1585,6 +1588,7 @@ def test_server_config_to_dict_serializes_directory_as_string() -> None:
     assert data["directory"] == str(config.directory)
     assert data["otel"] == {"envs": {}, "docker_compose": {}, "collector_config": None}
     assert data["falkordb"] == {"envs": {}, "docker_compose": {}}
+    assert data["nightshift"] == {"envs": {}, "docker_compose": {}}
 
 
 def test_server_config_from_dict_raises_install_error_on_missing_keys() -> None:
@@ -1603,6 +1607,14 @@ def test_server_config_from_dict_raises_install_error_on_missing_otel() -> None:
 def test_server_config_from_dict_raises_install_error_on_missing_falkordb() -> None:
     data = _server_config_to_dict(_make_server_config())
     del data["falkordb"]
+
+    with pytest.raises(InstallError, match="invalid or corrupted"):
+        _server_config_from_dict(data)
+
+
+def test_server_config_from_dict_raises_install_error_on_missing_nightshift() -> None:
+    data = _server_config_to_dict(_make_server_config())
+    del data["nightshift"]
 
     with pytest.raises(InstallError, match="invalid or corrupted"):
         _server_config_from_dict(data)
@@ -2710,6 +2722,50 @@ def test_install_maps_explicitly_provided_docker_network_to_both(
 
 
 @_patch_all_steps
+def test_install_maps_explicitly_provided_nightshift_mode_to_server_only(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+) -> None:
+    """An explicit --nightshift-mode must reach server_config as "nightshift_mode", so it overrides
+    a stored DF_NIGHTSHIFT_MODE the same way it does for `server install`."""
+    mock_load_state.return_value = None
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = _make_workspace()
+
+    install(
+        admin_name="Admin",
+        admin_email="admin@example.com",
+        admin_password="Sup3r$ecret!",
+        explicitly_provided={"nightshift_mode"},
+    )
+
+    assert mock_infra_config.call_args.kwargs["explicitly_provided"] == set()
+    assert mock_server_config.call_args.kwargs["explicitly_provided"] == {"nightshift_mode"}
+
+
+@_patch_all_steps
 def test_install_warns_when_infra_config_flags_ignored_because_step_skipped(
     mock_server_config_to_dict: Mock,
     mock_server_config_from_dict: Mock,
@@ -3071,6 +3127,12 @@ def _server_config_kwargs(**overrides: object) -> dict:
         "falkordb_url": DF_FALKORDB_URL,
         "falkordb_username": "",
         "falkordb_password": "",
+        "nightshift_mode": DEFAULT_NIGHTSHIFT_MODE,
+        "nightshift_start": "",
+        "nightshift_stop": "",
+        "rabbitmq_url": DF_RABBITMQ_URL,
+        "rabbitmq_username": "",
+        "rabbitmq_password": "",
         "otel_local": False,
         "template": "workspace",
         "explicitly_provided": set(),

@@ -10,6 +10,7 @@ import typer
 from deepfellow.common.docker import print_docker_status
 from deepfellow.common.echo import echo
 from deepfellow.common.install import assert_docker
+from deepfellow.server.utils.docker import print_nightshift_status
 from deepfellow.server.utils.options import directory_option
 
 app = typer.Typer()
@@ -23,3 +24,4 @@ def status(
     assert_docker()
     echo.debug("Showing DeepFellow Server status")
     print_docker_status(directory, "server")
+    print_nightshift_status(directory)

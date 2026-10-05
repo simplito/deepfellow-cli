@@ -8,6 +8,7 @@ from unittest.mock import Mock
 from deepfellow.server.status import status
 
 
+@mock.patch("deepfellow.server.status.print_nightshift_status")
 @mock.patch("deepfellow.server.status.print_docker_status")
 @mock.patch("deepfellow.server.status.echo.debug")
 @mock.patch("deepfellow.server.status.assert_docker")
@@ -15,6 +16,7 @@ def test_status_checks_docker_before_printing_status(
     mock_assert_docker: Mock,
     mock_echo_debug: Mock,
     mock_print_docker_status: Mock,
+    mock_print_nightshift_status: Mock,
     directory: Path,
 ) -> None:
     status(directory=directory)
@@ -23,6 +25,7 @@ def test_status_checks_docker_before_printing_status(
     assert mock_assert_docker.call_args == mock.call()
 
 
+@mock.patch("deepfellow.server.status.print_nightshift_status")
 @mock.patch("deepfellow.server.status.print_docker_status")
 @mock.patch("deepfellow.server.status.echo.debug")
 @mock.patch("deepfellow.server.status.assert_docker")
@@ -30,6 +33,7 @@ def test_status_prints_docker_status_for_server_context(
     mock_assert_docker: Mock,
     mock_echo_debug: Mock,
     mock_print_docker_status: Mock,
+    mock_print_nightshift_status: Mock,
     directory: Path,
 ) -> None:
     status(directory=directory)
@@ -38,6 +42,26 @@ def test_status_prints_docker_status_for_server_context(
     assert mock_print_docker_status.call_args == mock.call(directory, "server")
 
 
+@mock.patch("deepfellow.server.status.print_nightshift_status")
+@mock.patch("deepfellow.server.status.print_docker_status")
+@mock.patch("deepfellow.server.status.echo.debug")
+@mock.patch("deepfellow.server.status.assert_docker")
+def test_status_also_prints_nightshift_status(
+    mock_assert_docker: Mock,
+    mock_echo_debug: Mock,
+    mock_print_docker_status: Mock,
+    mock_print_nightshift_status: Mock,
+    directory: Path,
+) -> None:
+    """server status shows the worker's status alongside the server's own, instead of requiring
+    a separate `server nightshift status` call to see it."""
+    status(directory=directory)
+
+    assert mock_print_nightshift_status.call_count == 1
+    assert mock_print_nightshift_status.call_args == mock.call(directory)
+
+
+@mock.patch("deepfellow.server.status.print_nightshift_status")
 @mock.patch("deepfellow.server.status.print_docker_status")
 @mock.patch("deepfellow.server.status.echo.debug")
 @mock.patch("deepfellow.server.status.assert_docker")
@@ -45,6 +69,7 @@ def test_status_logs_debug_message(
     mock_assert_docker: Mock,
     mock_echo_debug: Mock,
     mock_print_docker_status: Mock,
+    mock_print_nightshift_status: Mock,
     directory: Path,
 ) -> None:
     status(directory=directory)

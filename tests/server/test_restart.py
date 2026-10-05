@@ -15,6 +15,7 @@ def env_content() -> dict:
     return {"df_server_port": "8080"}
 
 
+@mock.patch("deepfellow.server.restart.reconcile_nightshift_running_state")
 @mock.patch("deepfellow.server.restart.start_server")
 @mock.patch("deepfellow.server.restart.stop_server")
 @mock.patch("deepfellow.server.restart.echo.info")
@@ -28,6 +29,7 @@ def test_restart_calls_check_server_directory(
     mock_echo: Mock,
     mock_stop_server: Mock,
     mock_start_server: Mock,
+    mock_reconcile: Mock,
     directory: Path,
     env_content: dict,
 ) -> None:
@@ -40,6 +42,7 @@ def test_restart_calls_check_server_directory(
     assert mock_assert_docker.call_count == 1
 
 
+@mock.patch("deepfellow.server.restart.reconcile_nightshift_running_state")
 @mock.patch("deepfellow.server.restart.start_server")
 @mock.patch("deepfellow.server.restart.stop_server")
 @mock.patch("deepfellow.server.restart.echo.info")
@@ -53,6 +56,7 @@ def test_restart_stops_then_starts_server(
     mock_echo: Mock,
     mock_stop_server: Mock,
     mock_start_server: Mock,
+    mock_reconcile: Mock,
     directory: Path,
     env_content: dict,
 ) -> None:
@@ -69,8 +73,10 @@ def test_restart_stops_then_starts_server(
     assert mock_start_server.call_args == ((directory,), {})
     assert manager.mock_calls == [mock.call.stop_server(directory), mock.call.start_server(directory)]
     assert mock_assert_docker.call_count == 1
+    assert mock_reconcile.call_args == mock.call(directory)
 
 
+@mock.patch("deepfellow.server.restart.reconcile_nightshift_running_state")
 @mock.patch("deepfellow.server.restart.start_server")
 @mock.patch("deepfellow.server.restart.stop_server")
 @mock.patch("deepfellow.server.restart.echo.info")
@@ -84,6 +90,7 @@ def test_echo_prints_restarting_message(
     mock_echo: Mock,
     mock_stop_server: Mock,
     mock_start_server: Mock,
+    mock_reconcile: Mock,
     directory: Path,
     env_content: dict,
 ) -> None:
@@ -95,6 +102,7 @@ def test_echo_prints_restarting_message(
     assert mock_assert_docker.call_count == 1
 
 
+@mock.patch("deepfellow.server.restart.reconcile_nightshift_running_state")
 @mock.patch("deepfellow.server.restart.start_server")
 @mock.patch("deepfellow.server.restart.stop_server")
 @mock.patch("deepfellow.server.restart.echo.info")
@@ -108,6 +116,7 @@ def test_echo_prints_port(
     mock_echo: Mock,
     mock_stop_server: Mock,
     mock_start_server: Mock,
+    mock_reconcile: Mock,
     directory: Path,
     env_content: dict,
 ) -> None:

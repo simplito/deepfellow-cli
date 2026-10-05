@@ -144,7 +144,42 @@ def test_prune_reports_progress_in_order(
     assert mock_echo.info.call_args_list == [
         mock.call("Pruning DeepFellow Server."),
         mock.call("Removing DeepFellow Server containers and volumes."),
+        mock.call("Removing Nightshift systemd timers, if any."),
         mock.call("Removing DeepFellow Server files."),
     ]
     assert mock_echo.success.call_count == 1
     assert mock_echo.success.call_args == mock.call("DeepFellow Server pruned.")
+
+
+@mock.patch("deepfellow.server.prune.echo")
+@mock.patch("deepfellow.server.prune.set_default_server_directory")
+@mock.patch("deepfellow.server.prune.get_default_server_directory")
+@mock.patch("deepfellow.server.prune.remove_nightshift_timers")
+@mock.patch("deepfellow.server.prune.rmtree")
+@mock.patch("deepfellow.server.prune.run")
+@mock.patch("deepfellow.server.prune.assert_docker")
+@mock.patch("deepfellow.server.prune.check_server_directory")
+def test_prune_removes_nightshift_systemd_timers_before_removing_files(
+    mock_check_server_directory: Mock,
+    mock_assert_docker: Mock,
+    mock_run: Mock,
+    mock_rmtree: Mock,
+    mock_remove_nightshift_timers: Mock,
+    mock_get_default_server_directory: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_echo: Mock,
+    directory: Path,
+) -> None:
+    mock_get_default_server_directory.return_value = Path("/other/dir")
+    _mock_manager = Mock()
+    _mock_manager.attach_mock(mock_remove_nightshift_timers, "remove_nightshift_timers")
+    _mock_manager.attach_mock(mock_rmtree, "rmtree")
+
+    prune(directory=directory)
+
+    assert mock_remove_nightshift_timers.call_count == 1
+    assert mock_remove_nightshift_timers.call_args == mock.call(directory)
+    assert _mock_manager.mock_calls == [
+        mock.call.remove_nightshift_timers(directory),
+        mock.call.rmtree(directory),
+    ]

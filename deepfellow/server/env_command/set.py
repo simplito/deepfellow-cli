@@ -8,18 +8,24 @@ from pathlib import Path
 import httpx
 import typer
 
-from deepfellow.common.config import dict_to_env, read_env_file
+from deepfellow.common.config import dict_to_env, read_env_file, read_env_file_to_dict
+from deepfellow.common.defaults import NightshiftModeChoice
 from deepfellow.common.docker import is_service_running
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get, env_set
 from deepfellow.common.install import assert_docker
 from deepfellow.common.state import state
+from deepfellow.common.validation import validate_hhmm
 from deepfellow.server.utils.docker import start_server, stop_server
+from deepfellow.server.utils.nightshift import apply_nightshift_schedule
 from deepfellow.server.utils.options import directory_option
 from deepfellow.server.utils.storage import config_json_exists
 from deepfellow.server.utils.validation import check_server_directory
 
 app = typer.Typer()
+
+# The systemd timers are derived from these - changing any of them has to regenerate the timers too.
+_NIGHTSHIFT_SCHEDULE_KEYS = frozenset({"DF_NIGHTSHIFT_MODE", "DF_NIGHTSHIFT_START", "DF_NIGHTSHIFT_STOP"})
 
 
 def _resolved_env_name(env_name: str, df_prefix: bool) -> str:
@@ -28,6 +34,34 @@ def _resolved_env_name(env_name: str, df_prefix: bool) -> str:
     if df_prefix and not env_name.startswith("DF_"):
         env_name = f"DF_{env_name}"
     return env_name
+
+
+def _set_nightshift_schedule_key(directory: Path, name: str, value: str) -> None:
+    """Write one Nightshift mode/schedule key and keep the timers and the worker in line with it.
+
+    Deliberately unopinionated: no hours are invented for shift mode without them (the admin gets a
+    warning about the consequence), and no server restart is offered - these keys never reach the
+    containers, `start_server()` reads them from `.env` itself.
+    """
+    # The hours are only validated as part of a shift schedule, so a bad value written while the
+    # mode is `always` would otherwise land in `.env` unchecked and surface at the next `mode shift`.
+    if name != "DF_NIGHTSHIFT_MODE" and value:
+        validate_hhmm(value)
+    stored = read_env_file_to_dict(directory / ".env")
+    values = {
+        "DF_NIGHTSHIFT_MODE": str(stored.get("df_nightshift_mode") or NightshiftModeChoice.always.value),
+        "DF_NIGHTSHIFT_START": str(stored.get("df_nightshift_start") or ""),
+        "DF_NIGHTSHIFT_STOP": str(stored.get("df_nightshift_stop") or ""),
+    }
+    values[name] = value
+    apply_nightshift_schedule(
+        directory,
+        values["DF_NIGHTSHIFT_MODE"],
+        values["DF_NIGHTSHIFT_START"],
+        values["DF_NIGHTSHIFT_STOP"],
+        {name: value},
+    )
+    echo.success(f"{name} set to '{value}'.")
 
 
 def _dynamic_field_name(directory: Path, env_name: str) -> str | None:
@@ -85,6 +119,10 @@ def set(
     assert_docker()
 
     resolved_name = _resolved_env_name(env_name, df_prefix)
+    if resolved_name in _NIGHTSHIFT_SCHEDULE_KEYS:
+        _set_nightshift_schedule_key(directory, resolved_name, env_value)
+        return
+
     field_name = _dynamic_field_name(directory, resolved_name)
     if field_name:
         echo.error(
