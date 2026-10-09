@@ -30,10 +30,10 @@ def queue(
 ) -> None:
     """Show Nightshift's RabbitMQ queue backlog via GET /admin/queues.
 
-    Read-only: displays `nightshift_enabled`, RabbitMQ connectivity, and per-queue message/consumer
-    counts (including retry-tier queues) exactly as reported by the server, without assuming a
-    fixed set of queue names - that's owned by the server and may change. There is deliberately no
-    command here to purge or otherwise mutate a queue; use RabbitMQ's own management UI for that.
+    Read-only: displays RabbitMQ connectivity and per-queue message/consumer counts (including
+    retry-tier queues) exactly as reported by the server, without assuming a fixed set of queue
+    names - that's owned by the server and may change. There is deliberately no command here to
+    purge or otherwise mutate a queue; use RabbitMQ's own management UI for that.
     """
     secrets_file = state.cli_secrets_file
     server_url = get_server_url(server)
@@ -41,7 +41,6 @@ def queue(
 
     response = http_get(f"{server_url}/admin/queues", token, item_name="Nightshift queues")
 
-    echo.info(f"nightshift_enabled: {response['nightshift_enabled']}")
     echo.info(f"connected: {response['connected']}")
     if not response["connected"]:
         return

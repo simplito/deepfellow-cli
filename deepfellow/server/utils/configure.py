@@ -805,7 +805,7 @@ def configure_nightshift(
         force_provided=force_provided_mode,
     )
 
-    envs: dict[str, Any] = {"DF_NIGHTSHIFT_ENABLED": "true", "DF_NIGHTSHIFT_MODE": mode}
+    envs: dict[str, Any] = {"DF_NIGHTSHIFT_MODE": mode}
 
     if mode == NightshiftModeChoice.shift.value:
         # Fail here, at resolve()-time, rather than later inside apply() - apply() is documented

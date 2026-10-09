@@ -38,7 +38,7 @@ from deepfellow.common.defaults import (
     DOCKER_COMPOSE_FALKORDB,
     DOCKER_COMPOSE_MILVUS,
     DOCKER_COMPOSE_RABBITMQ,
-    DOCKER_COMPOSE_SERVER_NIGHTSHIFT_ENVS,
+    DOCKER_COMPOSE_SERVER_RABBITMQ_ENVS,
     MILVUS_DATABASE_URL,
     MONGO_DB_INIT_SH,
     VectorDBTypeChoice,
@@ -1752,7 +1752,6 @@ def install_config(tmp_path: Path) -> InstallConfig:
         falkordb=FalkorDBConfig(envs={}, docker_compose={}),
         nightshift=NightshiftConfig(
             envs={
-                "DF_NIGHTSHIFT_ENABLED": "true",
                 "DF_NIGHTSHIFT_MODE": "always",
                 "DF_RABBITMQ_URL": "rabbitmq:5672",
                 "DF_RABBITMQ_USER": "rabbitmq-user",
@@ -2727,7 +2726,7 @@ def test_apply_omits_depends_on_when_every_backing_service_is_external_or_inacti
     external RabbitMQ together leave nothing for the server to depend on."""
     install_config.custom_mongo_db_server = True
     install_config.nightshift = NightshiftConfig(
-        envs={"DF_NIGHTSHIFT_ENABLED": "true", "DF_NIGHTSHIFT_MODE": "always", "DF_RABBITMQ_URL": "external:5672"},
+        envs={"DF_NIGHTSHIFT_MODE": "always", "DF_RABBITMQ_URL": "external:5672"},
         docker_compose={},
     )
 
@@ -3103,7 +3102,7 @@ def test_apply_adds_default_rabbitmq_and_nightshift_service(
         "rabbitmq": {"condition": "service_healthy"},
         "mongo": {"condition": "service_healthy"},
     }
-    for env in DOCKER_COMPOSE_SERVER_NIGHTSHIFT_ENVS:
+    for env in DOCKER_COMPOSE_SERVER_RABBITMQ_ENVS:
         assert env in compose_dict["services"]["server"]["environment"]
         assert env in compose_dict["services"]["nightshift"]["environment"]
 
@@ -3210,7 +3209,6 @@ def test_apply_reconciles_nightshift_schedule_for_shift_mode(
     not only via a later, separate `server nightshift mode shift`."""
     install_config.nightshift = NightshiftConfig(
         envs={
-            "DF_NIGHTSHIFT_ENABLED": "true",
             "DF_NIGHTSHIFT_MODE": "shift",
             "DF_NIGHTSHIFT_START": "22:00",
             "DF_NIGHTSHIFT_STOP": "06:00",
@@ -3246,7 +3244,6 @@ def test_apply_skips_local_rabbitmq_but_still_adds_nightshift_worker_when_extern
     to add), the worker service itself is still always provisioned."""
     install_config.nightshift = NightshiftConfig(
         envs={
-            "DF_NIGHTSHIFT_ENABLED": "true",
             "DF_NIGHTSHIFT_MODE": "always",
             "DF_RABBITMQ_URL": "external-rabbitmq:5672",
             "DF_RABBITMQ_USER": "custom-user",
@@ -3274,19 +3271,127 @@ def test_apply_skips_local_rabbitmq_but_still_adds_nightshift_worker_when_extern
 @mock.patch("deepfellow.server.utils.install.ensure_network")
 @mock.patch("deepfellow.server.utils.install.save_env_file")
 @mock.patch("deepfellow.server.utils.install.echo")
-def test_apply_nightshift_shares_storage_and_plugins_volumes_with_server(
+def test_apply_mounts_only_storage_volume_in_nightshift(
     mock_echo: Mock,
-    mock_save_env: Mock,
+    mock_save_env_file: Mock,
     mock_ensure_network: Mock,
-    mock_add_network: Mock,
-    mock_save_compose: Mock,
+    mock_add_network_to_service: Mock,
+    mock_save_compose_file: Mock,
     mock_run: Mock,
     install_config: InstallConfig,
 ) -> None:
     apply(install_config)
 
-    compose_dict = mock_save_compose.call_args[0][0]
-    assert compose_dict["services"]["nightshift"]["volumes"] == compose_dict["services"]["server"]["volumes"]
+    assert mock_save_compose_file.call_count == 1
+    services = mock_save_compose_file.call_args[0][0]["services"]
+    assert services["nightshift"]["volumes"] == [f"{DF_SERVER_STORAGE_DIRECTORY}:/app/storage"]
+    assert services["server"]["volumes"] == [
+        f"{DF_SERVER_STORAGE_DIRECTORY}:/app/storage",
+        f"{install_config.directory / 'plugins'}:/app/plugins",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("is_vectordb_active", "vectordb_type", "falkordb_enabled", "otel_enabled"),
+    [
+        (False, "", False, False),
+        (True, "qdrant", False, False),
+        (True, "milvus", True, True),
+    ],
+)
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+def test_apply_nightshift_environment_covers_server_environment(
+    mock_echo: Mock,
+    mock_save_env_file: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network_to_service: Mock,
+    mock_save_compose_file: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+    is_vectordb_active: bool,
+    vectordb_type: str,
+    falkordb_enabled: bool,
+    otel_enabled: bool,
+) -> None:
+    install_config.is_vectordb_active = is_vectordb_active
+    install_config.vectordb_type = vectordb_type
+    if falkordb_enabled:
+        install_config.falkordb = FalkorDBConfig(envs={"DF_GRAPH__ENABLED": "true"}, docker_compose={})
+    if otel_enabled:
+        install_config.otel = OtelConfig(
+            envs={"DF_OTEL_TRACING_ENABLED": "true", "DF_OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel:4317"},
+            docker_compose={},
+        )
+
+    apply(install_config)
+
+    assert mock_save_compose_file.call_count == 1
+    services = mock_save_compose_file.call_args[0][0]["services"]
+    server_environment = services["server"]["environment"]
+    nightshift_environment = services["nightshift"]["environment"]
+    assert nightshift_environment == [*server_environment, "DF_NIGHTSHIFT_METRICS_HOST=0.0.0.0"]
+    assert "DF_PLUGINS_SETUP=${DF_PLUGINS_SETUP}" in nightshift_environment
+    assert "DF_METRICS_USERNAME=${DF_METRICS_USERNAME}" in nightshift_environment
+    assert "DF_METRICS_PASSWORD=${DF_METRICS_PASSWORD}" in nightshift_environment
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+def test_apply_omits_nightshift_enabled_from_compose_environment(
+    mock_echo: Mock,
+    mock_save_env_file: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network_to_service: Mock,
+    mock_save_compose_file: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    apply(install_config)
+
+    assert mock_save_compose_file.call_count == 1
+    services = mock_save_compose_file.call_args[0][0]["services"]
+    environment = [*services["server"]["environment"], *services["nightshift"]["environment"]]
+    assert all("DF_NIGHTSHIFT_ENABLED" not in env for env in environment)
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+def test_apply_nightshift_has_healthcheck_stop_grace_period_and_init(
+    mock_echo: Mock,
+    mock_save_env_file: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network_to_service: Mock,
+    mock_save_compose_file: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    apply(install_config)
+
+    assert mock_save_compose_file.call_count == 1
+    nightshift = mock_save_compose_file.call_args[0][0]["services"]["nightshift"]
+    assert nightshift["healthcheck"] == {
+        "test": ["CMD", "./.venv/bin/python", "-m", "server.workers.healthcheck"],
+        "interval": "30s",
+        "timeout": "10s",
+        "retries": 3,
+        "start_period": "60s",
+        "start_interval": "5s",
+    }
+    assert nightshift["stop_grace_period"] == "330s"
+    assert nightshift["init"] is True
 
 
 @mock.patch("deepfellow.server.utils.install.run")

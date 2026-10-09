@@ -43,8 +43,9 @@ from deepfellow.common.defaults import (
     DOCKER_COMPOSE_NIGHTSHIFT,
     DOCKER_COMPOSE_QDRANT,
     DOCKER_COMPOSE_SERVER,
+    DOCKER_COMPOSE_SERVER_BASE_ENVS,
     DOCKER_COMPOSE_SERVER_FALKORDB_ENVS,
-    DOCKER_COMPOSE_SERVER_NIGHTSHIFT_ENVS,
+    DOCKER_COMPOSE_SERVER_RABBITMQ_ENVS,
     DOCKER_COMPOSE_SERVER_VECTOR_DB_ENVS,
     DOCKER_COMPOSE_SERVER_VECTOR_DB_MILVUS_ENVS,
     MILVUS_DATABASE,
@@ -802,13 +803,13 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
     services: dict[str, Any] = {}
     depends_on = {}
     compose_server = deepcopy(DOCKER_COMPOSE_SERVER)
-    server_docker_envs = compose_server["server"]["environment"]
+    # Built once and given to both `server` and `nightshift` - see DOCKER_COMPOSE_SERVER_BASE_ENVS.
+    shared_envs = list(DOCKER_COMPOSE_SERVER_BASE_ENVS)
 
     if config.is_vectordb_active:
-        # Update server's docker environment
-        server_docker_envs.extend(DOCKER_COMPOSE_SERVER_VECTOR_DB_ENVS)
+        shared_envs.extend(DOCKER_COMPOSE_SERVER_VECTOR_DB_ENVS)
         if config.vectordb_type == "milvus":
-            server_docker_envs.extend(DOCKER_COMPOSE_SERVER_VECTOR_DB_MILVUS_ENVS)
+            shared_envs.extend(DOCKER_COMPOSE_SERVER_VECTOR_DB_MILVUS_ENVS)
 
         # Add vector database docker compose definitions if user did not provide custom fields
         if not config.is_custom_vector_db_server:
@@ -936,9 +937,8 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
             echo.error(f"Unable to write {init_mongo_path.as_posix()}: {exc}.")
             reraise_if_debug(exc)
 
-    environment = compose_server["server"]["environment"]
     for api_endpoint_key in config.infra_env:
-        environment.append(api_endpoint_key + "=${" + api_endpoint_key + "}")
+        shared_envs.append(api_endpoint_key + "=${" + api_endpoint_key + "}")
 
     if config.otel.docker_compose:
         services.update(deepcopy(config.otel.docker_compose))
@@ -965,29 +965,30 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
         depends_on["falkordb"] = {"condition": "service_healthy"}
 
     if config.falkordb.envs.get("DF_GRAPH__ENABLED") == "true":
-        server_docker_envs.extend(DOCKER_COMPOSE_SERVER_FALKORDB_ENVS)
+        shared_envs.extend(DOCKER_COMPOSE_SERVER_FALKORDB_ENVS)
 
-    # Nightshift/RabbitMQ are mandatory infrastructure (configure_nightshift() always returns
-    # DF_NIGHTSHIFT_ENABLED=true) - unlike the other optional backing services above, the worker
-    # service itself is always added, not gated behind an active/inactive check.
+    # Nightshift/RabbitMQ are mandatory infrastructure - unlike the other optional backing services
+    # above, the worker service itself is always added, not gated behind an active/inactive check.
     if config.nightshift.docker_compose:
         services.update(deepcopy(config.nightshift.docker_compose))
         volumes["rabbitmq_data"] = None
         depends_on["rabbitmq"] = {"condition": "service_healthy"}
 
-    server_docker_envs.extend(DOCKER_COMPOSE_SERVER_NIGHTSHIFT_ENVS)
+    shared_envs.extend(DOCKER_COMPOSE_SERVER_RABBITMQ_ENVS)
+
+    if config.otel.envs.get("DF_OTEL_TRACING_ENABLED") == "true" and config.otel.envs.get(
+        "DF_OTEL_EXPORTER_OTLP_ENDPOINT"
+    ):
+        shared_envs.append("DF_OTEL_EXPORTER_OTLP_ENDPOINT=${DF_OTEL_EXPORTER_OTLP_ENDPOINT}")
+        shared_envs.append("DF_OTEL_TRACING_ENABLED=${DF_OTEL_TRACING_ENABLED}")
+
+    if not config.is_vectordb_active:
+        shared_envs = [env for env in shared_envs if not env.startswith("DF_VECTOR_DATABASE__") or "ACTIVE" in env]
+
+    compose_server["server"]["environment"] = shared_envs
 
     nightshift_service = deepcopy(DOCKER_COMPOSE_NIGHTSHIFT)
-    nightshift_envs = nightshift_service["nightshift"]["environment"]
-    nightshift_envs.extend(DOCKER_COMPOSE_SERVER_NIGHTSHIFT_ENVS)
-    for api_endpoint_key in config.infra_env:
-        nightshift_envs.append(api_endpoint_key + "=${" + api_endpoint_key + "}")
-    if config.is_vectordb_active:
-        nightshift_envs.extend(DOCKER_COMPOSE_SERVER_VECTOR_DB_ENVS)
-        if config.vectordb_type == "milvus":
-            nightshift_envs.extend(DOCKER_COMPOSE_SERVER_VECTOR_DB_MILVUS_ENVS)
-    if config.falkordb.envs.get("DF_GRAPH__ENABLED") == "true":
-        nightshift_envs.extend(DOCKER_COMPOSE_SERVER_FALKORDB_ENVS)
+    nightshift_service["nightshift"]["environment"] = [*shared_envs, *nightshift_service["nightshift"]["environment"]]
     nightshift_depends_on: dict[str, dict[str, str]] = {}
     if config.nightshift.docker_compose:
         # Only when RabbitMQ is locally managed - an external RabbitMQ has no "rabbitmq" service
@@ -1007,21 +1008,6 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
     if config.local_image:
         nightshift_service["nightshift"]["pull_policy"] = "never"
     services.update(nightshift_service)
-
-    if config.otel.envs.get("DF_OTEL_TRACING_ENABLED") == "true" and config.otel.envs.get(
-        "DF_OTEL_EXPORTER_OTLP_ENDPOINT"
-    ):
-        environment.append("DF_OTEL_EXPORTER_OTLP_ENDPOINT=${DF_OTEL_EXPORTER_OTLP_ENDPOINT}")
-        environment.append("DF_OTEL_TRACING_ENABLED=${DF_OTEL_TRACING_ENABLED}")
-        # nightshift.py itself calls otel_setup.reconfigure() - it needs these same two envs to
-        # actually emit traces, not just the server.
-        nightshift_envs.append("DF_OTEL_EXPORTER_OTLP_ENDPOINT=${DF_OTEL_EXPORTER_OTLP_ENDPOINT}")
-        nightshift_envs.append("DF_OTEL_TRACING_ENABLED=${DF_OTEL_TRACING_ENABLED}")
-
-    if not config.is_vectordb_active:
-        compose_server["server"]["environment"] = [
-            env for env in environment if not env.startswith("DF_VECTOR_DATABASE__") or "ACTIVE" in env
-        ]
 
     if depends_on:
         compose_server["server"]["depends_on"] = depends_on
@@ -1048,14 +1034,11 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
         echo.error(f"Unable to create {DF_SERVER_STORAGE_DIRECTORY}: {exc}.")
         reraise_if_debug(exc)
 
-    server_volumes = [
-        f"{DF_SERVER_STORAGE_DIRECTORY}:/app/storage",
-        f"{plugins_directory.as_posix()}:/app/plugins",
-    ]
-    services["server"]["volumes"] = server_volumes
-    # Nightshift reads/watches the same storage (files to process, config.json) and plugins as
-    # the server - see requirement in the ticket that the worker mount identical directories.
-    services["nightshift"]["volumes"] = list(server_volumes)
+    storage_volume = f"{DF_SERVER_STORAGE_DIRECTORY}:/app/storage"
+    services["server"]["volumes"] = [storage_volume, f"{plugins_directory.as_posix()}:/app/plugins"]
+    # Nightshift reads/watches the same storage as the server (files to process, the doc-chunker
+    # conversion cache, config.json). No plugins mount: the worker never loads plugins.
+    services["nightshift"]["volumes"] = [storage_volume]
 
     if config.dev:
         expose_ports_to_host(services)

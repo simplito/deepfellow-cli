@@ -1345,7 +1345,6 @@ def test_configure_nightshift_always_mode_generates_missing_rabbitmq_credentials
     result = configure_nightshift("always", "", "", DF_RABBITMQ_URL, "", "")
 
     assert result.envs == {
-        "DF_NIGHTSHIFT_ENABLED": "true",
         "DF_NIGHTSHIFT_MODE": "always",
         "DF_RABBITMQ_URL": f"rabbitmq:{DF_RABBITMQ_PORT}",
         "DF_RABBITMQ_USER": "generated-user",
@@ -1380,7 +1379,6 @@ def test_configure_nightshift_custom_rabbitmq_prompts_for_host_port_username_and
     result = configure_nightshift("always", "", "", "custom-rabbitmq:5672", "custom-user", "custom-password")
 
     assert result.envs == {
-        "DF_NIGHTSHIFT_ENABLED": "true",
         "DF_NIGHTSHIFT_MODE": "always",
         "DF_RABBITMQ_URL": "custom-rabbitmq:5672",
         "DF_RABBITMQ_USER": "custom-user",

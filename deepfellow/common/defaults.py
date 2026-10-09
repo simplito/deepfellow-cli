@@ -84,6 +84,7 @@ class _ServiceConfigOptional(TypedDict, total=False):
     """Optional fields of a Docker Compose service definition."""
 
     depends_on: dict[str, Any]
+    environment: list[str]
     pull_policy: str
 
 
@@ -93,7 +94,6 @@ class ServiceConfig(_ServiceConfigOptional):
     container_name: str
     image: str
     ports: list[str]
-    environment: list[str]
     restart: str
     healthcheck: dict[str, Any]
 
@@ -133,22 +133,30 @@ DOCKER_COMPOSE_INFRA = {
     },
 }
 
+# Environment shared by `server` and `nightshift`; apply() extends it with the envs of the active
+# backing services and gives both services the same list. Both processes create config.json from
+# their own environment on first boot, so any difference would let whichever starts first decide
+# what an install's config.json contains.
+DOCKER_COMPOSE_SERVER_BASE_ENVS = [
+    # Not a guard for Nightshift's own metrics port (it isn't password-protected) - Nightshift only
+    # needs these so the config.json it may create on first boot matches the server's.
+    "DF_METRICS_USERNAME=${DF_METRICS_USERNAME}",
+    "DF_METRICS_PASSWORD=${DF_METRICS_PASSWORD}",
+    "DF_MONGO_URL=${DF_MONGO_URL}",
+    "DF_MONGO_USER=${DF_MONGO_USER}",
+    "DF_MONGO_PASSWORD=${DF_MONGO_PASSWORD}",
+    "DF_MONGO_DB=${DF_MONGO_DB}",
+    "DF_LOG_LEVEL=${DF_LOG_LEVEL}",
+    "DF_PLUGINS_SETUP=${DF_PLUGINS_SETUP}",
+    "DF_VECTOR_DATABASE__PROVIDER__ACTIVE=${DF_VECTOR_DATABASE__PROVIDER__ACTIVE}",
+]
+
+# Its environment is built by apply() from DOCKER_COMPOSE_SERVER_BASE_ENVS.
 DOCKER_COMPOSE_SERVER: dict[str, ServiceConfig] = {
     "server": {
         "container_name": "server",
         "image": "${DF_SERVER_IMAGE}",
         "ports": ["${DF_SERVER_PORT}:8000"],
-        "environment": [
-            "DF_METRICS_USERNAME=${DF_METRICS_USERNAME}",
-            "DF_METRICS_PASSWORD=${DF_METRICS_PASSWORD}",
-            "DF_MONGO_URL=${DF_MONGO_URL}",
-            "DF_MONGO_USER=${DF_MONGO_USER}",
-            "DF_MONGO_PASSWORD=${DF_MONGO_PASSWORD}",
-            "DF_MONGO_DB=${DF_MONGO_DB}",
-            "DF_LOG_LEVEL=${DF_LOG_LEVEL}",
-            "DF_PLUGINS_SETUP=${DF_PLUGINS_SETUP}",
-            "DF_VECTOR_DATABASE__PROVIDER__ACTIVE=${DF_VECTOR_DATABASE__PROVIDER__ACTIVE}",
-        ],
         "restart": "unless-stopped",
         "healthcheck": {
             "test": ["CMD", "/app/scripts/healthcheck.py"],
@@ -390,8 +398,7 @@ class NightshiftModeChoice(str, Enum):
 
 DEFAULT_NIGHTSHIFT_MODE = NightshiftModeChoice.always.value
 
-DOCKER_COMPOSE_SERVER_NIGHTSHIFT_ENVS = [
-    "DF_NIGHTSHIFT_ENABLED=${DF_NIGHTSHIFT_ENABLED}",
+DOCKER_COMPOSE_SERVER_RABBITMQ_ENVS = [
     # AppSettings.rabbitmq_url expects a full "amqp://user:pass@host:port/" URI
     "DF_RABBITMQ_URL=amqp://${DF_RABBITMQ_USER}:${DF_RABBITMQ_PASSWORD}@${DF_RABBITMQ_URL}/",
     "DF_RABBITMQ_USER=${DF_RABBITMQ_USER}",
@@ -422,8 +429,8 @@ DOCKER_COMPOSE_RABBITMQ: dict[str, Any] = {
 }
 
 # NOTE: nightshift reuses the server image, running the worker module instead of the API. Its
-# storage/plugins volumes and Mongo/vector-DB/FalkorDB envs are added onto this base by apply() -
-# see deepfellow/server/utils/install.py - since they depend on which backing services are active.
+# storage volume and the server's environment are added onto this base by apply() - see
+# deepfellow/server/utils/install.py - since they depend on which backing services are active.
 # The image's own CMD runs "./.venv/bin/uvicorn" (not bare "uvicorn") because every dependency -
 # including pydantic - lives in a venv at /app/.venv, not on the system Python; the worker command
 # must use that same venv's interpreter for the same reason, or it fails with ModuleNotFoundError.
@@ -432,18 +439,30 @@ DOCKER_COMPOSE_NIGHTSHIFT: dict[str, Any] = {
         "container_name": "nightshift",
         "image": "${DF_SERVER_IMAGE}",
         "command": ["./.venv/bin/python", "-m", "server.workers.nightshift"],
-        "environment": [
-            "DF_METRICS_USERNAME=${DF_METRICS_USERNAME}",
-            "DF_METRICS_PASSWORD=${DF_METRICS_PASSWORD}",
-            "DF_MONGO_URL=${DF_MONGO_URL}",
-            "DF_MONGO_USER=${DF_MONGO_USER}",
-            "DF_MONGO_PASSWORD=${DF_MONGO_PASSWORD}",
-            "DF_MONGO_DB=${DF_MONGO_DB}",
-            "DF_LOG_LEVEL=${DF_LOG_LEVEL}",
-            "DF_VECTOR_DATABASE__PROVIDER__ACTIVE=${DF_VECTOR_DATABASE__PROVIDER__ACTIVE}",
-            "DF_NIGHTSHIFT_METRICS_HOST=0.0.0.0",
-        ],
+        # Only what Nightshift needs on top of the server's environment: listen on all container
+        # interfaces so Prometheus can scrape /metrics over the Docker network (no port is published).
+        "environment": ["DF_NIGHTSHIFT_METRICS_HOST=0.0.0.0"],
         "restart": "unless-stopped",
+        # Fails when the worker's /metrics stops answering, no queue consumer has started yet (e.g.
+        # RabbitMQ unreachable), or any consumer has crashed while the others keep running.
+        "healthcheck": {
+            "test": ["CMD", "./.venv/bin/python", "-m", "server.workers.healthcheck"],
+            "interval": "30s",
+            "timeout": "10s",
+            "retries": 3,
+            "start_period": "60s",
+            # Probe this often during start_period (Docker Engine >= 25), so `up --wait` doesn't
+            # wait a full 30s interval for the first passing check.
+            "start_interval": "5s",
+        },
+        # Docker waits this long after SIGTERM before killing the worker. Keep it above
+        # DF_NIGHTSHIFT_RELOAD_DRAIN_TIMEOUT_SECONDS (300s by default), so in-flight jobs can finish
+        # once Nightshift drains on shutdown.
+        "stop_grace_period": "330s",
+        # Run an init process as PID 1 that forwards SIGTERM to the worker. Python as PID 1 has no
+        # SIGTERM handler, so the kernel ignores the signal and every stop would wait the full
+        # stop_grace_period before Docker kills it.
+        "init": True,
     }
 }
 
