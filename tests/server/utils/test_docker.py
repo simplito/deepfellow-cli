@@ -14,6 +14,7 @@ from deepfellow.server.utils.docker import (
     NIGHTSHIFT_NOT_INSTALLED_HINT,
     _nightshift_should_be_up,
     _nightshift_should_stay_down,
+    _service_health,
     assert_nightshift_installed,
     has_nightshift_service,
     print_nightshift_status,
@@ -266,6 +267,230 @@ def test_start_server_reraises_original_error_in_debug_mode(
         start_server(tmp_path)
 
     assert exc_info.value is up_error
+
+
+@mock.patch("deepfellow.server.utils.docker.run")
+def test_service_health_returns_status_from_compose_ps(mock_run: mock.MagicMock, tmp_path: Path) -> None:
+    mock_run.return_value = "unhealthy\n"
+
+    result = _service_health(tmp_path, "nightshift")
+
+    assert result == "unhealthy"
+    assert mock_run.call_count == 1
+    assert mock_run.call_args == mock.call(
+        ["docker", "compose", "ps", "nightshift", "--format", "{{.Health}}"],
+        cwd=tmp_path,
+        capture_output=True,
+        raises=DockerError,
+    )
+
+
+@mock.patch("deepfellow.server.utils.docker.echo")
+@mock.patch("deepfellow.server.utils.docker.run")
+def test_service_health_returns_none_when_compose_ps_fails(
+    mock_run: mock.MagicMock,
+    mock_echo: mock.MagicMock,
+    tmp_path: Path,
+) -> None:
+    ps_error = DockerError("docker: command not found")
+    mock_run.side_effect = ps_error
+
+    result = _service_health(tmp_path, "nightshift")
+
+    assert result is None
+    assert mock_echo.debug.call_count == 1
+    assert mock_echo.debug.call_args == mock.call(ps_error)
+
+
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service")
+@mock.patch("deepfellow.server.utils.docker.echo")
+@mock.patch("deepfellow.server.utils.docker.run")
+@mock.patch("deepfellow.server.utils.docker.ensure_network")
+@mock.patch("deepfellow.server.utils.docker.get_docker_network")
+def test_start_server_reports_nightshift_unhealthy_hint_when_server_healthy(
+    mock_get_docker_network: mock.MagicMock,
+    mock_ensure_network: mock.MagicMock,
+    mock_run: mock.MagicMock,
+    mock_echo: mock.MagicMock,
+    mock_has_nightshift_service: mock.MagicMock,
+    tmp_path: Path,
+) -> None:
+    mock_has_nightshift_service.return_value = True
+    mock_run.side_effect = [DockerError(None), "server  | Application startup complete.", "healthy\n", "unhealthy\n"]
+
+    with pytest.raises(typer.Exit):
+        start_server(tmp_path)
+
+    assert mock_run.call_count == 4
+    assert mock_run.call_args_list[2] == mock.call(
+        ["docker", "compose", "ps", "server", "--format", "{{.Health}}"],
+        cwd=tmp_path,
+        capture_output=True,
+        raises=DockerError,
+    )
+    assert mock_run.call_args_list[3] == mock.call(
+        ["docker", "compose", "ps", "nightshift", "--format", "{{.Health}}"],
+        cwd=tmp_path,
+        capture_output=True,
+        raises=DockerError,
+    )
+    assert mock_echo.error.call_count == 1
+    assert "Nightshift worker failed its healthcheck" in mock_echo.error.call_args.args[0]
+    hints = " ".join(call.args[0] for call in mock_echo.info.call_args_list)
+    assert "RabbitMQ" in hints
+    assert "`rabbitmq` section of the server's config.json" in hints
+    assert "docker compose logs nightshift" in hints
+    assert "deepfellow server config get" in hints
+    assert "deepfellow server config set" in hints
+    assert "server.workers.healthcheck" in hints
+
+
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service")
+@mock.patch("deepfellow.server.utils.docker.echo")
+@mock.patch("deepfellow.server.utils.docker.run")
+@mock.patch("deepfellow.server.utils.docker.ensure_network")
+@mock.patch("deepfellow.server.utils.docker.get_docker_network")
+def test_start_server_reports_generic_error_when_nightshift_healthy(
+    mock_get_docker_network: mock.MagicMock,
+    mock_ensure_network: mock.MagicMock,
+    mock_run: mock.MagicMock,
+    mock_echo: mock.MagicMock,
+    mock_has_nightshift_service: mock.MagicMock,
+    tmp_path: Path,
+) -> None:
+    mock_has_nightshift_service.return_value = True
+    mock_run.side_effect = [DockerError(None), "server  | some unrelated startup error", "healthy\n", "healthy\n"]
+
+    with pytest.raises(typer.Exit):
+        start_server(tmp_path)
+
+    assert mock_run.call_count == 4
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call(
+        "Failed to start DeepFellow Server. See the Docker output above for details."
+    )
+
+
+# "unhealthy" - the server is running but failed its own healthcheck (e.g. a broken config.json),
+# "starting" - it hasn't passed it yet, "" - it isn't running at all. Nightshift is then unhealthy
+# because of the server, not RabbitMQ, so its health isn't even checked.
+@pytest.mark.parametrize("server_health", ["unhealthy\n", "starting\n", ""])
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service")
+@mock.patch("deepfellow.server.utils.docker.echo")
+@mock.patch("deepfellow.server.utils.docker.run")
+@mock.patch("deepfellow.server.utils.docker.ensure_network")
+@mock.patch("deepfellow.server.utils.docker.get_docker_network")
+def test_start_server_reports_generic_error_when_server_not_healthy(
+    mock_get_docker_network: mock.MagicMock,
+    mock_ensure_network: mock.MagicMock,
+    mock_run: mock.MagicMock,
+    mock_echo: mock.MagicMock,
+    mock_has_nightshift_service: mock.MagicMock,
+    tmp_path: Path,
+    server_health: str,
+) -> None:
+    mock_has_nightshift_service.return_value = True
+    mock_run.side_effect = [DockerError(None), "server  | some unrelated startup error", server_health]
+
+    with pytest.raises(typer.Exit):
+        start_server(tmp_path)
+
+    assert mock_run.call_count == 3
+    assert mock_run.call_args_list[2] == mock.call(
+        ["docker", "compose", "ps", "server", "--format", "{{.Health}}"],
+        cwd=tmp_path,
+        capture_output=True,
+        raises=DockerError,
+    )
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call(
+        "Failed to start DeepFellow Server. See the Docker output above for details."
+    )
+
+
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service")
+@mock.patch("deepfellow.server.utils.docker.echo")
+@mock.patch("deepfellow.server.utils.docker.run")
+@mock.patch("deepfellow.server.utils.docker.ensure_network")
+@mock.patch("deepfellow.server.utils.docker.get_docker_network")
+def test_start_server_reports_generic_error_when_nightshift_health_unknown(
+    mock_get_docker_network: mock.MagicMock,
+    mock_ensure_network: mock.MagicMock,
+    mock_run: mock.MagicMock,
+    mock_echo: mock.MagicMock,
+    mock_has_nightshift_service: mock.MagicMock,
+    tmp_path: Path,
+) -> None:
+    mock_has_nightshift_service.return_value = True
+    mock_run.side_effect = [
+        DockerError(None),
+        "server  | some unrelated startup error",
+        "healthy\n",
+        DockerError("ps failed"),
+    ]
+
+    with pytest.raises(typer.Exit):
+        start_server(tmp_path)
+
+    assert mock_run.call_count == 4
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call(
+        "Failed to start DeepFellow Server. See the Docker output above for details."
+    )
+
+
+@mock.patch("deepfellow.server.utils.docker.resolve_compose_volume_name", return_value=None)
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service")
+@mock.patch("deepfellow.server.utils.docker.echo")
+@mock.patch("deepfellow.server.utils.docker.run")
+@mock.patch("deepfellow.server.utils.docker.ensure_network")
+@mock.patch("deepfellow.server.utils.docker.get_docker_network")
+def test_start_server_reports_mongo_auth_hint_before_nightshift_hint(
+    mock_get_docker_network: mock.MagicMock,
+    mock_ensure_network: mock.MagicMock,
+    mock_run: mock.MagicMock,
+    mock_echo: mock.MagicMock,
+    mock_has_nightshift_service: mock.MagicMock,
+    mock_resolve_compose_volume_name: mock.MagicMock,
+    tmp_path: Path,
+) -> None:
+    mock_has_nightshift_service.return_value = True
+    mock_run.side_effect = [DockerError(None), "pymongo.errors.OperationFailure: Authentication failed."]
+
+    with pytest.raises(typer.Exit):
+        start_server(tmp_path)
+
+    assert mock_run.call_count == 2
+    assert mock_has_nightshift_service.call_count == 0
+    assert mock_echo.error.call_count == 1
+    assert "MongoDB" in mock_echo.error.call_args.args[0]
+
+
+@mock.patch("deepfellow.server.utils.docker.has_nightshift_service")
+@mock.patch("deepfellow.server.utils.docker.echo")
+@mock.patch("deepfellow.server.utils.docker.run")
+@mock.patch("deepfellow.server.utils.docker.ensure_network")
+@mock.patch("deepfellow.server.utils.docker.get_docker_network")
+def test_start_server_reraises_original_error_in_debug_mode_when_nightshift_unhealthy(
+    mock_get_docker_network: mock.MagicMock,
+    mock_ensure_network: mock.MagicMock,
+    mock_run: mock.MagicMock,
+    mock_echo: mock.MagicMock,
+    mock_has_nightshift_service: mock.MagicMock,
+    tmp_path: Path,
+) -> None:
+    state.debug = True
+    mock_has_nightshift_service.return_value = True
+    up_error = DockerError(None)
+    mock_run.side_effect = [up_error, "server  | Application startup complete.", "healthy\n", "unhealthy\n"]
+
+    with pytest.raises(DockerError) as exc_info:
+        start_server(tmp_path)
+
+    assert exc_info.value is up_error
+    assert mock_run.call_count == 4
+    assert mock_echo.error.call_count == 1
+    assert "Nightshift worker failed its healthcheck" in mock_echo.error.call_args.args[0]
 
 
 @mock.patch("deepfellow.server.utils.docker.run")

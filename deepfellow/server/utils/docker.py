@@ -145,11 +145,10 @@ def reconcile_nightshift_running_state(directory: Path, server_wait_seconds: flo
     Changes nothing if the current running state is already correct. Used after `mode`/
     `schedule` changes that configuration, instead of unconditionally restarting the worker:
     the container itself has no notion of its own schedule at all (only systemd's timers do - see
-    DOCKER_COMPOSE_SERVER_NIGHTSHIFT_ENVS, which never passes DF_NIGHTSHIFT_START/STOP into the
+    DOCKER_COMPOSE_SERVER_RABBITMQ_ENVS, which never passes DF_NIGHTSHIFT_START/STOP into the
     container), so a config change alone never requires touching it. Blindly restarting an
-    already-correctly-running worker would interrupt whatever task it's mid-processing for
-    nothing, since it doesn't handle a stop signal gracefully (an interrupted task simply starts
-    over next run).
+    already-correctly-running worker would make it drain its in-flight jobs for nothing - up to the
+    compose file's `stop_grace_period` (330s) - while the queue isn't being consumed.
 
     The worker is only ever started while this install's `server` is running - a lone worker
     without its stack would just crash-loop, and a timer firing on a stack that was stopped on
@@ -197,14 +196,73 @@ def start_server(directory: Path) -> None:
         _handle_start_failure(directory, exc)
 
 
+def _service_health(directory: Path, service: str) -> str | None:
+    """Return a Compose service's health (`healthy`, `unhealthy`, `starting`, or `""` without a healthcheck).
+
+    Returns None when `docker compose ps` itself fails - callers treat that as "unknown".
+    """
+    try:
+        health = run(
+            ["docker", "compose", "ps", service, "--format", "{{.Health}}"],
+            cwd=directory,
+            capture_output=True,
+            raises=DockerError,
+        )
+    except DockerError as exc:
+        echo.debug(exc)
+        return None
+    return (health or "").strip()
+
+
+def _is_only_nightshift_unhealthy(directory: Path) -> bool:
+    """Whether the server passed its healthcheck and the Nightshift worker failed its own.
+
+    The server must be healthy, not just running: an unhealthy server (e.g. a broken config.json or
+    unreachable MongoDB) takes Nightshift down with it, and the RabbitMQ hint wouldn't help there.
+    """
+    return (
+        has_nightshift_service(directory)
+        and _service_health(directory, "server") == "healthy"
+        and _service_health(directory, "nightshift") == "unhealthy"
+    )
+
+
+def _report_unhealthy_nightshift(directory: Path) -> None:
+    """Explain a start that failed only because the Nightshift worker is unhealthy."""
+    echo.error(
+        "DeepFellow Server is running, but the Nightshift worker failed its healthcheck, so background "
+        "jobs are not being processed."
+    )
+    echo.info(
+        "The most common cause is that Nightshift can't connect to RabbitMQ. The server and Nightshift "
+        "take the RabbitMQ address from the `rabbitmq` section of the server's config.json, not from .env."
+    )
+    echo.info(f"See the worker's logs: `docker compose logs nightshift` (in {directory}).")
+    echo.info("Check the RabbitMQ settings: `deepfellow server config get` (the `rabbitmq` keys).")
+    rabbitmq = '{"host": "...", "port": 5672, "username": "...", "password": "..."}'
+    example = f"deepfellow server config set 'rabbitmq={rabbitmq}'"
+    echo.info(
+        f"Fix them without a restart, e.g. `{example}` - the keys are the ones `config get` shows, and Nightshift "
+        "reloads on its own once config.json changes."
+    )
+    echo.info(
+        "If the server image predates the Nightshift healthcheck (no `server.workers.healthcheck` module), the "
+        "worker can never pass it - update the server image."
+    )
+
+
 def _handle_start_failure(directory: Path, exc: DockerError) -> NoReturn:
-    """Report why the server stack failed to start, detecting a known Mongo credential mismatch.
+    """Report why the server stack failed to start, detecting known causes.
 
     A stale ``mongo`` Docker volume from a previous install can hold root credentials that no
     longer match the current ``.env`` (e.g. after ``server uninstall``, which removes ``.env`` but
     not the volume, followed by a fresh ``server install``). That specific case surfaces as a
     generic "container server is unhealthy" from ``docker compose up`` with no indication of the
     real cause, so it's worth grepping the server logs for the underlying pymongo auth error.
+
+    ``docker compose up --wait`` also fails when only the Nightshift worker ends up unhealthy -
+    typically it can't reach RabbitMQ - while the server itself runs fine. The stack stays up then,
+    so that case is reported separately, with how to fix it on the running server.
 
     Always exits: ``--debug`` re-raises ``exc`` with its traceback, otherwise ``typer.Exit(1)``.
     """
@@ -238,6 +296,8 @@ def _handle_start_failure(directory: Path, exc: DockerError) -> NoReturn:
                 "DeepFellow Server failed to authenticate against MongoDB. Check the DF_MONGO_* "
                 "credentials in .env against the MongoDB instance they connect to."
             )
+    elif _is_only_nightshift_unhealthy(directory):
+        _report_unhealthy_nightshift(directory)
     elif not exc.args or exc.args[0] in (None, ""):
         # docker compose up's own output streams straight to the terminal (never captured), so
         # a plain DockerError from it carries no stderr of its own to show here.

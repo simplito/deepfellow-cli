@@ -340,9 +340,10 @@ def test_set_no_warning_when_config_json_missing_and_server_not_running(
     assert mock_assert_docker.call_count == 1
 
 
-@pytest.mark.parametrize(
-    "env_name", ["DF_NIGHTSHIFT_ENABLED", "DF_RABBITMQ_URL", "DF_RABBITMQ_USER", "DF_RABBITMQ_PASSWORD"]
-)
+# start_server()'s `docker compose up -d` recreates the worker when its resolved environment changed
+# (and `--scale nightshift=0` keeps it down outside its shift window), so these variables need no
+# Nightshift-specific handling - just the same restart as any other variable.
+@pytest.mark.parametrize("env_name", ["DF_RABBITMQ_URL", "DF_RABBITMQ_USER", "DF_RABBITMQ_PASSWORD"])
 @mock.patch("deepfellow.server.env_command.set.is_service_running", return_value=False)
 @mock.patch("deepfellow.server.env_command.set._dynamic_field_name", return_value=None)
 @mock.patch("deepfellow.server.env_command.set.start_server")
@@ -363,9 +364,6 @@ def test_set_nightshift_variable_is_applied_by_the_regular_server_restart_only(
     env_name: str,
     directory: Path,
 ) -> None:
-    """start_server()'s `docker compose up -d` recreates the worker when its resolved environment
-    changed (and `--scale nightshift=0` keeps it down outside its shift window), so these variables
-    need no Nightshift-specific handling - just the same restart as any other variable."""
     mock_echo.confirm.return_value = True
 
     set(directory=directory, env_name=env_name, env_value="new-value", df_prefix=True, no_restart=False)

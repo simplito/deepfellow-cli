@@ -23,7 +23,7 @@ def test_queue_calls_admin_queues_endpoint(
     mock_http_get: Mock,
     mock_echo: Mock,
 ) -> None:
-    mock_http_get.return_value = {"nightshift_enabled": True, "connected": True, "queues": []}
+    mock_http_get.return_value = {"connected": True, "queues": []}
 
     queue(server=None)
 
@@ -42,7 +42,6 @@ def test_queue_prints_response_generically_without_hardcoded_queue_names(
     mock_echo: Mock,
 ) -> None:
     mock_http_get.return_value = {
-        "nightshift_enabled": True,
         "connected": True,
         "queues": [
             {
@@ -60,7 +59,6 @@ def test_queue_prints_response_generically_without_hardcoded_queue_names(
     queue(server=None)
 
     info_messages = [call.args[0] for call in mock_echo.info.call_args_list]
-    assert "nightshift_enabled: True" in info_messages
     assert "connected: True" in info_messages
     assert "\na-brand-new-queue-type-not-in-any-hardcoded-list: 3 message(s), 1 consumer(s)" in info_messages
     assert "  retry 1: not created yet" in info_messages
@@ -80,7 +78,6 @@ def test_queue_reports_queue_never_created_by_broker(
     RabbitMQ never created it, so there is nothing to distinguish it from an empty-but-existing queue
     without a dedicated placeholder."""
     mock_http_get.return_value = {
-        "nightshift_enabled": True,
         "connected": True,
         "queues": [{"name": "webhook_deliveries", "main": None, "retries": []}],
     }
@@ -103,12 +100,12 @@ def test_queue_skips_queue_listing_when_not_connected(
 ) -> None:
     """Nothing to list when RabbitMQ isn't connected - the server itself returns an empty `queues`
     list in that case, so there's no per-queue formatting to do."""
-    mock_http_get.return_value = {"nightshift_enabled": True, "connected": False, "queues": []}
+    mock_http_get.return_value = {"connected": False, "queues": []}
 
     queue(server=None)
 
     info_messages = [call.args[0] for call in mock_echo.info.call_args_list]
-    assert info_messages == ["nightshift_enabled: True", "connected: False"]
+    assert info_messages == ["connected: False"]
 
 
 @mock.patch("deepfellow.server.nightshift.queue.http_get")
@@ -122,7 +119,7 @@ def test_queue_cli_leaves_url_unset_so_the_configured_server_is_used(
     """Like every other server command, --url defaults to None: get_server_url() then falls back to
     the saved DF_SERVER_URL. A hardcoded localhost default ignored the saved server and, on a
     machine without one, silently saved localhost:8000 as the default for every command."""
-    mock_http_get.return_value = {"nightshift_enabled": True, "connected": True, "queues": []}
+    mock_http_get.return_value = {"connected": True, "queues": []}
 
     result = runner.invoke(app, [])
 
@@ -138,7 +135,7 @@ def test_queue_cli_passes_an_explicit_url_to_get_server_url(
     mock_get_token: Mock,
     mock_http_get: Mock,
 ) -> None:
-    mock_http_get.return_value = {"nightshift_enabled": True, "connected": True, "queues": []}
+    mock_http_get.return_value = {"connected": True, "queues": []}
 
     result = runner.invoke(app, ["--url", "http://example.com:9000/"])
 
