@@ -4,14 +4,13 @@
 """Persisted progress state for `suite install`, enabling `--resume` after a partial failure."""
 
 import json
-import os
-import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 from deepfellow.common.defaults import DF_SUITE_INSTALL_STATE_FILE
 from deepfellow.common.echo import echo
+from deepfellow.common.files import write_private_file
 
 
 @dataclass
@@ -103,26 +102,17 @@ def load(state_file: Path = DF_SUITE_INSTALL_STATE_FILE) -> SuiteInstallState | 
 def save(install_state: SuiteInstallState, state_file: Path = DF_SUITE_INSTALL_STATE_FILE) -> None:
     """Persist suite-install state, overwriting any previous content.
 
-    Writes to a temp file in the same directory and atomically renames it into place (`Path.replace`)
-    rather than truncating `state_file` directly - a crash mid-write (OOM kill, Ctrl+C, power loss)
-    would otherwise leave a partially-written, corrupted JSON file behind, which `load()` then
-    treats as unreadable, silently losing whatever progress - including a one-time, unrecoverable
-    workspace API key - the file it just clobbered was holding.
+    Written atomically (see `write_private_file`) rather than truncating `state_file` directly - a
+    crash mid-write would otherwise leave a corrupted JSON file behind, which `load()` then treats as
+    unreadable, silently losing whatever progress - including a one-time, unrecoverable workspace
+    API key - the file it just clobbered was holding. Also owner-only (0600), as it holds that key.
 
     Args:
         install_state: The state to persist.
         state_file: Path to the state file.
     """
     state_file.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path_str = tempfile.mkstemp(dir=state_file.parent, prefix=f".{state_file.name}.", suffix=".tmp")
-    tmp_path = Path(tmp_path_str)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
-            tmp_file.write(json.dumps(asdict(install_state), indent=2))
-        tmp_path.replace(state_file)
-    except BaseException:
-        tmp_path.unlink(missing_ok=True)
-        raise
+    write_private_file(state_file, json.dumps(asdict(install_state), indent=2))
 
 
 def delete(state_file: Path = DF_SUITE_INSTALL_STATE_FILE) -> None:
