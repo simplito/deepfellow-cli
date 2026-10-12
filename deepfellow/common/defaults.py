@@ -400,6 +400,20 @@ class NightshiftModeChoice(str, Enum):
 
 DEFAULT_NIGHTSHIFT_MODE = NightshiftModeChoice.always.value
 
+# What stops working when an install has no Nightshift worker/RabbitMQ - one entry per group of the
+# server's Nightshift queues (vector_store_file_processing, knowledge_compression,
+# vector_store_migration_file_reembedding, document_summarization, metadata_expansion,
+# graph_document_ingestion, ontology_discovery, webhook_deliveries, finetune_prepare_data,
+# finetune_pipeline_steps). Keep in sync when the server adds a queue.
+NIGHTSHIFT_FEATURES: tuple[str, ...] = (
+    "adding files to vector stores (indexing)",
+    "knowledge compression and vector store migrations (re-embedding)",
+    "document summarization and metadata expansion",
+    "the knowledge graph (ingestion, ontology discovery)",
+    "webhook delivery",
+    "fine-tuning pipelines (data preparation, pipeline steps)",
+)
+
 DOCKER_COMPOSE_SERVER_RABBITMQ_ENVS = [
     # AppSettings.rabbitmq_url expects a full "amqp://user:pass@host:port/" URI
     "DF_RABBITMQ_URL=amqp://${DF_RABBITMQ_USER}:${DF_RABBITMQ_PASSWORD}@${DF_RABBITMQ_URL}/",

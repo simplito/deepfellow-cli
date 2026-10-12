@@ -30,8 +30,8 @@ from deepfellow.server.utils.time import is_within_shift_window
 MONGO_AUTH_FAILURE_SIGNATURES = ("OperationFailure", "Authentication failed")
 
 NIGHTSHIFT_NOT_INSTALLED_HINT = (
-    "This install has no Nightshift worker (it was created before Nightshift existed). "
-    "Run `deepfellow server install` to add it."
+    "This install has no Nightshift worker. Run `deepfellow server update` to be offered to add it, "
+    "or `deepfellow server install` to add it right away."
 )
 
 

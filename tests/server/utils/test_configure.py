@@ -42,9 +42,11 @@ from deepfellow.server.utils.configure import (
     configure_nightshift,
     configure_otel,
     configure_vector_db,
+    external_rabbitmq_envs,
     is_custom_falkordb,
     is_custom_rabbitmq,
     is_custom_vectordb,
+    local_rabbitmq_envs,
     should_use_falkordb,
     should_use_vector_db,
 )
@@ -1552,3 +1554,72 @@ def test_configure_nightshift_passes_force_provided_mode_to_the_mode_choice(
     configure_nightshift("always", "", "", DF_RABBITMQ_URL, "user", "password", force_provided_mode=force_provided_mode)
 
     assert mock_echo.choice.call_args.kwargs["force_provided"] is force_provided_mode
+
+
+@mock.patch("deepfellow.server.utils.configure.generate_password")
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_local_rabbitmq_envs_generates_missing_credentials(
+    mock_echo: mock.MagicMock, mock_generate_password: mock.MagicMock
+):
+    mock_generate_password.side_effect = ["generated-password", "generated-user"]
+
+    result = local_rabbitmq_envs("", "")
+
+    assert result.envs == {
+        "DF_RABBITMQ_URL": f"rabbitmq:{DF_RABBITMQ_PORT}",
+        "DF_RABBITMQ_USER": "generated-user",
+        "DF_RABBITMQ_PASSWORD": "generated-password",
+    }
+    assert "guest" not in result.envs.values()
+    assert result.docker_compose == DOCKER_COMPOSE_RABBITMQ
+
+
+@mock.patch("deepfellow.server.utils.configure.generate_password")
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_local_rabbitmq_envs_uses_given_credentials(mock_echo: mock.MagicMock, mock_generate_password: mock.MagicMock):
+    result = local_rabbitmq_envs("df-user", "df-password")
+
+    assert result.envs["DF_RABBITMQ_USER"] == "df-user"
+    assert result.envs["DF_RABBITMQ_PASSWORD"] == "df-password"
+    assert mock_generate_password.call_count == 0
+
+
+@pytest.mark.parametrize(
+    ("username", "password"),
+    [
+        ("bad user", "df-password"),
+        ("df-user", "bad@password"),
+    ],
+)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_local_rabbitmq_envs_rejects_invalid_credentials(mock_echo: mock.MagicMock, username: str, password: str):
+    with pytest.raises(typer.BadParameter):
+        local_rabbitmq_envs(username, password)
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_external_rabbitmq_envs_prompts_for_missing_values(mock_echo: mock.MagicMock):
+    mock_echo.prompt_until_valid.side_effect = ["mq.example:5672", "df-user", "df-password"]
+
+    result = external_rabbitmq_envs("mq.example:5672", "", "", {"df_rabbitmq_user": "old-user"})
+
+    assert result.envs == {
+        "DF_RABBITMQ_URL": "mq.example:5672",
+        "DF_RABBITMQ_USER": "df-user",
+        "DF_RABBITMQ_PASSWORD": "df-password",
+    }
+    assert result.docker_compose == {}
+    assert mock_echo.prompt_until_valid.call_count == 3
+    assert mock_echo.prompt_until_valid.call_args_list[1] == mock.call(
+        "Provide RabbitMQ username",
+        validate_rabbitmq_credential,
+        from_args="",
+        original_default="",
+        default="old-user",
+    )
+
+
+@mock.patch.object(state, "non_interactive", True)
+def test_external_rabbitmq_envs_fails_in_non_interactive_mode_without_username():
+    with pytest.raises(typer.BadParameter):
+        external_rabbitmq_envs("mq.example:5672", "", "")

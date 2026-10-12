@@ -37,6 +37,7 @@ from deepfellow.common.defaults import (
     DOCKER_COMPOSE_CONFIG_FILENAME,
     DOCKER_COMPOSE_FALKORDB,
     DOCKER_COMPOSE_MILVUS,
+    DOCKER_COMPOSE_NIGHTSHIFT,
     DOCKER_COMPOSE_RABBITMQ,
     DOCKER_COMPOSE_SERVER_RABBITMQ_ENVS,
     MILVUS_DATABASE_URL,
@@ -64,6 +65,7 @@ from deepfellow.server.utils.install import (
     _merge_template_config,
     _resolve_port,
     apply,
+    build_nightshift_service,
     expose_ports_to_host,
     install,
     mergeable_field_names,
@@ -3134,6 +3136,101 @@ def test_apply_gives_nightshift_the_same_qdrant_dependency_as_the_server(
     compose_dict = mock_save_compose.call_args[0][0]
     assert compose_dict["services"]["server"]["depends_on"]["qdrant"] == {"condition": "service_started"}
     assert compose_dict["services"]["nightshift"]["depends_on"]["qdrant"] == {"condition": "service_started"}
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+def test_apply_puts_nightshift_on_the_server_network(
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    """Without the server's network, Nightshift can't resolve mongo/rabbitmq and keeps restarting."""
+    apply(install_config)
+
+    services = mock_save_compose.call_args[0][0]["services"]
+    assert services["server"]["networks"] == [install_config.docker_network]
+    assert services["nightshift"]["networks"] == [install_config.docker_network]
+
+
+SERVER_SERVICE: dict[str, Any] = {
+    "image": "${DF_SERVER_IMAGE}",
+    "environment": ["DF_MONGO_URL=${DF_MONGO_URL}", "DF_LOG_LEVEL=${DF_LOG_LEVEL}"],
+    "volumes": ["/srv/storage:/app/storage", "/srv/plugins:/app/plugins"],
+    "networks": ["deepfellow-infra-net"],
+    "depends_on": {
+        "mongo": {"condition": "service_healthy"},
+        "rabbitmq": {"condition": "service_healthy"},
+        "otel-collector": {"condition": "service_started"},
+    },
+}
+
+
+def test_build_nightshift_service_uses_server_environment_then_metrics_host() -> None:
+    nightshift = build_nightshift_service(SERVER_SERVICE)
+
+    assert nightshift["environment"] == [
+        "DF_MONGO_URL=${DF_MONGO_URL}",
+        "DF_LOG_LEVEL=${DF_LOG_LEVEL}",
+        "DF_NIGHTSHIFT_METRICS_HOST=0.0.0.0",
+    ]
+    assert nightshift["image"] == "${DF_SERVER_IMAGE}"
+    assert nightshift["command"] == DOCKER_COMPOSE_NIGHTSHIFT["nightshift"]["command"]
+
+
+def test_build_nightshift_service_mounts_only_storage() -> None:
+    nightshift = build_nightshift_service(SERVER_SERVICE)
+
+    assert nightshift["volumes"] == ["/srv/storage:/app/storage"]
+
+
+def test_build_nightshift_service_copies_server_networks() -> None:
+    server = {**SERVER_SERVICE, "networks": ["deepfellow-infra-net"]}
+
+    nightshift = build_nightshift_service(server)
+    server["networks"].append("other-net")
+
+    assert nightshift["networks"] == ["deepfellow-infra-net"]
+
+
+def test_build_nightshift_service_without_server_networks_has_none() -> None:
+    server = {key: value for key, value in SERVER_SERVICE.items() if key != "networks"}
+
+    nightshift = build_nightshift_service(server)
+
+    assert "networks" not in nightshift
+
+
+def test_build_nightshift_service_depends_only_on_backing_services() -> None:
+    nightshift = build_nightshift_service(SERVER_SERVICE)
+
+    assert nightshift["depends_on"] == {
+        "mongo": {"condition": "service_healthy"},
+        "rabbitmq": {"condition": "service_healthy"},
+    }
+
+
+def test_build_nightshift_service_without_backing_services_has_no_depends_on() -> None:
+    server = {**SERVER_SERVICE, "depends_on": {"otel-collector": {"condition": "service_started"}}}
+
+    nightshift = build_nightshift_service(server)
+
+    assert "depends_on" not in nightshift
+
+
+@pytest.mark.parametrize("pull_policy", ["never", None])
+def test_build_nightshift_service_copies_pull_policy(pull_policy: str | None) -> None:
+    server = {**SERVER_SERVICE, **({"pull_policy": pull_policy} if pull_policy else {})}
+
+    nightshift = build_nightshift_service(server)
+
+    assert nightshift.get("pull_policy") == pull_policy
 
 
 @mock.patch("deepfellow.server.utils.install.run")

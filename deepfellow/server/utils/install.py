@@ -764,6 +764,43 @@ def resolve(
     )
 
 
+# Backing services Nightshift needs before it starts, exactly like the server: its own boot
+# sequence (init_vectordb()/init_db()/init_graph_service()) is the server's, and it consumes from
+# RabbitMQ. Without the dependency it crashes if it comes up first, then self-heals via `restart`.
+# An external service has no entry in the server's `depends_on`, so it gets none here either.
+NIGHTSHIFT_BACKING_SERVICES = ("rabbitmq", "qdrant", "milvus", "mongo", "falkordb")
+
+
+def build_nightshift_service(server_service: dict[str, Any]) -> dict[str, Any]:
+    """Build the `nightshift` compose service from the finished `server` service.
+
+    Nightshift runs the server image with the server's environment (plus its metrics host) so the
+    two can't drift apart - both create config.json from their env on first boot. It mounts only
+    the server's storage (files to process, the doc-chunker cache, config.json), never plugins.
+
+    Args:
+        server_service: The `server` service as it is (or will be) written to compose.yaml.
+
+    Returns:
+        The `nightshift` service definition.
+    """
+    nightshift: dict[str, Any] = deepcopy(DOCKER_COMPOSE_NIGHTSHIFT["nightshift"])
+    nightshift["environment"] = [*server_service.get("environment", []), *nightshift["environment"]]
+    nightshift["volumes"] = [volume for volume in server_service.get("volumes", []) if volume.endswith(":/app/storage")]
+    if "networks" in server_service:
+        nightshift["networks"] = deepcopy(server_service["networks"])
+    depends_on = {
+        name: deepcopy(condition)
+        for name, condition in server_service.get("depends_on", {}).items()
+        if name in NIGHTSHIFT_BACKING_SERVICES
+    }
+    if depends_on:
+        nightshift["depends_on"] = depends_on
+    if "pull_policy" in server_service:
+        nightshift["pull_policy"] = server_service["pull_policy"]
+    return nightshift
+
+
 def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa: C901
     """Create the docker network, write the .env/compose files, and pull the image.
 
@@ -987,28 +1024,6 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
 
     compose_server["server"]["environment"] = shared_envs
 
-    nightshift_service = deepcopy(DOCKER_COMPOSE_NIGHTSHIFT)
-    nightshift_service["nightshift"]["environment"] = [*shared_envs, *nightshift_service["nightshift"]["environment"]]
-    nightshift_depends_on: dict[str, dict[str, str]] = {}
-    if config.nightshift.docker_compose:
-        # Only when RabbitMQ is locally managed - an external RabbitMQ has no "rabbitmq" service
-        # in this compose.yaml at all, and depending on an undefined service fails validation.
-        nightshift_depends_on["rabbitmq"] = {"condition": "service_healthy"}
-    # nightshift's own boot sequence (init_vectordb()/init_db()/init_graph_service(), same code as
-    # the server) needs a working vector DB/Mongo/FalkorDB connection just as much as the server does - without this, it
-    # crashes on startup if it happens to come up before them (no ordering guarantee otherwise),
-    # then self-heals via `restart: unless-stopped` once they catch up. Reuses whichever entries
-    # the server's own `depends_on` already has for them (absent entirely when that backing
-    # service is external, exactly like the server's own dependency).
-    for backing_service in ("qdrant", "milvus", "mongo", "falkordb"):
-        if backing_service in depends_on:
-            nightshift_depends_on[backing_service] = depends_on[backing_service]
-    if nightshift_depends_on:
-        nightshift_service["nightshift"]["depends_on"] = nightshift_depends_on
-    if config.local_image:
-        nightshift_service["nightshift"]["pull_policy"] = "never"
-    services.update(nightshift_service)
-
     if depends_on:
         compose_server["server"]["depends_on"] = depends_on
 
@@ -1036,9 +1051,9 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
 
     storage_volume = f"{DF_SERVER_STORAGE_DIRECTORY}:/app/storage"
     services["server"]["volumes"] = [storage_volume, f"{plugins_directory.as_posix()}:/app/plugins"]
-    # Nightshift reads/watches the same storage as the server (files to process, the doc-chunker
-    # conversion cache, config.json). No plugins mount: the worker never loads plugins.
-    services["nightshift"]["volumes"] = [storage_volume]
+    # Built last, from the finished server service (env, storage mount, network, depends_on,
+    # pull_policy) - the same builder `server update` uses to add Nightshift to an older install.
+    services["nightshift"] = build_nightshift_service(services["server"])
 
     if config.dev:
         expose_ports_to_host(services)
