@@ -69,7 +69,7 @@ def is_systemd_available() -> bool:
     return is_command_available("systemctl") and SYSTEMD_RUNTIME_DIR.is_dir()
 
 
-def _user_manager_reachable() -> bool:
+def is_user_manager_reachable() -> bool:
     """Whether `systemctl --user` can talk to this session's systemd user manager."""
     try:
         run(["systemctl", "--user", "show-environment"], raises=SystemdUserError, quiet=True)
@@ -99,7 +99,7 @@ def assert_systemd_available() -> None:
             "Linux hosts running systemd."
         )
         raise typer.Exit(1)
-    if not _user_manager_reachable():
+    if not is_user_manager_reachable():
         echo.error(
             "Shift mode needs your systemd user session, which isn't reachable from this shell (typically after "
             "`su` or `sudo -u`). Log in as this user directly, e.g. over SSH or a console, and try again."

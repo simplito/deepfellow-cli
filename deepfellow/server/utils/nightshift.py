@@ -15,6 +15,12 @@ from deepfellow.common.validation import validate_distinct_hours, validate_hhmm
 from deepfellow.server.utils.docker import assert_nightshift_installed, reconcile_nightshift_running_state
 from deepfellow.server.utils.systemd import reconcile_nightshift_schedule, remove_nightshift_timers
 
+SHIFT_WITHOUT_HOURS_WARNING = (
+    "Shift mode without both start and stop hours: there are no systemd timers (any existing ones were "
+    "removed), so the worker behaves as always-on until both hours are set "
+    "(`deepfellow server nightshift schedule`)."
+)
+
 
 def validate_nightshift_schedule(mode: str, start: str, stop: str) -> None:
     """Reject a mode/hours combination the systemd timers can't be generated from.
@@ -62,11 +68,7 @@ def apply_nightshift_schedule(
     if mode == NightshiftModeChoice.shift.value and not (start and stop):
         # Timers left over from an earlier, complete schedule would keep firing at the old hours.
         remove_nightshift_timers(directory)
-        echo.warning(
-            "Shift mode without both start and stop hours: there are no systemd timers (any existing ones were "
-            "removed), so the worker behaves as always-on until both hours are set "
-            "(`deepfellow server nightshift schedule`)."
-        )
+        echo.warning(SHIFT_WITHOUT_HOURS_WARNING)
     else:
         reconcile_nightshift_schedule(directory, mode, start, stop)
 

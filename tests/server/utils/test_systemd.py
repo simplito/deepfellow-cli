@@ -13,12 +13,12 @@ from deepfellow.server.utils.systemd import (
     SystemdUserError,
     _config_home,
     _linger_enabled,
-    _user_manager_reachable,
     assert_systemd_available,
     ensure_linger_enabled,
     generate_nightshift_units,
     install_nightshift_timers,
     is_systemd_available,
+    is_user_manager_reachable,
     reconcile_nightshift_schedule,
     remove_nightshift_timers,
 )
@@ -473,7 +473,7 @@ def test_user_manager_reachable_works_through_the_real_run_helper(mock_subproces
     mock_subprocess_run.side_effect = [side_effect] if isinstance(side_effect, Exception) else None
     mock_subprocess_run.return_value = None if isinstance(side_effect, Exception) else side_effect
 
-    assert _user_manager_reachable() is expected
+    assert is_user_manager_reachable() is expected
 
 
 @mock.patch("deepfellow.server.utils.systemd.echo")

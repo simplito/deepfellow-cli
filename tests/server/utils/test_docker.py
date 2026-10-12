@@ -1129,3 +1129,9 @@ def test_print_nightshift_status_says_not_installed_when_the_install_has_no_nigh
     assert "not installed" in mock_echo.info.call_args.args[0]
     assert mock_is_service_running.call_count == 0
     assert mock_print_docker_status.call_count == 0
+
+
+def test_nightshift_not_installed_hint_points_at_update_and_install():
+    assert "deepfellow server update" in NIGHTSHIFT_NOT_INSTALLED_HINT
+    assert "deepfellow server install" in NIGHTSHIFT_NOT_INSTALLED_HINT
+    assert "before Nightshift existed" not in NIGHTSHIFT_NOT_INSTALLED_HINT

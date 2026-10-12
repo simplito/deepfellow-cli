@@ -761,6 +761,80 @@ def _split_rabbitmq_host_port(value: str) -> tuple[str, str]:
     return host, port or str(DF_RABBITMQ_PORT)
 
 
+def local_rabbitmq_envs(
+    rabbitmq_username: str, rabbitmq_password: str, original_env: dict[str, Any] | None = None
+) -> NightshiftConfig:
+    """Build the `.env` values and compose service for a local RabbitMQ.
+
+    Credentials not given are reused from `original_env`, or generated - never `guest/guest`.
+
+    Args:
+        rabbitmq_username: Requested username, empty to reuse or generate one.
+        rabbitmq_password: Requested password, empty to reuse or generate one.
+        original_env: The install's current `.env` content.
+
+    Returns:
+        The `DF_RABBITMQ_*` envs and the local `rabbitmq` compose service.
+    """
+    original_env = original_env or {}
+    if rabbitmq_username:
+        validate_rabbitmq_credential(rabbitmq_username)
+    if rabbitmq_password:
+        validate_rabbitmq_credential(rabbitmq_password)
+    rabbitmq_password = rabbitmq_password or str(original_env.get("df_rabbitmq_password") or generate_password(12))
+    host, port = _split_rabbitmq_host_port(DF_RABBITMQ_URL)
+    echo.info("A default RabbitMQ setup is created.")
+    envs = {
+        "DF_RABBITMQ_URL": f"{host}:{port}",
+        "DF_RABBITMQ_USER": rabbitmq_username or str(original_env.get("df_rabbitmq_user") or generate_password(8)),
+        "DF_RABBITMQ_PASSWORD": rabbitmq_password,
+    }
+    return NightshiftConfig(envs=envs, docker_compose=DOCKER_COMPOSE_RABBITMQ)
+
+
+def external_rabbitmq_envs(
+    rabbitmq_url: str, rabbitmq_username: str, rabbitmq_password: str, original_env: dict[str, Any] | None = None
+) -> NightshiftConfig:
+    """Build the `.env` values for an existing RabbitMQ, prompting for whatever wasn't given.
+
+    Args:
+        rabbitmq_url: Requested host:port.
+        rabbitmq_username: Requested username, empty to prompt for it.
+        rabbitmq_password: Requested password, empty to prompt for it.
+        original_env: The install's current `.env` content, used for the prompts' defaults.
+
+    Returns:
+        The `DF_RABBITMQ_*` envs, without any compose service.
+    """
+    original_env = original_env or {}
+    rabbitmq_url = echo.prompt_until_valid(
+        "Provide host:port for RabbitMQ e.g. 192.168.1.5:5672",
+        validate_connection_string,
+        from_args=rabbitmq_url,
+        original_default=DF_RABBITMQ_URL,
+        default=original_env.get("df_rabbitmq_url", rabbitmq_url),
+    )
+    envs = {
+        "DF_RABBITMQ_URL": rabbitmq_url,
+        "DF_RABBITMQ_USER": echo.prompt_until_valid(
+            "Provide RabbitMQ username",
+            validate_rabbitmq_credential,
+            from_args=rabbitmq_username,
+            original_default="",
+            default=original_env.get("df_rabbitmq_user", ""),
+        ),
+        "DF_RABBITMQ_PASSWORD": echo.prompt_until_valid(
+            "Provide RabbitMQ password",
+            validate_rabbitmq_credential,
+            from_args=rabbitmq_password,
+            original_default="",
+            default=original_env.get("df_rabbitmq_password", ""),
+            password=True,
+        ),
+    }
+    return NightshiftConfig(envs=envs, docker_compose={})
+
+
 def configure_nightshift(
     nightshift_mode: str,
     nightshift_start: str,
@@ -841,44 +915,8 @@ def configure_nightshift(
         )
         validate_distinct_hours(envs["DF_NIGHTSHIFT_START"], envs["DF_NIGHTSHIFT_STOP"])
 
-    if not is_custom_rabbitmq(rabbitmq_url):
-        if rabbitmq_username:
-            validate_rabbitmq_credential(rabbitmq_username)
-        if rabbitmq_password:
-            validate_rabbitmq_credential(rabbitmq_password)
-        rabbitmq_password = rabbitmq_password or str(original_env.get("df_rabbitmq_password") or generate_password(12))
-        host, port = _split_rabbitmq_host_port(DF_RABBITMQ_URL)
-        echo.info("A default RabbitMQ setup is created.")
-        envs |= {
-            "DF_RABBITMQ_URL": f"{host}:{port}",
-            "DF_RABBITMQ_USER": rabbitmq_username or str(original_env.get("df_rabbitmq_user") or generate_password(8)),
-            "DF_RABBITMQ_PASSWORD": rabbitmq_password,
-        }
-        return NightshiftConfig(envs=envs, docker_compose=DOCKER_COMPOSE_RABBITMQ)
-
-    rabbitmq_url = echo.prompt_until_valid(
-        "Provide host:port for RabbitMQ e.g. 192.168.1.5:5672",
-        validate_connection_string,
-        from_args=rabbitmq_url,
-        original_default=DF_RABBITMQ_URL,
-        default=original_env.get("df_rabbitmq_url", rabbitmq_url),
-    )
-    envs |= {
-        "DF_RABBITMQ_URL": rabbitmq_url,
-        "DF_RABBITMQ_USER": echo.prompt_until_valid(
-            "Provide RabbitMQ username",
-            validate_rabbitmq_credential,
-            from_args=rabbitmq_username,
-            original_default="",
-            default=original_env.get("df_rabbitmq_user", ""),
-        ),
-        "DF_RABBITMQ_PASSWORD": echo.prompt_until_valid(
-            "Provide RabbitMQ password",
-            validate_rabbitmq_credential,
-            from_args=rabbitmq_password,
-            original_default="",
-            default=original_env.get("df_rabbitmq_password", ""),
-            password=True,
-        ),
-    }
-    return NightshiftConfig(envs=envs, docker_compose={})
+    if is_custom_rabbitmq(rabbitmq_url):
+        rabbitmq = external_rabbitmq_envs(rabbitmq_url, rabbitmq_username, rabbitmq_password, original_env)
+    else:
+        rabbitmq = local_rabbitmq_envs(rabbitmq_username, rabbitmq_password, original_env)
+    return NightshiftConfig(envs=envs | rabbitmq.envs, docker_compose=rabbitmq.docker_compose)

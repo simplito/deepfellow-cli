@@ -8,9 +8,15 @@ from unittest.mock import Mock
 import pytest
 import typer
 
-from deepfellow.common.defaults import DF_SERVER_IMAGE, DF_SERVER_IMAGE_HUB, DOCKER_COMPOSE_CONFIG_FILENAME
+from deepfellow.common.defaults import (
+    DF_SERVER_IMAGE,
+    DF_SERVER_IMAGE_HUB,
+    DOCKER_COMPOSE_CONFIG_FILENAME,
+    DOCKER_COMPOSE_RABBITMQ,
+)
+from deepfellow.common.state import state
 from deepfellow.server.update import update
-from deepfellow.server.utils.docker import NIGHTSHIFT_NOT_INSTALLED_HINT
+from deepfellow.server.utils.configure import NightshiftConfig
 
 
 @pytest.fixture
@@ -29,15 +35,28 @@ def compose_data_with_pull_policy() -> dict:
 
 
 @pytest.fixture
+def nightshift_config() -> NightshiftConfig:
+    return NightshiftConfig(
+        envs={"DF_NIGHTSHIFT_MODE": "always", "DF_RABBITMQ_URL": "mq.example:5672"}, docker_compose={}
+    )
+
+
+@pytest.fixture
 def default_update_kwargs(directory: Path) -> dict:
     return {
         "directory": directory,
         "image": DF_SERVER_IMAGE,
         "local_image": False,
         "tag": None,
+        "nightshift": None,
+        "rabbitmq_url": None,
+        "rabbitmq_username": "",
+        "rabbitmq_password": "",
     }
 
 
+@mock.patch("deepfellow.server.update.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition", return_value=None)
 @mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
 @mock.patch("deepfellow.server.update.start_server")
 @mock.patch("deepfellow.server.update.stop_server")
@@ -61,6 +80,8 @@ def test_update_calls_check_server_directory(
     mock_stop: Mock,
     mock_start: Mock,
     mock_reconcile: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_has_nightshift_service: Mock,
     server_values: dict,
     compose_data: dict,
     default_update_kwargs: dict,
@@ -76,6 +97,7 @@ def test_update_calls_check_server_directory(
     assert mock_assert_docker.call_count == 1
 
 
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition", return_value=None)
 @mock.patch("deepfellow.server.update.has_nightshift_service", return_value=True)
 @mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
 @mock.patch("deepfellow.server.update.start_server")
@@ -101,6 +123,7 @@ def test_update_pulls_both_server_and_nightshift_images(
     mock_start: Mock,
     mock_reconcile: Mock,
     mock_has_nightshift: Mock,
+    mock_resolve_nightshift_addition: Mock,
     server_values: dict,
     compose_data: dict,
     default_update_kwargs: dict,
@@ -118,6 +141,9 @@ def test_update_pulls_both_server_and_nightshift_images(
     )
 
 
+@mock.patch("deepfellow.server.update.warn_nightshift_declined")
+@mock.patch("deepfellow.server.update.add_nightshift_to_install")
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition", return_value=None)
 @mock.patch("deepfellow.server.update.has_nightshift_service", return_value=False)
 @mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
 @mock.patch("deepfellow.server.update.start_server")
@@ -130,7 +156,7 @@ def test_update_pulls_both_server_and_nightshift_images(
 @mock.patch("deepfellow.server.update.read_env_file_to_dict")
 @mock.patch("deepfellow.server.update.assert_docker")
 @mock.patch("deepfellow.server.update.check_server_directory")
-def test_update_pulls_only_the_server_and_hints_when_the_install_has_no_nightshift_service(
+def test_update_pulls_only_the_server_and_warns_when_nightshift_declined(
     mock_check: Mock,
     mock_assert_docker: Mock,
     mock_read: Mock,
@@ -142,13 +168,14 @@ def test_update_pulls_only_the_server_and_hints_when_the_install_has_no_nightshi
     mock_stop: Mock,
     mock_start: Mock,
     mock_reconcile: Mock,
-    mock_has_nightshift: Mock,
+    mock_has_nightshift_service: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_add_nightshift_to_install: Mock,
+    mock_warn_nightshift_declined: Mock,
     server_values: dict,
     compose_data: dict,
     default_update_kwargs: dict,
 ) -> None:
-    """compose fails on a service it doesn't define, so an install from before Nightshift existed
-    must not get `nightshift` in its pull - it gets a hint on how to add the worker instead."""
     mock_read.return_value = server_values
     mock_load.return_value = compose_data
     mock_echo.confirm.return_value = False
@@ -158,7 +185,9 @@ def test_update_pulls_only_the_server_and_hints_when_the_install_has_no_nightshi
     assert mock_run.call_args == mock.call(
         ["docker", "compose", "pull", "server"], cwd=default_update_kwargs["directory"]
     )
-    assert mock_echo.info.call_args == mock.call(NIGHTSHIFT_NOT_INSTALLED_HINT)
+    assert mock_add_nightshift_to_install.call_count == 0
+    assert mock_warn_nightshift_declined.call_count == 1
+    assert mock_echo.warning.call_count == 0
 
 
 @mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
@@ -176,6 +205,8 @@ def test_update_raises_when_tag_and_custom_image_provided(
     assert mock_assert_docker.call_count == 1
 
 
+@mock.patch("deepfellow.server.update.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition", return_value=None)
 @mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
 @mock.patch("deepfellow.server.update.start_server")
 @mock.patch("deepfellow.server.update.stop_server")
@@ -199,6 +230,8 @@ def test_update_local_image_and_no_pull_policy(
     mock_stop: Mock,
     mock_start: Mock,
     mock_reconcile: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_has_nightshift_service: Mock,
     server_values: dict,
     compose_data: dict,
     default_update_kwargs: dict,
@@ -218,6 +251,8 @@ def test_update_local_image_and_no_pull_policy(
     assert mock_assert_docker.call_count == 1
 
 
+@mock.patch("deepfellow.server.update.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition", return_value=None)
 @mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
 @mock.patch("deepfellow.server.update.start_server")
 @mock.patch("deepfellow.server.update.stop_server")
@@ -241,6 +276,8 @@ def test_update_local_image_and_pull_policy(
     mock_stop: Mock,
     mock_start: Mock,
     mock_reconcile: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_has_nightshift_service: Mock,
     server_values: dict,
     compose_data_with_pull_policy: dict,
     default_update_kwargs: dict,
@@ -256,6 +293,8 @@ def test_update_local_image_and_pull_policy(
     assert mock_assert_docker.call_count == 1
 
 
+@mock.patch("deepfellow.server.update.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition", return_value=None)
 @mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
 @mock.patch("deepfellow.server.update.start_server")
 @mock.patch("deepfellow.server.update.stop_server")
@@ -279,6 +318,8 @@ def test_update_no_local_image_and_pull_policy(
     mock_stop: Mock,
     mock_start: Mock,
     mock_reconcile: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_has_nightshift_service: Mock,
     server_values: dict,
     compose_data_with_pull_policy: dict,
     default_update_kwargs: dict,
@@ -298,6 +339,8 @@ def test_update_no_local_image_and_pull_policy(
     assert mock_assert_docker.call_count == 1
 
 
+@mock.patch("deepfellow.server.update.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition", return_value=None)
 @mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
 @mock.patch("deepfellow.server.update.start_server")
 @mock.patch("deepfellow.server.update.stop_server")
@@ -321,6 +364,8 @@ def test_update_no_image_no_pull_policy(
     mock_stop: Mock,
     mock_start: Mock,
     mock_reconcile: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_has_nightshift_service: Mock,
     server_values: dict,
     compose_data: dict,
     default_update_kwargs: dict,
@@ -335,6 +380,8 @@ def test_update_no_image_no_pull_policy(
     assert mock_assert_docker.call_count == 1
 
 
+@mock.patch("deepfellow.server.update.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition", return_value=None)
 @mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
 @mock.patch("deepfellow.server.update.start_server")
 @mock.patch("deepfellow.server.update.stop_server")
@@ -358,6 +405,8 @@ def test_update_with_tag(
     mock_stop: Mock,
     mock_start: Mock,
     mock_reconcile: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_has_nightshift_service: Mock,
     server_values: dict,
     compose_data: dict,
     default_update_kwargs: dict,
@@ -376,6 +425,8 @@ def test_update_with_tag(
     assert mock_assert_docker.call_count == 1
 
 
+@mock.patch("deepfellow.server.update.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition", return_value=None)
 @mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
 @mock.patch("deepfellow.server.update.start_server")
 @mock.patch("deepfellow.server.update.get_newest_image_tag")
@@ -400,6 +451,8 @@ def test_update_calls_env_set_when_env_image_differs_from_provided(
     mock_stop: Mock,
     mock_newest: Mock,
     mock_reconcile: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_has_nightshift_service: Mock,
     server_values: dict,
     compose_data: dict,
     default_update_kwargs: dict,
@@ -419,6 +472,8 @@ def test_update_calls_env_set_when_env_image_differs_from_provided(
     assert mock_assert_docker.call_count == 1
 
 
+@mock.patch("deepfellow.server.update.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition", return_value=None)
 @mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
 @mock.patch("deepfellow.server.update.get_newest_image_tag")
 @mock.patch("deepfellow.server.update.start_server")
@@ -444,6 +499,8 @@ def test_update_with_custom_image_and_no_tag_uses_image_as_is(
     mock_start: Mock,
     mock_newest: Mock,
     mock_reconcile: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_has_nightshift_service: Mock,
     server_values: dict,
     compose_data: dict,
     default_update_kwargs: dict,
@@ -463,6 +520,8 @@ def test_update_with_custom_image_and_no_tag_uses_image_as_is(
     assert mock_assert_docker.call_count == 1
 
 
+@mock.patch("deepfellow.server.update.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition", return_value=None)
 @mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
 @mock.patch("deepfellow.server.update.get_newest_image_tag")
 @mock.patch("deepfellow.server.update.start_server")
@@ -488,6 +547,8 @@ def test_update_does_not_call_env_set_when_image_unchanged(
     mock_start: Mock,
     mock_newest: Mock,
     mock_reconcile: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_has_nightshift_service: Mock,
     compose_data: dict,
     default_update_kwargs: dict,
 ) -> None:
@@ -502,6 +563,8 @@ def test_update_does_not_call_env_set_when_image_unchanged(
     assert mock_assert_docker.call_count == 1
 
 
+@mock.patch("deepfellow.server.update.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition", return_value=None)
 @mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
 @mock.patch("deepfellow.server.update.start_server")
 @mock.patch("deepfellow.server.update.stop_server")
@@ -525,6 +588,8 @@ def test_update_restarts_when_confirmed(
     mock_stop: Mock,
     mock_start: Mock,
     mock_reconcile: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_has_nightshift_service: Mock,
     server_values: dict,
     compose_data: dict,
     default_update_kwargs: dict,
@@ -545,6 +610,8 @@ def test_update_restarts_when_confirmed(
     assert mock_assert_docker.call_count == 1
 
 
+@mock.patch("deepfellow.server.update.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition", return_value=None)
 @mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
 @mock.patch("deepfellow.server.update.start_server")
 @mock.patch("deepfellow.server.update.stop_server")
@@ -568,6 +635,8 @@ def test_update_does_not_restart_when_not_confirmed(
     mock_stop: Mock,
     mock_start: Mock,
     mock_reconcile: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_has_nightshift_service: Mock,
     server_values: dict,
     compose_data: dict,
     default_update_kwargs: dict,
@@ -582,3 +651,409 @@ def test_update_does_not_restart_when_not_confirmed(
     assert mock_start.call_count == 0
     assert mock_reconcile.call_count == 0
     assert mock_assert_docker.call_count == 1
+
+
+@mock.patch("deepfellow.server.update.warn_nightshift_declined")
+@mock.patch("deepfellow.server.update.add_nightshift_to_install")
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition")
+@mock.patch("deepfellow.server.update.has_nightshift_service")
+@mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
+@mock.patch("deepfellow.server.update.start_server")
+@mock.patch("deepfellow.server.update.stop_server")
+@mock.patch("deepfellow.server.update.run")
+@mock.patch("deepfellow.server.update.env_set")
+@mock.patch("deepfellow.server.update.save_compose_file")
+@mock.patch("deepfellow.server.update.load_compose_file")
+@mock.patch("deepfellow.server.update.echo")
+@mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
+@mock.patch("deepfellow.server.update.check_server_directory")
+def test_update_resolves_nightshift_before_any_write(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_echo: Mock,
+    mock_load: Mock,
+    mock_save: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_stop: Mock,
+    mock_start: Mock,
+    mock_reconcile: Mock,
+    mock_has_nightshift_service: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_add_nightshift_to_install: Mock,
+    mock_warn_nightshift_declined: Mock,
+    default_update_kwargs: dict,
+) -> None:
+    mock_has_nightshift_service.return_value = False
+    mock_resolve_nightshift_addition.side_effect = typer.Exit(1)
+
+    with pytest.raises(typer.Exit):
+        update(**{**default_update_kwargs, "tag": "0.15.0"})
+
+    assert mock_load.call_count == 0
+    assert mock_save.call_count == 0
+    assert mock_env_set.call_count == 0
+    assert mock_run.call_count == 0
+    assert mock_add_nightshift_to_install.call_count == 0
+
+
+@mock.patch("deepfellow.server.update.warn_nightshift_declined")
+@mock.patch("deepfellow.server.update.add_nightshift_to_install")
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition")
+@mock.patch("deepfellow.server.update.has_nightshift_service")
+@mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
+@mock.patch("deepfellow.server.update.start_server")
+@mock.patch("deepfellow.server.update.stop_server")
+@mock.patch("deepfellow.server.update.run")
+@mock.patch("deepfellow.server.update.env_set")
+@mock.patch("deepfellow.server.update.save_compose_file")
+@mock.patch("deepfellow.server.update.load_compose_file")
+@mock.patch("deepfellow.server.update.echo")
+@mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
+@mock.patch("deepfellow.server.update.check_server_directory")
+def test_update_passes_nightshift_options_to_resolve(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_echo: Mock,
+    mock_load: Mock,
+    mock_save: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_stop: Mock,
+    mock_start: Mock,
+    mock_reconcile: Mock,
+    mock_has_nightshift_service: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_add_nightshift_to_install: Mock,
+    mock_warn_nightshift_declined: Mock,
+    server_values: dict,
+    compose_data: dict,
+    default_update_kwargs: dict,
+) -> None:
+    mock_read.return_value = server_values
+    mock_load.return_value = compose_data
+    mock_echo.confirm.return_value = False
+    mock_has_nightshift_service.return_value = True
+    mock_resolve_nightshift_addition.return_value = None
+
+    update(
+        **{
+            **default_update_kwargs,
+            "tag": "0.15.0",
+            "nightshift": True,
+            "rabbitmq_url": "mq.example:5672",
+            "rabbitmq_username": "df",
+            "rabbitmq_password": "secret",
+        }
+    )
+
+    assert mock_resolve_nightshift_addition.call_count == 1
+    assert mock_resolve_nightshift_addition.call_args == mock.call(
+        default_update_kwargs["directory"], True, "mq.example:5672", "df", "secret"
+    )
+
+
+@mock.patch("deepfellow.server.update.warn_nightshift_declined")
+@mock.patch("deepfellow.server.update.add_nightshift_to_install")
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition")
+@mock.patch("deepfellow.server.update.has_nightshift_service")
+@mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
+@mock.patch("deepfellow.server.update.start_server")
+@mock.patch("deepfellow.server.update.stop_server")
+@mock.patch("deepfellow.server.update.run")
+@mock.patch("deepfellow.server.update.env_set")
+@mock.patch("deepfellow.server.update.save_compose_file")
+@mock.patch("deepfellow.server.update.load_compose_file")
+@mock.patch("deepfellow.server.update.echo")
+@mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
+@mock.patch("deepfellow.server.update.check_server_directory")
+def test_update_adds_nightshift_before_pulling_both_images(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_echo: Mock,
+    mock_load: Mock,
+    mock_save: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_stop: Mock,
+    mock_start: Mock,
+    mock_reconcile: Mock,
+    mock_has_nightshift_service: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_add_nightshift_to_install: Mock,
+    mock_warn_nightshift_declined: Mock,
+    server_values: dict,
+    compose_data: dict,
+    nightshift_config: NightshiftConfig,
+    default_update_kwargs: dict,
+) -> None:
+    mock_read.return_value = server_values
+    mock_load.return_value = compose_data
+    mock_echo.confirm.return_value = True
+    mock_has_nightshift_service.return_value = False
+    mock_resolve_nightshift_addition.return_value = nightshift_config
+    _mock_manager = Mock()
+    _mock_manager.attach_mock(mock_add_nightshift_to_install, "add_nightshift_to_install")
+    _mock_manager.attach_mock(mock_run, "run")
+
+    update(**{**default_update_kwargs, "tag": "0.15.0"})
+
+    directory = default_update_kwargs["directory"]
+    assert _mock_manager.mock_calls == [
+        mock.call.add_nightshift_to_install(directory, nightshift_config),
+        mock.call.run(["docker", "compose", "pull", "server", "nightshift"], cwd=directory),
+    ]
+    assert mock_warn_nightshift_declined.call_count == 0
+
+
+@mock.patch("deepfellow.server.update.warn_nightshift_declined")
+@mock.patch("deepfellow.server.update.add_nightshift_to_install")
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition")
+@mock.patch("deepfellow.server.update.has_nightshift_service", return_value=False)
+@mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
+@mock.patch("deepfellow.server.update.start_server")
+@mock.patch("deepfellow.server.update.stop_server")
+@mock.patch("deepfellow.server.update.run")
+@mock.patch("deepfellow.server.update.env_set")
+@mock.patch("deepfellow.server.update.save_compose_file")
+@mock.patch("deepfellow.server.update.load_compose_file")
+@mock.patch("deepfellow.server.update.echo")
+@mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
+@mock.patch("deepfellow.server.update.check_server_directory")
+def test_update_pulls_local_rabbitmq_before_stopping_server(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_echo: Mock,
+    mock_load: Mock,
+    mock_save: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_stop: Mock,
+    mock_start: Mock,
+    mock_reconcile: Mock,
+    mock_has_nightshift_service: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_add_nightshift_to_install: Mock,
+    mock_warn_nightshift_declined: Mock,
+    server_values: dict,
+    compose_data: dict,
+    default_update_kwargs: dict,
+) -> None:
+    mock_read.return_value = server_values
+    mock_load.return_value = compose_data
+    mock_echo.confirm.return_value = True
+    mock_resolve_nightshift_addition.return_value = NightshiftConfig(
+        envs={"DF_NIGHTSHIFT_MODE": "always"}, docker_compose=DOCKER_COMPOSE_RABBITMQ
+    )
+    _mock_manager = Mock()
+    _mock_manager.attach_mock(mock_run, "run")
+    _mock_manager.attach_mock(mock_stop, "stop_server")
+
+    update(**default_update_kwargs)
+
+    directory = default_update_kwargs["directory"]
+    assert _mock_manager.mock_calls[:2] == [
+        mock.call.run(["docker", "compose", "pull", "server", "nightshift", "rabbitmq"], cwd=directory),
+        mock.call.stop_server(directory),
+    ]
+
+
+@mock.patch.object(state, "yes", True)
+@mock.patch("deepfellow.server.update.warn_nightshift_declined")
+@mock.patch("deepfellow.server.update.add_nightshift_to_install")
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition")
+@mock.patch("deepfellow.server.update.has_nightshift_service")
+@mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
+@mock.patch("deepfellow.server.update.start_server")
+@mock.patch("deepfellow.server.update.stop_server")
+@mock.patch("deepfellow.server.update.run")
+@mock.patch("deepfellow.server.update.env_set")
+@mock.patch("deepfellow.server.update.save_compose_file")
+@mock.patch("deepfellow.server.update.load_compose_file")
+@mock.patch("deepfellow.server.update.echo")
+@mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
+@mock.patch("deepfellow.server.update.check_server_directory")
+def test_update_restarts_without_prompt_with_yes(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_echo: Mock,
+    mock_load: Mock,
+    mock_save: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_stop: Mock,
+    mock_start: Mock,
+    mock_reconcile: Mock,
+    mock_has_nightshift_service: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_add_nightshift_to_install: Mock,
+    mock_warn_nightshift_declined: Mock,
+    server_values: dict,
+    compose_data: dict,
+    default_update_kwargs: dict,
+) -> None:
+    mock_read.return_value = server_values
+    mock_load.return_value = compose_data
+    mock_has_nightshift_service.return_value = True
+    mock_resolve_nightshift_addition.return_value = None
+
+    update(**{**default_update_kwargs, "tag": "0.15.0"})
+
+    assert mock_echo.confirm.call_count == 0
+    assert mock_stop.call_count == 1
+    assert mock_start.call_count == 1
+
+
+@mock.patch("deepfellow.server.update.warn_nightshift_declined")
+@mock.patch("deepfellow.server.update.add_nightshift_to_install")
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition")
+@mock.patch("deepfellow.server.update.has_nightshift_service")
+@mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
+@mock.patch("deepfellow.server.update.start_server")
+@mock.patch("deepfellow.server.update.stop_server")
+@mock.patch("deepfellow.server.update.run")
+@mock.patch("deepfellow.server.update.env_set")
+@mock.patch("deepfellow.server.update.save_compose_file")
+@mock.patch("deepfellow.server.update.load_compose_file")
+@mock.patch("deepfellow.server.update.echo")
+@mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
+@mock.patch("deepfellow.server.update.check_server_directory")
+def test_update_warns_when_added_nightshift_not_restarted(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_echo: Mock,
+    mock_load: Mock,
+    mock_save: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_stop: Mock,
+    mock_start: Mock,
+    mock_reconcile: Mock,
+    mock_has_nightshift_service: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_add_nightshift_to_install: Mock,
+    mock_warn_nightshift_declined: Mock,
+    server_values: dict,
+    compose_data: dict,
+    nightshift_config: NightshiftConfig,
+    default_update_kwargs: dict,
+) -> None:
+    mock_read.return_value = server_values
+    mock_load.return_value = compose_data
+    mock_echo.confirm.return_value = False
+    mock_has_nightshift_service.return_value = False
+    mock_resolve_nightshift_addition.return_value = nightshift_config
+
+    update(**{**default_update_kwargs, "tag": "0.15.0"})
+
+    assert mock_stop.call_count == 0
+    assert mock_echo.warning.call_count == 1
+    assert "deepfellow server start" in mock_echo.warning.call_args.args[0]
+
+
+@mock.patch("deepfellow.server.update.warn_nightshift_declined")
+@mock.patch("deepfellow.server.update.add_nightshift_to_install")
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition")
+@mock.patch("deepfellow.server.update.has_nightshift_service")
+@mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
+@mock.patch("deepfellow.server.update.start_server")
+@mock.patch("deepfellow.server.update.stop_server")
+@mock.patch("deepfellow.server.update.run")
+@mock.patch("deepfellow.server.update.env_set")
+@mock.patch("deepfellow.server.update.save_compose_file")
+@mock.patch("deepfellow.server.update.load_compose_file")
+@mock.patch("deepfellow.server.update.echo")
+@mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
+@mock.patch("deepfellow.server.update.check_server_directory")
+def test_update_no_warning_when_restart_declined_without_changes(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_echo: Mock,
+    mock_load: Mock,
+    mock_save: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_stop: Mock,
+    mock_start: Mock,
+    mock_reconcile: Mock,
+    mock_has_nightshift_service: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_add_nightshift_to_install: Mock,
+    mock_warn_nightshift_declined: Mock,
+    server_values: dict,
+    compose_data: dict,
+    default_update_kwargs: dict,
+) -> None:
+    mock_read.return_value = server_values
+    mock_load.return_value = compose_data
+    mock_echo.confirm.return_value = False
+    mock_has_nightshift_service.return_value = True
+    mock_resolve_nightshift_addition.return_value = None
+
+    update(**{**default_update_kwargs, "tag": "0.15.0"})
+
+    assert mock_echo.warning.call_count == 0
+    assert mock_warn_nightshift_declined.call_count == 0
+
+
+@mock.patch("deepfellow.server.update.warn_nightshift_declined")
+@mock.patch("deepfellow.server.update.add_nightshift_to_install")
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition")
+@mock.patch("deepfellow.server.update.has_nightshift_service")
+@mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
+@mock.patch("deepfellow.server.update.start_server")
+@mock.patch("deepfellow.server.update.stop_server")
+@mock.patch("deepfellow.server.update.run")
+@mock.patch("deepfellow.server.update.env_set")
+@mock.patch("deepfellow.server.update.save_compose_file")
+@mock.patch("deepfellow.server.update.load_compose_file")
+@mock.patch("deepfellow.server.update.echo")
+@mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
+@mock.patch("deepfellow.server.update.check_server_directory")
+def test_update_local_image_sets_nightshift_pull_policy(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_echo: Mock,
+    mock_load: Mock,
+    mock_save: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_stop: Mock,
+    mock_start: Mock,
+    mock_reconcile: Mock,
+    mock_has_nightshift_service: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_add_nightshift_to_install: Mock,
+    mock_warn_nightshift_declined: Mock,
+    server_values: dict,
+    default_update_kwargs: dict,
+) -> None:
+    compose = {"services": {"server": {}, "nightshift": {}, "rabbitmq": {}}}
+    mock_read.return_value = server_values
+    mock_load.return_value = compose
+    mock_echo.confirm.return_value = False
+    mock_has_nightshift_service.return_value = True
+    mock_resolve_nightshift_addition.return_value = None
+
+    update(**{**default_update_kwargs, "tag": "0.15.0", "local_image": True})
+
+    assert compose["services"]["server"]["pull_policy"] == "never"
+    assert compose["services"]["nightshift"]["pull_policy"] == "never"
+    assert "pull_policy" not in compose["services"]["rabbitmq"]
+    assert mock_save.call_count == 1
