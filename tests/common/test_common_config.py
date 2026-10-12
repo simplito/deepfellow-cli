@@ -686,6 +686,7 @@ def test_save_env_file_leaves_plain_value_unquoted(tmp_path: Path) -> None:
     assert env_file.read_text() == "KEY=plain-value\n"
 
 
+@mock.patch("deepfellow.common.config.write_private_file")
 @pytest.mark.parametrize(
     ("values", "expected_content"),
     [
@@ -704,7 +705,11 @@ def test_save_env_file_leaves_plain_value_unquoted(tmp_path: Path) -> None:
 @mock.patch("deepfellow.common.config.echo")
 @mock.patch("deepfellow.common.config.read_env_file")
 def test_save_env_file_new_file(
-    mock_read_env_file: mock.Mock, mock_echo: mock.Mock, values: Mapping[str, str | int], expected_content: str
+    mock_read_env_file: mock.Mock,
+    mock_echo: mock.Mock,
+    mock_write: mock.Mock,
+    values: Mapping[str, str | int],
+    expected_content: str,
 ) -> None:
     mock_env_file = mock.Mock(spec=Path)
     mock_env_file.exists.return_value = False
@@ -714,12 +719,13 @@ def test_save_env_file_new_file(
 
     assert mock_env_file.exists.call_count == 1
     assert mock_read_env_file.call_count == 0
-    assert mock_env_file.write_text.call_count == 1
-    assert mock_env_file.write_text.call_args == mock.call(expected_content)
+    assert mock_write.call_count == 1
+    assert mock_write.call_args == mock.call(mock_env_file, expected_content)
     assert mock_echo.info.call_count == 1
     assert mock_echo.info.call_args == mock.call("Generated /fake/path/.env.")
 
 
+@mock.patch("deepfellow.common.config.write_private_file")
 @pytest.mark.parametrize(
     ("existing_vars", "new_values", "expected_content"),
     [
@@ -754,6 +760,7 @@ def test_save_env_file_new_file(
 def test_save_env_file_existing_file_merge(
     mock_read_env_file: mock.Mock,
     mock_echo: mock.Mock,
+    mock_write: mock.Mock,
     existing_vars: dict[str, str],
     new_values: Mapping[str, str | int],
     expected_content: str,
@@ -768,15 +775,18 @@ def test_save_env_file_existing_file_merge(
     assert mock_env_file.exists.call_count == 1
     assert mock_read_env_file.call_count == 1
     assert mock_read_env_file.call_args == mock.call(mock_env_file)
-    assert mock_env_file.write_text.call_count == 1
-    assert mock_env_file.write_text.call_args == mock.call(expected_content)
+    assert mock_write.call_count == 1
+    assert mock_write.call_args == mock.call(mock_env_file, expected_content)
     assert mock_echo.info.call_count == 1
     assert mock_echo.info.call_args == mock.call("Updated /fake/path/.env.")
 
 
+@mock.patch("deepfellow.common.config.write_private_file")
 @mock.patch("deepfellow.common.config.echo")
 @mock.patch("deepfellow.common.config.read_env_file")
-def test_save_env_file_new_values_take_precedence(mock_read_env_file: mock.Mock, mock_echo: mock.Mock) -> None:
+def test_save_env_file_new_values_take_precedence(
+    mock_read_env_file: mock.Mock, mock_echo: mock.Mock, mock_write: mock.Mock
+) -> None:
     mock_env_file = mock.Mock(spec=Path)
     mock_env_file.exists.return_value = True
     mock_env_file.as_posix.return_value = "/fake/path/.env"
@@ -789,7 +799,7 @@ def test_save_env_file_new_values_take_precedence(mock_read_env_file: mock.Mock,
         "# Docker Compose Environment Variables\n# Edit these values as needed\n\n"
         "SAME_KEY=new_value\nOTHER_KEY=keep_this\nANOTHER_KEY=add_this\n"
     )
-    assert mock_env_file.write_text.call_args == mock.call(expected_content)
+    assert mock_write.call_args == mock.call(mock_env_file, expected_content)
 
 
 def test_save_env_file_remove_deletes_key_present_only_on_disk(tmp_path: Path) -> None:
@@ -804,9 +814,12 @@ def test_save_env_file_remove_deletes_key_present_only_on_disk(tmp_path: Path) -
     assert saved == {"KEEP_ME": "kept"}
 
 
+@mock.patch("deepfellow.common.config.write_private_file")
 @mock.patch("deepfellow.common.config.echo")
 @mock.patch("deepfellow.common.config.read_env_file")
-def test_save_env_file_empty_existing_file(mock_read_env_file: mock.Mock, mock_echo: mock.Mock) -> None:
+def test_save_env_file_empty_existing_file(
+    mock_read_env_file: mock.Mock, mock_echo: mock.Mock, mock_write: mock.Mock
+) -> None:
     mock_env_file = mock.Mock(spec=Path)
     mock_env_file.exists.return_value = True
     mock_env_file.as_posix.return_value = "/fake/path/.env"
@@ -817,13 +830,16 @@ def test_save_env_file_empty_existing_file(mock_read_env_file: mock.Mock, mock_e
 
     expected_content = "# Docker Compose Environment Variables\n# Edit these values as needed\n\nKEY=value\n"
     assert mock_read_env_file.call_count == 1
-    assert mock_env_file.write_text.call_args == mock.call(expected_content)
+    assert mock_write.call_args == mock.call(mock_env_file, expected_content)
     assert mock_echo.info.call_args == mock.call("Updated /fake/path/.env.")
 
 
+@mock.patch("deepfellow.common.config.write_private_file")
 @mock.patch("deepfellow.common.config.echo")
 @mock.patch("deepfellow.common.config.read_env_file")
-def test_save_env_file_mixed_value_types(mock_read_env_file: mock.Mock, mock_echo: mock.Mock) -> None:
+def test_save_env_file_mixed_value_types(
+    mock_read_env_file: mock.Mock, mock_echo: mock.Mock, mock_write: mock.Mock
+) -> None:
     mock_env_file = mock.Mock(spec=Path)
     mock_env_file.exists.return_value = False
     mock_env_file.as_posix.return_value = "/fake/path/.env"
@@ -835,12 +851,15 @@ def test_save_env_file_mixed_value_types(mock_read_env_file: mock.Mock, mock_ech
         "# Docker Compose Environment Variables\n# Edit these values as needed\n\n"
         "STRING_VAL=text\nINT_VAL=42\nZERO_VAL=0\nNEGATIVE_VAL=-123\n"
     )
-    assert mock_env_file.write_text.call_args == mock.call(expected_content)
+    assert mock_write.call_args == mock.call(mock_env_file, expected_content)
 
 
+@mock.patch("deepfellow.common.config.write_private_file")
 @mock.patch("deepfellow.common.config.echo")
 @mock.patch("deepfellow.common.config.read_env_file")
-def test_save_env_file_preserves_order(mock_read_env_file: mock.Mock, mock_echo: mock.Mock) -> None:
+def test_save_env_file_preserves_order(
+    mock_read_env_file: mock.Mock, mock_echo: mock.Mock, mock_write: mock.Mock
+) -> None:
     mock_env_file = mock.Mock(spec=Path)
     mock_env_file.exists.return_value = True
     mock_env_file.as_posix.return_value = "/fake/path/.env"
@@ -853,12 +872,15 @@ def test_save_env_file_preserves_order(mock_read_env_file: mock.Mock, mock_echo:
         "# Docker Compose Environment Variables\n# Edit these values as needed\n\n"
         "B_KEY=b_value\nA_KEY=a_value\nD_KEY=d_value\nC_KEY=c_value\n"
     )
-    assert mock_env_file.write_text.call_args == mock.call(expected_content)
+    assert mock_write.call_args == mock.call(mock_env_file, expected_content)
 
 
+@mock.patch("deepfellow.common.config.write_private_file")
 @mock.patch("deepfellow.common.config.echo")
 @mock.patch("deepfellow.common.config.read_env_file")
-def test_save_env_file_path_methods_called_correctly(mock_read_env_file: mock.Mock, mock_echo: mock.Mock) -> None:
+def test_save_env_file_path_methods_called_correctly(
+    mock_read_env_file: mock.Mock, mock_echo: mock.Mock, mock_write: mock.Mock
+) -> None:
     mock_env_file = mock.Mock(spec=Path)
     mock_env_file.exists.return_value = True
     mock_env_file.as_posix.return_value = "/test/path/.env"
@@ -869,12 +891,15 @@ def test_save_env_file_path_methods_called_correctly(mock_read_env_file: mock.Mo
 
     assert mock_env_file.exists.call_count == 1
     assert mock_env_file.as_posix.call_count == 1
-    assert mock_env_file.write_text.call_count == 1
+    assert mock_write.call_count == 1
 
 
+@mock.patch("deepfellow.common.config.write_private_file")
 @mock.patch("deepfellow.common.config.echo")
 @mock.patch("deepfellow.common.config.read_env_file")
-def test_save_env_file_echo_messages(mock_read_env_file: mock.Mock, mock_echo: mock.Mock) -> None:
+def test_save_env_file_echo_messages(
+    mock_read_env_file: mock.Mock, mock_echo: mock.Mock, mock_write: mock.Mock
+) -> None:
     mock_env_file = mock.Mock(spec=Path)
     mock_env_file.as_posix.return_value = "/test/path/.env"
     values = {"KEY": "value"}
@@ -890,9 +915,12 @@ def test_save_env_file_echo_messages(mock_read_env_file: mock.Mock, mock_echo: m
     assert mock_echo.info.call_args == mock.call("Updated /test/path/.env.")
 
 
+@mock.patch("deepfellow.common.config.write_private_file")
 @mock.patch("deepfellow.common.config.echo")
 @mock.patch("deepfellow.common.config.read_env_file")
-def test_save_env_file_header_always_included(mock_read_env_file: mock.Mock, mock_echo: mock.Mock) -> None:
+def test_save_env_file_header_always_included(
+    mock_read_env_file: mock.Mock, mock_echo: mock.Mock, mock_write: mock.Mock
+) -> None:
     mock_env_file = mock.Mock(spec=Path)
     mock_env_file.exists.return_value = False
     mock_env_file.as_posix.return_value = "/fake/path/.env"
@@ -900,7 +928,7 @@ def test_save_env_file_header_always_included(mock_read_env_file: mock.Mock, moc
 
     save_env_file(mock_env_file, values)
 
-    written_content = mock_env_file.write_text.call_args[0][0]
+    written_content = mock_write.call_args[0][1]
     assert written_content.startswith("# Docker Compose Environment Variables\n# Edit these values as needed\n\n")
     assert "KEY=value\n" in written_content
 

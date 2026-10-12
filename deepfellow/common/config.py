@@ -13,6 +13,7 @@ from uuid import uuid4
 import typer
 
 from deepfellow.common.echo import echo
+from deepfellow.common.files import write_private_file
 
 
 def dict_to_env(data: dict[str, Any], prefix: str = "DF_", parent_key: str = "") -> dict[str, str]:
@@ -277,7 +278,7 @@ def save_env_file(
         else:
             content += f"{key}={str_value}\n"
 
-    env_file.write_text(content)
+    write_private_file(env_file, content)
 
     action = "Updated" if file_existed else "Generated"
     msg = echo.debug if quiet else echo.info
