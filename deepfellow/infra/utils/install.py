@@ -10,7 +10,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import typer
 
@@ -549,7 +549,7 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:
     infra_service = compose["infra"]
     add_network_to_service(infra_service, config.docker_network)
 
-    volumes = cast("list", infra_service["volumes"])
+    volumes = infra_service.setdefault("volumes", [])
     volumes.append(f"{config.docker_socket}:/run/docker.sock")
     volumes.append(f"{config.docker_socket}:/var/run/docker.sock")
     volumes.append("${DF_INFRA_STORAGE_DIR}:${DF_INFRA_STORAGE_DIR}")
