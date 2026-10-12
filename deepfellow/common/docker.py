@@ -13,7 +13,7 @@ import typer
 import yaml
 
 from deepfellow.common.config import env_to_dict, read_env_file
-from deepfellow.common.defaults import DOCKER_COMPOSE_CONFIG_FILENAME
+from deepfellow.common.defaults import DOCKER_COMPOSE_CONFIG_FILENAME, ServiceConfig
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import DockerNetworkError, DockerSocketNotFoundError
 from deepfellow.common.system import run
@@ -230,7 +230,7 @@ def ensure_network(network_name: str, driver: str = "bridge") -> None:
         create_network(network_name, driver)
 
 
-def add_network_to_service(service: dict, network_name: str) -> None:
+def add_network_to_service(service: ServiceConfig | dict[str, Any], network_name: str) -> None:
     """Add a Docker network to a docker service's \"networks\" field.
 
     Args:
