@@ -22,6 +22,7 @@ from deepfellow.server.utils.docker import (
     start_server,
     stop_server,
 )
+from deepfellow.server.utils.mongo_migration import is_legacy_mongo_install, migrate_mongo_to_app_user
 from deepfellow.server.utils.nightshift_migration import (
     add_nightshift_to_install,
     resolve_nightshift_addition,
@@ -129,6 +130,9 @@ def update(
     if nightshift_config is not None and nightshift_config.docker_compose:
         services.append("rabbitmq")
     run(["docker", "compose", "pull", *services], cwd=directory)
+    # Installs from before the least-privilege MongoDB account still connect as MongoDB's root.
+    # The root account is kept, so the running server works until the restart below switches it.
+    mongo_migrated = is_legacy_mongo_install(directory) and migrate_mongo_to_app_user(directory)
     echo.success("DeepFellow Server updated.")
     if state.yes or echo.confirm("Do you want to restart the server?", default=True):
         stop_server(directory)
@@ -137,9 +141,15 @@ def update(
         # should be up - this makes that schedule compliance an explicit, tested step rather than
         # an incidental side effect, matching `server restart`.
         reconcile_nightshift_running_state(directory)
-    elif nightshift_config is not None:
-        added = "Nightshift and the local RabbitMQ were" if nightshift_config.docker_compose else "Nightshift was"
-        echo.warning(f"{added} added but won't run until `deepfellow server start`.")
+    else:
+        if nightshift_config is not None:
+            added = "Nightshift and the local RabbitMQ were" if nightshift_config.docker_compose else "Nightshift was"
+            echo.warning(f"{added} added but won't run until `deepfellow server start`.")
+        if mongo_migrated:
+            echo.warning(
+                "DeepFellow Server keeps using MongoDB's root account until it is restarted "
+                "(`deepfellow server restart`)."
+            )
 
     if not has_nightshift:
         warn_nightshift_declined()
