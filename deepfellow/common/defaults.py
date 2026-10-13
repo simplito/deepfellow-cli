@@ -424,7 +424,7 @@ DOCKER_COMPOSE_SERVER_RABBITMQ_ENVS = [
 DOCKER_COMPOSE_RABBITMQ: dict[str, Any] = {
     "rabbitmq": {
         "container_name": "rabbitmq",
-        "image": "rabbitmq:3.13-management",
+        "image": "rabbitmq:4.3.6-management",
         "hostname": "rabbitmq",
         "restart": "always",
         "expose": [str(DF_RABBITMQ_PORT), str(DF_RABBITMQ_MANAGEMENT_PORT)],
