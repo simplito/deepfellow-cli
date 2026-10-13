@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: LicenseRef-DeepFellow-Free
 # SPDX-FileCopyrightText: 2026 Simplito sp. z o.o.
 
+import socket
 from pathlib import Path
 from unittest import mock
 from unittest.mock import Mock
@@ -12,6 +13,8 @@ import yaml
 from deepfellow.common.defaults import DOCKER_COMPOSE_CONFIG_FILENAME
 from deepfellow.common.docker import (
     DockerError,
+    _find_socket,
+    _is_rootful_socket,
     add_network_to_service,
     create_network,
     docker_ps,
@@ -337,98 +340,185 @@ def test_is_docker_group_available_returns_false_when_group_absent(mock_exists: 
     assert result is False
 
 
-def test_get_socket_returns_docker_host_when_unix_socket(monkeypatch: pytest.MonkeyPatch) -> None:
+@mock.patch.object(Path, "stat", autospec=True)
+def test_is_rootful_socket_returns_true_when_owned_by_root(mock_stat: Mock) -> None:
+    mock_stat.return_value = Mock(st_uid=0)
+
+    result = _is_rootful_socket("/run/docker.sock")
+
+    assert result is True
+    assert mock_stat.call_args == mock.call(Path("/run/docker.sock"))
+
+
+@mock.patch.object(Path, "stat", autospec=True)
+def test_is_rootful_socket_returns_false_when_owned_by_user(mock_stat: Mock) -> None:
+    mock_stat.return_value = Mock(st_uid=1000)
+
+    result = _is_rootful_socket("/run/user/1000/docker.sock")
+
+    assert result is False
+
+
+@mock.patch.object(Path, "stat", autospec=True, side_effect=FileNotFoundError)
+def test_is_rootful_socket_returns_false_when_stat_fails(mock_stat: Mock) -> None:
+    result = _is_rootful_socket("/nonexistent/docker.sock")
+
+    assert result is False
+
+
+def test_find_socket_returns_docker_host_when_unix_socket(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DOCKER_HOST", "unix:///var/run/docker.sock")
 
-    result = get_socket()
+    result = _find_socket()
 
     assert result == "/var/run/docker.sock"
 
 
 @mock.patch("deepfellow.common.docker.run")
-def test_get_socket_returns_host_from_docker_context_inspect(mock_run: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_find_socket_returns_host_from_docker_context_inspect(mock_run: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DOCKER_HOST", raising=False)
     mock_run.return_value = "unix:///run/docker.sock\n"
 
-    result = get_socket()
+    result = _find_socket()
 
     assert result == "/run/docker.sock"
 
 
-@mock.patch.object(Path, "is_file", autospec=True)
+@mock.patch.object(Path, "is_socket", autospec=True)
 @mock.patch("deepfellow.common.docker.run")
-def test_get_socket_ignores_non_unix_docker_context_host(
-    mock_run: Mock, mock_is_file: Mock, monkeypatch: pytest.MonkeyPatch
+def test_find_socket_ignores_non_unix_docker_context_host(
+    mock_run: Mock, mock_is_socket: Mock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("DOCKER_HOST", raising=False)
     monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
     mock_run.return_value = "tcp://1.2.3.4:2375"
-    mock_is_file.return_value = True
+    mock_is_socket.return_value = True
 
-    result = get_socket()
+    result = _find_socket()
 
     assert result == "/run/user/1000/docker.sock"
 
 
-@mock.patch.object(Path, "is_file", autospec=True)
+@mock.patch.object(Path, "is_socket", autospec=True)
 @mock.patch("deepfellow.common.docker.run")
-def test_get_socket_returns_xdg_runtime_rootless_socket(
-    mock_run: Mock, mock_is_file: Mock, monkeypatch: pytest.MonkeyPatch
+def test_find_socket_returns_xdg_runtime_rootless_socket(
+    mock_run: Mock, mock_is_socket: Mock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("DOCKER_HOST", raising=False)
     monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
     mock_run.return_value = None
-    mock_is_file.return_value = True
+    mock_is_socket.return_value = True
 
-    result = get_socket()
+    result = _find_socket()
 
     assert result == "/run/user/1000/docker.sock"
 
 
 @mock.patch("deepfellow.common.docker.os.getuid", return_value=1000)
-@mock.patch.object(Path, "is_file", autospec=True)
+@mock.patch.object(Path, "is_socket", autospec=True)
 @mock.patch("deepfellow.common.docker.run")
-def test_get_socket_falls_back_to_uid_path_when_xdg_socket_missing(
-    mock_run: Mock, mock_is_file: Mock, mock_getuid: Mock, monkeypatch: pytest.MonkeyPatch
+def test_find_socket_falls_back_to_uid_path_when_xdg_socket_missing(
+    mock_run: Mock, mock_is_socket: Mock, mock_getuid: Mock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("DOCKER_HOST", raising=False)
     monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/2000")
     mock_run.return_value = None
-    mock_is_file.side_effect = lambda self: str(self) == "/run/user/1000/docker.sock"
+    mock_is_socket.side_effect = lambda self: str(self) == "/run/user/1000/docker.sock"
 
-    result = get_socket()
+    result = _find_socket()
 
     assert result == "/run/user/1000/docker.sock"
 
 
 @mock.patch("deepfellow.common.docker.os.getuid", return_value=1000)
-@mock.patch.object(Path, "is_file", autospec=True)
+@mock.patch.object(Path, "is_socket", autospec=True)
 @mock.patch("deepfellow.common.docker.run")
-def test_get_socket_returns_uid_rootless_socket_when_no_xdg_runtime_dir(
-    mock_run: Mock, mock_is_file: Mock, mock_getuid: Mock, monkeypatch: pytest.MonkeyPatch
+def test_find_socket_returns_uid_rootless_socket_when_no_xdg_runtime_dir(
+    mock_run: Mock, mock_is_socket: Mock, mock_getuid: Mock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("DOCKER_HOST", raising=False)
     monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
     mock_run.return_value = None
-    mock_is_file.return_value = True
+    mock_is_socket.return_value = True
 
-    result = get_socket()
+    result = _find_socket()
 
     assert result == "/run/user/1000/docker.sock"
+
+
+@mock.patch("deepfellow.common.docker.os.getuid", return_value=1000)
+@mock.patch.object(Path, "is_socket", autospec=True)
+@mock.patch("deepfellow.common.docker.run")
+def test_find_socket_returns_rootful_socket_when_no_rootless_socket(
+    mock_run: Mock, mock_is_socket: Mock, mock_getuid: Mock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("DOCKER_HOST", raising=False)
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    mock_run.return_value = None
+    mock_is_socket.side_effect = lambda self: str(self) == "/run/docker.sock"
+
+    result = _find_socket()
+
+    assert result == "/run/docker.sock"
+
+
+@mock.patch("deepfellow.common.docker.run")
+def test_find_socket_detects_real_unix_socket(mock_run: Mock, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("DOCKER_HOST", raising=False)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    mock_run.return_value = None
+    socket_path = tmp_path / "docker.sock"
+    unix_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    unix_socket.bind(str(socket_path))
+
+    try:
+        result = _find_socket()
+    finally:
+        unix_socket.close()
+
+    assert result == str(socket_path)
+
+
+@mock.patch("deepfellow.common.docker.os.getuid", return_value=1000)
+@mock.patch.object(Path, "is_socket", autospec=True, return_value=False)
+@mock.patch("deepfellow.common.docker.run")
+def test_find_socket_raises_docker_socket_not_found_error(
+    mock_run: Mock, mock_is_socket: Mock, mock_getuid: Mock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("DOCKER_HOST", raising=False)
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    mock_run.return_value = None
+
+    with pytest.raises(DockerSocketNotFoundError) as exc_info:
+        _find_socket()
+
+    assert str(exc_info.value) == (
+        "Could not find the Docker socket. Checked DOCKER_HOST, "
+        "`docker context inspect` and /run/user/1000/docker.sock, /run/docker.sock. "
+        "Set DOCKER_HOST=unix:///path/to/docker.sock to point at it."
+    )
 
 
 @mock.patch("deepfellow.common.docker.echo")
-@mock.patch("deepfellow.common.docker.os.getuid", return_value=1000)
-@mock.patch.object(Path, "is_file", autospec=True)
-@mock.patch("deepfellow.common.docker.run")
-def test_get_socket_returns_rootful_socket_when_allow_rootful(
-    mock_run: Mock, mock_is_file: Mock, mock_getuid: Mock, mock_echo: Mock, monkeypatch: pytest.MonkeyPatch
+@mock.patch("deepfellow.common.docker._is_rootful_socket", return_value=False)
+@mock.patch("deepfellow.common.docker._find_socket", return_value="/run/user/1000/docker.sock")
+def test_get_socket_returns_rootless_socket_without_warning(
+    mock_find_socket: Mock, mock_is_rootful_socket: Mock, mock_echo: Mock
 ) -> None:
-    monkeypatch.delenv("DOCKER_HOST", raising=False)
-    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
-    mock_run.return_value = None
-    mock_is_file.side_effect = lambda self: str(self) == "/run/docker.sock"
+    result = get_socket()
 
+    assert result == "/run/user/1000/docker.sock"
+    assert mock_is_rootful_socket.call_args == mock.call("/run/user/1000/docker.sock")
+    assert mock_echo.warning.call_count == 0
+    assert mock_echo.confirm.call_count == 0
+
+
+@mock.patch("deepfellow.common.docker.echo")
+@mock.patch("deepfellow.common.docker._is_rootful_socket", return_value=True)
+@mock.patch("deepfellow.common.docker._find_socket", return_value="/run/docker.sock")
+def test_get_socket_returns_rootful_socket_when_allow_rootful(
+    mock_find_socket: Mock, mock_is_rootful_socket: Mock, mock_echo: Mock
+) -> None:
     result = get_socket(allow_rootful=True)
 
     assert result == "/run/docker.sock"
@@ -437,53 +527,75 @@ def test_get_socket_returns_rootful_socket_when_allow_rootful(
 
 
 @mock.patch("deepfellow.common.docker.echo")
-@mock.patch("deepfellow.common.docker.os.getuid", return_value=1000)
-@mock.patch.object(Path, "is_file", autospec=True)
-@mock.patch("deepfellow.common.docker.run")
+@mock.patch("deepfellow.common.docker._is_rootful_socket", return_value=True)
+@mock.patch("deepfellow.common.docker._find_socket", return_value="/run/docker.sock")
 def test_get_socket_returns_rootful_socket_when_user_confirms(
-    mock_run: Mock, mock_is_file: Mock, mock_getuid: Mock, mock_echo: Mock, monkeypatch: pytest.MonkeyPatch
+    mock_find_socket: Mock, mock_is_rootful_socket: Mock, mock_echo: Mock
 ) -> None:
-    monkeypatch.delenv("DOCKER_HOST", raising=False)
-    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
-    mock_run.return_value = None
-    mock_is_file.side_effect = lambda self: str(self) == "/run/docker.sock"
     mock_echo.confirm.return_value = True
 
     result = get_socket(allow_rootful=False)
 
     assert result == "/run/docker.sock"
+    assert mock_echo.warning.call_count == 1
     assert mock_echo.confirm.call_args == mock.call("Do you want to continue?", default=False)
 
 
 @mock.patch("deepfellow.common.docker.echo")
-@mock.patch("deepfellow.common.docker.os.getuid", return_value=1000)
-@mock.patch.object(Path, "is_file", autospec=True)
-@mock.patch("deepfellow.common.docker.run")
+@mock.patch("deepfellow.common.docker._is_rootful_socket", return_value=True)
+@mock.patch("deepfellow.common.docker._find_socket", return_value="/run/docker.sock")
 def test_get_socket_raises_exit_when_rootful_declined(
-    mock_run: Mock, mock_is_file: Mock, mock_getuid: Mock, mock_echo: Mock, monkeypatch: pytest.MonkeyPatch
+    mock_find_socket: Mock, mock_is_rootful_socket: Mock, mock_echo: Mock
 ) -> None:
-    monkeypatch.delenv("DOCKER_HOST", raising=False)
-    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
-    mock_run.return_value = None
-    mock_is_file.side_effect = lambda self: str(self) == "/run/docker.sock"
     mock_echo.confirm.return_value = False
 
     with pytest.raises(typer.Exit):
         get_socket(allow_rootful=False)
 
+    assert mock_echo.warning.call_count == 1
+    assert mock_echo.error.call_args == mock.call(
+        "Aborted: rootful Docker not allowed. Re-run with --allow-rootful to continue anyway."
+    )
 
-@mock.patch("deepfellow.common.docker.os.getuid", return_value=1000)
-@mock.patch.object(Path, "is_file", autospec=True, return_value=False)
+
+@mock.patch("deepfellow.common.docker.echo")
+@mock.patch("deepfellow.common.docker._is_rootful_socket", return_value=True)
+def test_get_socket_warns_when_docker_host_points_to_rootful_socket(
+    mock_is_rootful_socket: Mock, mock_echo: Mock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DOCKER_HOST", "unix:///var/run/docker.sock")
+
+    result = get_socket(allow_rootful=True)
+
+    assert result == "/var/run/docker.sock"
+    assert mock_is_rootful_socket.call_args == mock.call("/var/run/docker.sock")
+    assert mock_echo.warning.call_count == 1
+
+
+@mock.patch("deepfellow.common.docker.echo")
+@mock.patch("deepfellow.common.docker._is_rootful_socket", return_value=True)
 @mock.patch("deepfellow.common.docker.run")
-def test_get_socket_raises_docker_socket_not_found_error(
-    mock_run: Mock, mock_is_file: Mock, mock_getuid: Mock, monkeypatch: pytest.MonkeyPatch
+def test_get_socket_warns_when_docker_context_points_to_rootful_socket(
+    mock_run: Mock, mock_is_rootful_socket: Mock, mock_echo: Mock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("DOCKER_HOST", raising=False)
-    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
-    mock_run.return_value = None
+    mock_run.return_value = "unix:///var/run/docker.sock\n"
+    mock_echo.confirm.return_value = False
 
+    with pytest.raises(typer.Exit):
+        get_socket(allow_rootful=False)
+
+    assert mock_is_rootful_socket.call_args == mock.call("/var/run/docker.sock")
+    assert mock_echo.warning.call_count == 1
+
+
+@mock.patch("deepfellow.common.docker._is_rootful_socket")
+@mock.patch("deepfellow.common.docker._find_socket", side_effect=DockerSocketNotFoundError)
+def test_get_socket_raises_docker_socket_not_found_error(mock_find_socket: Mock, mock_is_rootful_socket: Mock) -> None:
     with pytest.raises(DockerSocketNotFoundError):
         get_socket()
+
+    assert mock_is_rootful_socket.call_count == 0
 
 
 @mock.patch("deepfellow.common.docker.run")
