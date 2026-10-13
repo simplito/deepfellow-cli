@@ -170,6 +170,35 @@ def test_inspect_passes_allow_rootful_to_get_socket(
 @mock.patch("deepfellow.infra.utils.install.ensure_directory")
 @mock.patch("deepfellow.infra.utils.install.get_socket")
 @mock.patch("deepfellow.infra.utils.install.assert_docker")
+def test_inspect_uses_given_docker_socket_without_get_socket(
+    mock_assert_docker: Mock,
+    mock_get_socket: Mock,
+    mock_ensure_directory: Mock,
+    mock_read_env_file_to_dict: Mock,
+    mock_get_newest_image_tag: Mock,
+    directory: Path,
+) -> None:
+    mock_read_env_file_to_dict.return_value = {}
+
+    context = inspect_util(
+        directory=directory,
+        allow_rootful=False,
+        force_install=False,
+        image=DF_INFRA_IMAGE,
+        local_image=False,
+        docker_socket="/run/user/1000/docker.sock",
+    )
+
+    assert context.docker_socket == "/run/user/1000/docker.sock"
+    assert mock_get_socket.call_count == 0
+    assert mock_assert_docker.call_count == 1
+
+
+@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.utils.install.ensure_directory")
+@mock.patch("deepfellow.infra.utils.install.get_socket")
+@mock.patch("deepfellow.infra.utils.install.assert_docker")
 def test_inspect_ensures_directory_with_force_install(
     mock_assert_docker: Mock,
     mock_get_socket: Mock,

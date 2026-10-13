@@ -78,6 +78,7 @@ def inspect(
     local_image: bool,
     template: str | None = None,
     overwrite: bool | None = None,
+    docker_socket: str | None = None,
 ) -> InstallContext:
     """Resolve --template, then do a Docker check, directory creation, and existing .env read-back.
 
@@ -88,13 +89,17 @@ def inspect(
 
     Args:
         directory: Directory to install into.
-        allow_rootful: Whether a rootful Docker socket is acceptable.
+        allow_rootful: Whether a rootful Docker socket is acceptable. Ignored when
+            `docker_socket` is given.
         force_install: Skips the overwrite check/prompt entirely when set.
         image: DeepFellow Infra docker image, before newest-tag resolution.
         local_image: Whether a locally built docker image is used.
         template: Optional built-in template name or path to a template YAML file.
         overwrite: Pre-answered directory-overwrite decision, passed straight through to
             `ensure_directory()`. Leave `None` to preserve today's inline prompt.
+        docker_socket: Docker socket path the caller already resolved with `get_socket()`. When
+            given, the socket lookup (and its rootful Docker warning/prompt) is skipped, so a caller
+            that checks the socket earlier doesn't show that warning twice.
 
     Returns:
         InstallContext: Read-only values needed by :func:`resolve`.
@@ -108,7 +113,8 @@ def inspect(
         resolved_template = resolve_template(template)
 
     assert_docker()
-    docker_socket = get_socket(allow_rootful=allow_rootful)
+    if docker_socket is None:
+        docker_socket = get_socket(allow_rootful=allow_rootful)
 
     # Check if overriding existing installation
     ensure_directory(
