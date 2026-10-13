@@ -34,7 +34,7 @@ from deepfellow.common.defaults import (
     MILVUS_DATABASE,
     VectorDBTypeChoice,
 )
-from deepfellow.common.docker import is_service_running
+from deepfellow.common.docker import get_socket, is_service_running
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get
 from deepfellow.common.exceptions import DockerNetworkError, InstallError, reraise_if_debug, translate_to_install_error
@@ -463,27 +463,32 @@ def _infra_config(
     docker_network: str,
     template: str,
     explicitly_provided: Collection[str],
+    allow_rootful: bool,
+    docker_socket: str,
 ) -> InfraInstallConfig:
     """Infra's ask-phase: inspect() + resolve(), collecting every infra-side prompt. No apply.
 
     Mirrors `deepfellow.infra.utils.install.install()`'s own body for this phase, with the resolved
     `--template` (see `install()`'s own docstring for suite install's built-in-only restriction on
     it), and forwards the config-level flags (port, image, directory, ...) `infra install` itself
-    accepts. Decorated the same as every other step function - `translate_to_install_error` now
+    accepts. `docker_socket` is the socket `install()` already resolved (and warned about, if
+    rootful) before the admin prompts, so `inspect()` reuses it instead of looking it up - and
+    warning - a second time. Decorated the same as every other step function - `translate_to_install_error` now
     propagates a wrapped function's return value unchanged, so this ask-phase function's resolved
-    config still reaches its caller, while `DockerSocketNotFoundError`/`OSError`/`typer.BadParameter`
-    raised anywhere in `inspect()`/`resolve()` (e.g. from `get_socket()`, `ensure_directory()`) still
+    config still reaches its caller, while `OSError`/`typer.BadParameter` raised anywhere in
+    `inspect()`/`resolve()` (e.g. from `ensure_directory()`) still
     get translated to a clean `InstallError` right here - exactly like `_infra_install_apply` -
     instead of only being caught much later by `install()`'s own decorator, bypassing `_run_step()`'s
     per-step "Step N/TOTAL (name) failed: ..." message.
     """
     context = infra_inspect(
         directory=directory,
-        allow_rootful=False,
+        allow_rootful=allow_rootful,
         force_install=force_install,
         image=image,
         local_image=local_image,
         template=template,
+        docker_socket=docker_socket,
     )
     docker_config = docker_config or directory / "docker-config.json"
     return infra_resolve(
@@ -855,6 +860,7 @@ def install(
     rabbitmq_username: str = "",
     rabbitmq_password: str = "",
     otel_local: bool = False,
+    allow_rootful: bool = False,
     explicitly_provided: Collection[str] = frozenset(),
 ) -> None:
     """Provision a complete DeepFellow workspace: Infra, Server, admin user, and a ready-to-use workspace.
@@ -925,6 +931,10 @@ def install(
         rabbitmq_username: Username for RabbitMQ authentication.
         rabbitmq_password: Password for RabbitMQ authentication.
         otel_local: Whether to install a local debug-only OpenTelemetry collector.
+        allow_rootful: Whether a rootful Docker socket is acceptable without asking - it is still
+            warned about. Checked on every run, `--resume` included, before any prompt. On a
+            `--resume` past the infra configuration step, this check only gates the run: the socket
+            persisted by the original run is the one infra mounts, not the one found here.
         explicitly_provided: The subset of suite install's own config-flag names whose CLI option
             was actually passed on the command line or via envvar (not merely equal to its own
             default). Two independent uses: (a) infra_port/server_port/docker_network are mapped
@@ -935,7 +945,9 @@ def install(
 
     Raises:
         InstallError: If `template` isn't a built-in template name known to both infra and server,
-            if Docker is missing/unusable, if any step fails, or if --non-interactive is set and an
+            if Docker is missing/unusable or its socket can't be found, if the socket belongs to
+            rootful Docker and the user declines to continue without `allow_rootful` (always the
+            case with --non-interactive), if any step fails, or if --non-interactive is set and an
             admin name, email, or password is missing.
     """
     # Checked before anything else, including the Docker check below: a bad --template value is a
@@ -958,6 +970,10 @@ def install(
     # avoids making the user answer those prompts just to hit an unrelated Docker failure right
     # after.
     assert_docker()
+    # Same reasoning for the socket lookup and its rootful Docker warning/prompt: resolved here, once,
+    # and handed to the infra configuration step, so declining it doesn't come after the admin prompts
+    # and the warning isn't shown a second time by infra's own inspect().
+    docker_socket = get_socket(allow_rootful=allow_rootful)
 
     prior_state = load_state()
     if resume:
@@ -1079,6 +1095,8 @@ def install(
             docker_network=docker_network,
             template=template,
             explicitly_provided=infra_explicitly_provided,
+            allow_rootful=allow_rootful,
+            docker_socket=docker_socket,
         ),
         on_success=lambda cfg: setattr(install_state, "infra_config", _infra_config_to_dict(cfg)),
         on_skip=partial(_infra_config_on_skip, install_state, explicitly_provided),

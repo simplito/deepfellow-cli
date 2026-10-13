@@ -173,6 +173,7 @@ def install(
     rabbitmq_username: str = typer.Option("", help="Username for RabbitMQ authentication"),
     rabbitmq_password: str = typer.Option("", help="Password for RabbitMQ authentication"),
     otel_local: bool = typer.Option(False, "--otel-local", help="Install a local debug-only OpenTelemetry collector."),
+    allow_rootful: bool = typer.Option(False, help="Allow rootful Docker without asking user for permission"),
 ) -> None:
     """Provision a complete DeepFellow workspace: Infra, Server, admin user, and a ready-to-use workspace.
 
@@ -203,6 +204,9 @@ def install(
     `--non-interactive` mode); declining continues the previous run instead, exactly as `--resume`
     would. Pass `--force-install` to reinstall over an already-existing infra/server directory
     instead of being asked to confirm.
+
+    The Docker socket is checked before any prompt: if it belongs to rootful Docker, the command
+    warns and asks whether to continue. Pass `--allow-rootful` to continue without being asked.
 
     Most `infra install`/`server install` options are reachable interactively through the prompts
     this command already triggers under the hood; the options above only cover values that have no
@@ -251,6 +255,7 @@ def install(
             rabbitmq_username=rabbitmq_username,
             rabbitmq_password=rabbitmq_password,
             otel_local=otel_local,
+            allow_rootful=allow_rootful,
             explicitly_provided=explicitly_provided,
         )
     except InstallError as exc:

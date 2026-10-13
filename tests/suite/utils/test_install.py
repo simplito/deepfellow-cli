@@ -71,6 +71,7 @@ _SERVER_WORKSPACE_POST_START_ACTIONS: list[PostStartAction] = SERVER_BUILTIN_TEM
 # so every existing STEPS/TOTAL_STEPS usage below needs no further change.
 STEPS = _build_steps(_WORKSPACE_POST_START_ACTIONS, _SERVER_WORKSPACE_POST_START_ACTIONS)
 TOTAL_STEPS = len(STEPS)
+DOCKER_SOCKET = "/var/run/docker.sock"
 
 
 def _infra_install_apply_call() -> mock._Call:
@@ -187,6 +188,9 @@ def _patch_all_steps(func: Callable[..., None]) -> Callable[..., None]:
     tests for that). `env_get` is appended last purely so every existing signature only needs one
     new trailing parameter, since install() calls it exactly once itself (to resolve the
     actually-configured DF_SERVER_PORT) - independent of whichever step functions a test overrides.
+    `get_socket` is patched with a fixed `new=` mock returning `DOCKER_SOCKET`, so it injects no
+    parameter; a test that checks its calls patches it again with its own outer decorator, which
+    takes precedence and is passed as the last parameter.
     """
     # Explicit statements, not a loop: parameter order must match this exact wrap order (first
     # wrapped = innermost decorator = first parameter), and a loop over a reordered tuple is an
@@ -204,6 +208,7 @@ def _patch_all_steps(func: Callable[..., None]) -> Callable[..., None]:
     func = mock.patch("deepfellow.suite.utils.install._install_directory_intact", return_value=True)(func)
     func = mock.patch("deepfellow.suite.utils.install.is_service_running", return_value=True)(func)
     func = mock.patch("deepfellow.suite.utils.install.assert_docker")(func)
+    func = mock.patch("deepfellow.suite.utils.install.get_socket", new=Mock(return_value=DOCKER_SOCKET))(func)
     func = mock.patch("deepfellow.suite.utils.install.load_state")(func)
     func = mock.patch("deepfellow.suite.utils.install.save_state")(func)
     func = mock.patch("deepfellow.suite.utils.install.delete_state")(func)
@@ -267,6 +272,8 @@ def test_install_success_calls_all_steps_in_order(
         docker_network=DF_INFRA_DOCKER_NETWORK,
         template="workspace",
         explicitly_provided=set(),
+        allow_rootful=False,
+        docker_socket=DOCKER_SOCKET,
     )
     assert mock_server_config.call_count == 1
     assert mock_server_config.call_args.args[0] == mock.sentinel.infra_config
@@ -1342,6 +1349,8 @@ def test_install_resume_with_empty_completed_steps_does_not_force(
         docker_network=DF_INFRA_DOCKER_NETWORK,
         template="workspace",
         explicitly_provided=set(),
+        allow_rootful=False,
+        docker_socket=DOCKER_SOCKET,
     )
     assert mock_server_config.call_args.args[4] is False  # force_install
 
@@ -1952,6 +1961,342 @@ def test_install_non_interactive_resume_uses_persisted_admin_without_error(
     assert mock_server_config.call_args.args[1:4] == ("Persisted Admin", "persisted@example.com", "Pers1sted$ecret!")
 
 
+@pytest.mark.parametrize("allow_rootful", [True, False])
+@mock.patch("deepfellow.suite.utils.install.get_socket")
+@_patch_all_steps
+def test_install_passes_allow_rootful_to_get_socket_and_infra_config(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_get_socket: Mock,
+    allow_rootful: bool,
+) -> None:
+    mock_get_socket.return_value = "/run/user/1000/docker.sock"
+    mock_load_state.return_value = None
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = _make_workspace()
+
+    install(
+        admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", allow_rootful=allow_rootful
+    )
+
+    assert mock_get_socket.call_count == 1
+    assert mock_get_socket.call_args == mock.call(allow_rootful=allow_rootful)
+    assert mock_infra_config.call_args.kwargs["allow_rootful"] is allow_rootful
+    assert mock_infra_config.call_args.kwargs["docker_socket"] == "/run/user/1000/docker.sock"
+
+
+@mock.patch("deepfellow.suite.utils.install.get_socket")
+@_patch_all_steps
+def test_install_checks_socket_after_docker_and_before_admin_prompts(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_get_socket: Mock,
+) -> None:
+    _mock_manager = Mock()
+    _mock_manager.attach_mock(mock_assert_docker, "assert_docker")
+    _mock_manager.attach_mock(mock_get_socket, "get_socket")
+    _mock_manager.attach_mock(mock_echo.prompt_until_valid, "prompt_until_valid")
+    mock_get_socket.return_value = DOCKER_SOCKET
+    mock_echo.prompt_until_valid.return_value = "value"
+    mock_load_state.return_value = None
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = _make_workspace()
+
+    install(admin_name=None, admin_email=None, admin_password=None)
+
+    assert [name for name, _, _ in _mock_manager.mock_calls[:3]] == [
+        "assert_docker",
+        "get_socket",
+        "prompt_until_valid",
+    ]
+
+
+@mock.patch("deepfellow.suite.utils.install.get_socket")
+@_patch_all_steps
+def test_install_stops_before_admin_prompts_when_rootful_docker_declined(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_get_socket: Mock,
+) -> None:
+    mock_get_socket.side_effect = typer.Exit(1)
+    mock_load_state.return_value = None
+
+    with pytest.raises(InstallError):
+        install(admin_name=None, admin_email=None, admin_password=None)
+
+    assert mock_get_socket.call_args == mock.call(allow_rootful=False)
+    assert mock_echo.prompt_until_valid.call_count == 0
+    assert mock_save_state.call_count == 0
+    assert mock_infra_config.call_count == 0
+
+
+@mock.patch("deepfellow.suite.utils.install.get_socket")
+@_patch_all_steps
+def test_install_keeps_prior_state_when_rootful_docker_declined(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_get_socket: Mock,
+) -> None:
+    mock_get_socket.side_effect = typer.Exit(1)
+    mock_load_state.return_value = SuiteInstallState(
+        completed_steps=["infra_config"], workspace=_workspace_to_dict(_make_workspace())
+    )
+
+    with pytest.raises(InstallError):
+        install(admin_name=None, admin_email=None, admin_password=None)
+
+    assert mock_echo.confirm.call_count == 0
+    assert mock_save_state.call_count == 0
+
+
+@mock.patch("deepfellow.suite.utils.install.get_socket")
+@_patch_all_steps
+def test_install_non_interactive_stops_when_rootful_docker_without_allow_rootful(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_get_socket: Mock,
+) -> None:
+    mock_get_socket.side_effect = typer.Exit(1)
+    mock_load_state.return_value = None
+    state.non_interactive = True
+
+    with pytest.raises(InstallError):
+        install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
+
+    assert mock_get_socket.call_args == mock.call(allow_rootful=False)
+    assert mock_save_state.call_count == 0
+    assert mock_infra_config.call_count == 0
+
+
+@mock.patch("deepfellow.suite.utils.install.get_socket")
+@_patch_all_steps
+def test_install_non_interactive_completes_on_rootful_docker_with_allow_rootful(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_get_socket: Mock,
+) -> None:
+    mock_get_socket.return_value = DOCKER_SOCKET
+    mock_load_state.return_value = None
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = _make_workspace()
+    state.non_interactive = True
+
+    install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", allow_rootful=True)
+
+    assert mock_get_socket.call_args == mock.call(allow_rootful=True)
+    assert mock_infra_config.call_args.kwargs["allow_rootful"] is True
+    assert mock_delete_state.call_count == 1
+
+
+@mock.patch("deepfellow.suite.utils.install.get_socket")
+@_patch_all_steps
+def test_install_resume_checks_socket_again_when_infra_config_already_done(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_get_socket: Mock,
+) -> None:
+    mock_get_socket.return_value = DOCKER_SOCKET
+    mock_load_state.return_value = SuiteInstallState(
+        completed_steps=["infra_config", "server_config"], infra_config={}, server_config={}
+    )
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = _make_workspace()
+
+    install(
+        admin_name="Admin",
+        admin_email="admin@example.com",
+        admin_password="Sup3r$ecret!",
+        resume=True,
+        allow_rootful=True,
+    )
+
+    assert mock_get_socket.call_count == 1
+    assert mock_get_socket.call_args == mock.call(allow_rootful=True)
+    assert mock_infra_config.call_count == 0
+    assert mock_infra_config_from_dict.call_count == 1
+
+
+@mock.patch("deepfellow.suite.utils.install.infra_resolve")
+@mock.patch("deepfellow.suite.utils.install.infra_inspect")
+def test_infra_config_forwards_allow_rootful_and_docker_socket(
+    mock_infra_inspect: Mock, mock_infra_resolve: Mock
+) -> None:
+    from deepfellow.suite.utils.install import _infra_config
+
+    _infra_config(
+        force_install=False,
+        port=DF_INFRA_PORT,
+        image=DF_INFRA_IMAGE,
+        local_image=False,
+        directory=DF_INFRA_DIRECTORY,
+        docker_config=None,
+        storage=DF_INFRA_STORAGE_DIR,
+        docker_network=DF_INFRA_DOCKER_NETWORK,
+        template="workspace",
+        explicitly_provided=set(),
+        allow_rootful=True,
+        docker_socket="/run/user/1000/docker.sock",
+    )
+
+    assert mock_infra_inspect.call_count == 1
+    assert mock_infra_inspect.call_args.kwargs["allow_rootful"] is True
+    assert mock_infra_inspect.call_args.kwargs["docker_socket"] == "/run/user/1000/docker.sock"
+
+
 @_patch_all_steps
 def test_install_persists_resolved_admin_credentials_on_fresh_run(
     mock_server_config_to_dict: Mock,
@@ -2081,11 +2426,12 @@ def test_install_resumed_create_admin_step_succeeds_and_continues(
     assert mock_get_token_from_login.call_count == 1
 
 
+@mock.patch("deepfellow.suite.utils.install.get_socket", return_value=DOCKER_SOCKET)
 @mock.patch("deepfellow.suite.utils.install.echo")
 @mock.patch("deepfellow.suite.utils.install.assert_docker")
 @mock.patch("deepfellow.suite.utils.install.load_state")
 def test_install_prompt_failure_is_translated_to_install_error(
-    mock_load_state: Mock, mock_assert_docker: Mock, mock_echo: Mock
+    mock_load_state: Mock, mock_assert_docker: Mock, mock_echo: Mock, mock_get_socket: Mock
 ) -> None:
     mock_load_state.return_value = None
     mock_echo.prompt_until_valid.side_effect = typer.Exit(1)
@@ -2094,11 +2440,12 @@ def test_install_prompt_failure_is_translated_to_install_error(
         install(admin_name=None, admin_email=None, admin_password=None)
 
 
+@mock.patch("deepfellow.suite.utils.install.get_socket", return_value=DOCKER_SOCKET)
 @mock.patch("deepfellow.suite.utils.install.echo")
 @mock.patch("deepfellow.suite.utils.install.assert_docker")
 @mock.patch("deepfellow.suite.utils.install.load_state")
 def test_install_non_interactive_reports_all_missing_admin_values(
-    mock_load_state: Mock, mock_assert_docker: Mock, mock_echo: Mock
+    mock_load_state: Mock, mock_assert_docker: Mock, mock_echo: Mock, mock_get_socket: Mock
 ) -> None:
     mock_load_state.return_value = None
     state.non_interactive = True
@@ -2112,11 +2459,12 @@ def test_install_non_interactive_reports_all_missing_admin_values(
     )
 
 
+@mock.patch("deepfellow.suite.utils.install.get_socket", return_value=DOCKER_SOCKET)
 @mock.patch("deepfellow.suite.utils.install.echo")
 @mock.patch("deepfellow.suite.utils.install.assert_docker")
 @mock.patch("deepfellow.suite.utils.install.load_state")
 def test_install_translates_bad_parameter_to_install_error(
-    mock_load_state: Mock, mock_assert_docker: Mock, mock_echo: Mock
+    mock_load_state: Mock, mock_assert_docker: Mock, mock_echo: Mock, mock_get_socket: Mock
 ) -> None:
     """A caller outside Click (e.g. the suite Typer command) sees a message-carrying
     InstallError instead of an unhandled, message-less typer.BadParameter - mirroring how
@@ -2955,6 +3303,8 @@ def test_infra_config_forwards_the_given_template(mock_infra_inspect: Mock, mock
         docker_network=DF_INFRA_DOCKER_NETWORK,
         template="custom-template",
         explicitly_provided=set(),
+        allow_rootful=False,
+        docker_socket=DOCKER_SOCKET,
     )
 
     assert mock_infra_inspect.call_args.kwargs["template"] == "custom-template"
@@ -2979,6 +3329,8 @@ def test_infra_config_returns_resolve_result(mock_infra_inspect: Mock, mock_infr
         docker_network=DF_INFRA_DOCKER_NETWORK,
         template="workspace",
         explicitly_provided=set(),
+        allow_rootful=False,
+        docker_socket=DOCKER_SOCKET,
     )
 
     assert result == mock_infra_resolve.return_value
@@ -3007,6 +3359,8 @@ def test_infra_config_translates_bad_parameter_to_install_error(mock_infra_inspe
             docker_network=DF_INFRA_DOCKER_NETWORK,
             template="workspace",
             explicitly_provided=set(),
+            allow_rootful=False,
+            docker_socket=DOCKER_SOCKET,
         )
 
 
@@ -3029,6 +3383,8 @@ def test_infra_config_translates_os_error_to_install_error(mock_infra_inspect: M
             docker_network=DF_INFRA_DOCKER_NETWORK,
             template="workspace",
             explicitly_provided=set(),
+            allow_rootful=False,
+            docker_socket=DOCKER_SOCKET,
         )
 
 

@@ -80,6 +80,7 @@ def default_install_kwargs() -> dict:
         "rabbitmq_username": "",
         "rabbitmq_password": "",
         "otel_local": False,
+        "allow_rootful": False,
     }
 
 
@@ -212,6 +213,35 @@ def test_install_command_real_cli_defaults_match_expected_values(
 
     assert result.exit_code == 0, result.output
     assert mock_install_util.call_args == mock.call(**default_install_kwargs, explicitly_provided=set())
+
+
+@mock.patch("deepfellow.common.validation.validate_email_lib")
+@mock.patch("deepfellow.suite.install.install_util")
+def test_install_command_passes_allow_rootful_flag(
+    mock_install_util: Mock,
+    mock_validate_email_lib: Mock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for env_var in _ENVVAR_BOUND_OPTIONS:
+        monkeypatch.delenv(env_var, raising=False)
+    mock_validate_email_lib.return_value = SimpleNamespace(email="admin@example.com")
+
+    result = runner.invoke(
+        app,
+        [
+            "--admin-name",
+            "Admin",
+            "--admin-email",
+            "admin@example.com",
+            "--admin-password",
+            "Sup3r$ecret!",
+            "--allow-rootful",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert mock_install_util.call_count == 1
+    assert mock_install_util.call_args.kwargs["allow_rootful"] is True
 
 
 @mock.patch("deepfellow.suite.install.install_util")
