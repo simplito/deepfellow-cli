@@ -115,20 +115,29 @@ def load_compose_file(compose_file: Path = Path(DOCKER_COMPOSE_CONFIG_FILENAME))
     return yaml.safe_load(compose_file.read_text())
 
 
-def get_socket(allow_rootful: bool = False) -> str:
-    """Get the Docker socket.
-
-    Detect active docker socket with `docker context inspect`
-    https://docs.docker.com/reference/cli/docker/context/inspect/
+def _is_rootful_socket(socket_path: str) -> bool:
+    """Checks whether the Docker socket belongs to a rootful Docker daemon.
 
     Args:
-        allow_rootful: do not ask user if rootful Docker detected
+        socket_path: Path to the Docker socket.
+
+    Returns:
+        bool: True if the socket is owned by root, False otherwise or if it can't be inspected.
+    """
+    try:
+        return Path(socket_path).stat().st_uid == 0
+    except OSError:
+        return False
+
+
+def _find_socket() -> str:
+    """Finds the active Docker socket path.
 
     Returns:
         str: the path to the socket
 
     Raises:
-        DockerNetworkError: When unable to find the socket
+        DockerSocketNotFoundError: When unable to find the socket
     """
     if (docker_host := os.getenv("DOCKER_HOST")) and docker_host.startswith("unix://"):
         return docker_host.replace("unix://", "")
@@ -144,29 +153,53 @@ def get_socket(allow_rootful: bool = False) -> str:
             return host.replace("unix://", "")
 
     socket_file = "docker.sock"
-
-    # Let's see if the rootless socket exists
-    rootless_path: str | None = None
+    candidates: list[str] = []
     if xdg_runtime_dir := os.getenv("XDG_RUNTIME_DIR"):
-        rootless_path = f"{xdg_runtime_dir}/{socket_file}"
-        if Path(rootless_path).is_file():
-            return rootless_path
+        candidates.append(f"{xdg_runtime_dir}/{socket_file}")
 
-    uid = os.getuid()
-    rootless_path = f"/run/user/{uid}/{socket_file}"
-    if Path(rootless_path).is_file():
-        return rootless_path
+    candidates.append(f"/run/user/{os.getuid()}/{socket_file}")
+    candidates.append(f"/run/{socket_file}")
 
-    # Let's try with rootful
-    rootful_path = f"/run/{socket_file}"
-    if Path(rootful_path).is_file():
-        echo.warning("You're using rootful Docker. This is a security risk.")
-        if allow_rootful or echo.confirm("Do you want to continue?", default=False):
-            return rootful_path
+    for candidate in candidates:
+        if Path(candidate).is_socket():
+            return candidate
 
-        raise typer.Exit(1)
+    raise DockerSocketNotFoundError(
+        "Could not find the Docker socket. Checked DOCKER_HOST, "
+        f"`docker context inspect` and {', '.join(candidates)}. "
+        "Set DOCKER_HOST=unix:///path/to/docker.sock to point at it."
+    )
 
-    raise DockerSocketNotFoundError()
+
+def get_socket(allow_rootful: bool = False) -> str:
+    """Get the Docker socket.
+
+    Detect active docker socket with `DOCKER_HOST`, `docker context inspect`
+    (https://docs.docker.com/reference/cli/docker/context/inspect/) or well-known paths.
+    Warns when the socket belongs to rootful Docker, wherever the path came from.
+
+    Args:
+        allow_rootful: do not ask user if rootful Docker detected
+
+    Returns:
+        str: the path to the socket
+
+    Raises:
+        DockerSocketNotFoundError: When unable to find the socket
+        typer.Exit: When rootful Docker detected and user declined to continue
+    """
+    socket_path = _find_socket()
+
+    if _is_rootful_socket(socket_path):
+        echo.warning(
+            f"You're using rootful Docker ({socket_path}). "
+            "The DeepFellow Infra container will get root-level access to the host. This is a security risk."
+        )
+        if not allow_rootful and not echo.confirm("Do you want to continue?", default=False):
+            echo.error("Aborted: rootful Docker not allowed. Re-run with --allow-rootful to continue anyway.")
+            raise typer.Exit(1)
+
+    return socket_path
 
 
 def list_networks() -> list[str]:
