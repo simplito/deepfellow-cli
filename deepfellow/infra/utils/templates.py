@@ -100,10 +100,6 @@ BUILTIN_TEMPLATES: dict[str, InstallTemplate] = {
                 "function": "infra.model.install",
                 "kwargs": {"service_name": "ollama", "model_name": "mxbai-embed-large"},
             },
-            {
-                "function": "infra.model.install",
-                "kwargs": {"service_name": "ollama", "model_name": "qwen3.5:4b"},
-            },
             # Doc Chunker transcribes audio and video with this model.
             {
                 # An explicit spec skips the hardware prompt; Infra then picks GPU or CPU itself.

@@ -309,7 +309,7 @@ def test_install_success_calls_all_steps_in_order(
     assert mock_update_project.call_args.args[2:] == (
         workspace.organization.id,
         workspace.project.id,
-        {"models": ["gemma4:e4b", "mxbai-embed-large", "qwen3.5:4b"]},
+        {"models": ["gemma4:e4b", "mxbai-embed-large"]},
     )
     # +1: admin credentials are written immediately once resolved, before any step runs.
     assert mock_save_state.call_count == TOTAL_STEPS + 1
@@ -4016,7 +4016,7 @@ def test_install_resume_with_different_template_warns_and_reuses_persisted_one(
     assert mock_update_project.call_args.args[2:] == (
         workspace.organization.id,
         workspace.project.id,
-        {"models": ["gemma4:e4b", "mxbai-embed-large", "qwen3.5:4b"]},
+        {"models": ["gemma4:e4b", "mxbai-embed-large"]},
     )
     assert mock_save_state.call_args.args[0].template == "workspace"
 

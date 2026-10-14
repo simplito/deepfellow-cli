@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `deepfellow infra model install --spec` sets a model's install configuration as a JSON object (e.g. `'{"max_concurrent": 1}'`); fields left out take Infra's defaults. `infra.model.install` actions in install templates accept the same `spec` kwarg.
 
 ### Changed
+- `deepfellow suite install` and `deepfellow infra install --template workspace` no longer install the `qwen3.5:4b` model, and the project is no longer granted access to it.
 - `deepfellow cli update` now also restricts the CLI's existing secret files (the CLI secrets file and the `.env` files of the default Infra and Server installs) to owner-only access when they are readable by group or others, and lists the files it changed. Files that don't exist, aren't regular files or belong to another user are left alone; it has no effect on Windows.
 - `deepfellow update` now runs the Infra and Server steps in a new process with the freshly updated CLI, so fixes in the new CLI version apply on the first run. If the updated `deepfellow` isn't on PATH or can't be started, it warns and runs them with the previous version.
 - `deepfellow server update` restarts the server without asking with `--yes`, and `--local-image` now also pins the Nightshift worker's image.
