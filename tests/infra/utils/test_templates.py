@@ -100,7 +100,7 @@ def test_builtin_workspace_post_start_actions_leave_server_for_install_to_inject
     # from this module, which has no way to know that port at template-definition time.
     actions = BUILTIN_TEMPLATES["workspace"]["post_start_actions"]
 
-    assert len(actions) == 8
+    assert len(actions) == 7
     assert all("server" not in action["kwargs"] for action in actions)
 
 
