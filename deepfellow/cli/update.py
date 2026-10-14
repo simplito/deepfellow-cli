@@ -6,6 +6,7 @@
 import typer
 
 from deepfellow.cli.utils.command_resolver import PACKAGE_NAME, resolve_cli_command
+from deepfellow.cli.utils.secret_files import tighten_secret_files
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
 from deepfellow.common.system import is_command_available, run
@@ -48,3 +49,6 @@ def update() -> None:
         reraise_if_debug(exc)
 
     echo.success("DeepFellow CLI updated successfully.")
+
+    for path in tighten_secret_files():
+        echo.info(f"Restricted permissions of {path.as_posix()} to owner only.")

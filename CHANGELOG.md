@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `deepfellow suite install` now accepts `--allow-rootful`, like `infra install`: on a host with rootful Docker it shows the warning but doesn't ask for confirmation, so `suite install --non-interactive` works on such a host. The Docker socket is now checked before the admin prompts, so declining no longer comes after entering the admin credentials.
 
 ### Changed
+- `deepfellow cli update` now also restricts the CLI's existing secret files (the CLI secrets file and the `.env` files of the default Infra and Server installs) to owner-only access when they are readable by group or others, and lists the files it changed. Files that don't exist, aren't regular files or belong to another user are left alone; it has no effect on Windows.
 - `deepfellow update` now runs the Infra and Server steps in a new process with the freshly updated CLI, so fixes in the new CLI version apply on the first run. If the updated `deepfellow` isn't on PATH or can't be started, it warns and runs them with the previous version.
 - `deepfellow server update` restarts the server without asking with `--yes`, and `--local-image` now also pins the Nightshift worker's image.
 - The default Docker Compose definition for the Infra service is now fully typed, so the installer no longer needs a type cast and type checkers catch mistakes in the compose defaults.
