@@ -6,7 +6,13 @@ from unittest.mock import Mock
 
 import httpx
 
-from deepfellow.common.registry import _parse_tag, get_newest_image_tag, list_image_tags
+from deepfellow.common.registry import (
+    _parse_tag,
+    get_newest_image_tag,
+    list_image_tags,
+    newest_semver_tag,
+    split_release_tag,
+)
 
 HUB = "hub.example.com/org/image"
 IMAGE_PATH = "org/image"
@@ -33,6 +39,48 @@ def test_parse_tag_returns_none_for_latest() -> None:
 
 def test_parse_tag_returns_none_for_partial() -> None:
     assert _parse_tag("0.25") is None
+
+
+# --- split_release_tag ---
+
+
+def test_split_release_tag_separates_version_and_suffix() -> None:
+    assert split_release_tag("v2.3.0-volta") == ((2, 3, 0), "-volta")
+
+
+def test_split_release_tag_plain_release_has_empty_suffix() -> None:
+    assert split_release_tag("0.11.0") == ((0, 11, 0), "")
+
+
+def test_split_release_tag_returns_none_for_non_release() -> None:
+    assert split_release_tag("server-b1234") is None
+
+
+# --- newest_semver_tag ---
+
+
+def test_newest_semver_tag_ignores_variants_and_non_release_tags() -> None:
+    tags = ["latest", "v2.3.0-volta", "v2.10.0", "v2.9.0"]
+
+    assert newest_semver_tag(tags) == "v2.10.0"
+
+
+def test_newest_semver_tag_returns_none_without_release_tags() -> None:
+    assert newest_semver_tag(["latest", "dev"]) is None
+
+
+def test_newest_semver_tag_returns_none_when_only_suffixed_tags_exist() -> None:
+    assert newest_semver_tag(["v0.5.1-cu128", "v0.5.2-cu128"]) is None
+
+
+def test_newest_semver_tag_picks_newest_within_suffix_family() -> None:
+    tags = ["v0.5.2-cu128", "v0.5.1-cu128", "v0.5.3-cu126", "v0.6.0"]
+
+    assert newest_semver_tag(tags, "-cu128") == "v0.5.2-cu128"
+
+
+def test_newest_semver_tag_does_not_pick_prerelease_for_plain_releases() -> None:
+    assert newest_semver_tag(["v2.5.0-rc1", "v2.4.0"]) == "v2.4.0"
 
 
 # --- get_newest_image_tag ---

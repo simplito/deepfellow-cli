@@ -79,6 +79,33 @@ def list_image_tags(hub: str) -> list[str]:
     return semver_tags + other_tags
 
 
+def split_release_tag(tag: str) -> tuple[tuple[int, ...], str] | None:
+    """Split a tag like `v2.3.0-volta` into its version `(2, 3, 0)` and suffix `-volta`.
+
+    Returns:
+        The version and the suffix (empty for a plain release), or `None` if the tag doesn't start with
+        a `X.Y.Z` version.
+    """
+    match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)(-.+)?", tag)
+    if not match:
+        return None
+    return (int(match[1]), int(match[2]), int(match[3])), match[4] or ""
+
+
+def newest_semver_tag(tags: list[str], suffix: str = "") -> str | None:
+    """Return the highest `1.2.3` or `v1.2.3` tag within one suffix family, or `None` if there is none.
+
+    A suffix such as `-volta` or `-cu128` marks a variant of a release (hardware, prerelease), so tags
+    are only compared with others that carry the same suffix.
+
+    Args:
+        tags: Tags to choose from.
+        suffix: The suffix family to look in; empty for plain releases.
+    """
+    family = [(parsed[0], tag) for tag in tags if (parsed := split_release_tag(tag)) and parsed[1] == suffix]
+    return max(family, key=lambda item: item[0], default=(None, None))[1]
+
+
 def get_newest_image_tag(hub: str) -> str:
     """Return the full image reference with the newest semver tag from the registry.
 

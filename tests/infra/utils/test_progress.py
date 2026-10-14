@@ -70,6 +70,22 @@ def test_install_with_progress_returns_finish_on_successful_sse(
 @mock.patch("deepfellow.infra.utils.progress.Progress")
 @mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=True)
 @mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_uses_given_method(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_progress: Mock,
+) -> None:
+    response = _stream_response(lines=_sse_lines({"type": "finish", "status": "ok"}))
+    mock_stream.return_value.__enter__.return_value = response
+
+    install_with_progress("http://infra:8086/admin/services/ollama", "key", data={"spec": {}}, method="PUT")
+
+    assert mock_stream.call_args.args[:2] == ("PUT", "http://infra:8086/admin/services/ollama")
+
+
+@mock.patch("deepfellow.infra.utils.progress.Progress")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=True)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
 def test_install_with_progress_returns_error_finish_on_failed_sse(
     mock_stream: Mock,
     mock_is_interactive: Mock,

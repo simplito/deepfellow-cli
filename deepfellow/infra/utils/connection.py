@@ -64,6 +64,11 @@ def resolve_infra_connection(server: str | None) -> tuple[str, str]:
     return server, cast("str", api_key)
 
 
+def quote_id(value: str) -> str:
+    """Percent-encode a service or model id for use in a URL path or query value, keeping `|` readable."""
+    return quote(value, safe="|")
+
+
 def cancel_service_install(server: str, api_key: str, service_id: str) -> None:
     """Best-effort cancel of an in-progress service install/update on the Infra server.
 
