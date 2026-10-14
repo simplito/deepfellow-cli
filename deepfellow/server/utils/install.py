@@ -95,6 +95,7 @@ from deepfellow.server.utils.minio_migration import (
     migrate_minio_data_to_seaweedfs,
     should_keep_existing_minio,
 )
+from deepfellow.server.utils.mongo_migration import is_legacy_mongo_install, migrate_mongo_to_app_user
 from deepfellow.server.utils.storage import config_json_exists
 from deepfellow.server.utils.systemd import reconcile_nightshift_schedule
 from deepfellow.server.utils.templates import dispatch_post_start_action, resolve_template
@@ -475,6 +476,45 @@ def _resolve_legacy_minio_decision(
         return legacy_minio_service, keep_legacy_minio, legacy_minio_keep_confirmed
 
 
+_MONGO_ACCOUNT_ENV_KEYS = (
+    "df_mongo_user",
+    "df_mongo_password",
+    "df_mongo_initdb_root_username",
+    "df_mongo_initdb_root_password",
+)
+
+
+def _migrate_legacy_mongo(directory: Path, original_env_content: EnvDict) -> EnvDict:
+    """Switch an install from before the least-privilege MongoDB account to one, as `server update` does.
+
+    Such an install keeps MongoDB's root account in `DF_MONGO_USER`/`DF_MONGO_PASSWORD` and has no
+    `DF_MONGO_INITDB_ROOT_*`, which `configure_mongo()` would otherwise take for a lost `.env` and
+    offer to remove the `mongo` volume holding the server's data.
+
+    Args:
+        directory: The server install directory.
+        original_env_content: The prior install's `.env`/config.json content, as read by `inspect()`.
+
+    Returns:
+        `original_env_content` with the MongoDB accounts as the switch left them in `.env`, or unchanged
+        for an install that isn't from before the switch.
+
+    Raises:
+        InstallError: If the switch fails - nothing is written by the install then, the data stays.
+    """
+    if not is_legacy_mongo_install(directory):
+        return original_env_content
+    if not migrate_mongo_to_app_user(directory):
+        raise InstallError(
+            "Installation aborted: MongoDB still uses its root account for DeepFellow Server and couldn't be "
+            "switched to a least-privilege one. Fix the problem and run `deepfellow server update`, then try again."
+        )
+    # Taken from .env directly, not merged through config.json like in inspect() - config.json wins
+    # there and could bring back the root account the server used before the switch.
+    migrated = read_env_file_to_dict(directory / ".env")
+    return {**original_env_content, **{key: migrated[key] for key in _MONGO_ACCOUNT_ENV_KEYS}}
+
+
 def resolve(
     context: InstallContext,
     *,
@@ -694,6 +734,11 @@ def resolve(
         custom_mongo_db_server = True
     else:
         custom_mongo_db_server = not echo.confirm("Install a local MongoDB for DeepFellow Server?", default=True)
+
+    # An install from before the least-privilege MongoDB account has no DF_MONGO_INITDB_ROOT_*, which
+    # configure_mongo() would take for a stale volume to remove - switched first, as `server update` does.
+    if not custom_mongo_db_server:
+        original_env_content = _migrate_legacy_mongo(directory, original_env_content)
 
     mongo_env = configure_mongo(
         directory,
