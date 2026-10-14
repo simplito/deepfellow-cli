@@ -96,6 +96,11 @@ MOCK_START_SERVER = mock.patch("deepfellow.server.utils.install.start_server")
 MOCK_DISPATCH_POST_START_ACTION = mock.patch("deepfellow.server.utils.install.dispatch_post_start_action")
 MOCK_RESOLVE_ADMIN_CREDS = mock.patch("deepfellow.server.utils.install.resolve_admin_creds")
 MOCK_APPLY_ADMIN = mock.patch("deepfellow.server.utils.install.apply_admin")
+MOCK_IS_LEGACY_MONGO_INSTALL = mock.patch("deepfellow.server.utils.install.is_legacy_mongo_install")
+MOCK_MIGRATE_MONGO_TO_APP_USER = mock.patch("deepfellow.server.utils.install.migrate_mongo_to_app_user")
+MOCK_RESOLVE_COMPOSE_VOLUME_NAME = mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name")
+MOCK_VOLUME_EXISTS = mock.patch("deepfellow.server.utils.configure.volume_exists")
+MOCK_REMOVE_VOLUME = mock.patch("deepfellow.server.utils.configure.remove_volume")
 
 
 @pytest.fixture(autouse=True)
@@ -1725,6 +1730,213 @@ def test_resolve_regenerates_metrics_when_not_confirmed(
     assert config.metrics_password == "new-pass"
     assert mock_generate_password.call_count == 2
     assert mock_generate_password.call_args_list == [mock.call(8), mock.call(12)]
+
+
+# .env of an install from before the least-privilege MongoDB account: root account as the server's.
+LEGACY_MONGO_ENV_CONTENT = {"df_mongo_user": "root-user", "df_mongo_password": "root-pass", "df_mongo_db": "deepfellow"}
+# .env as migrate_mongo_to_app_user() leaves it: root account kept apart, a new one for the server.
+MIGRATED_MONGO_ENV_FILE = (
+    "DF_MONGO_USER=app-user\n"
+    "DF_MONGO_PASSWORD=app-pass\n"
+    "DF_MONGO_DB=deepfellow\n"
+    "DF_MONGO_INITDB_ROOT_USERNAME=root-user\n"
+    "DF_MONGO_INITDB_ROOT_PASSWORD=root-pass\n"
+)
+
+
+def mongo_context(directory: Path, original_env_content: dict[str, Any]) -> InstallContext:
+    """Build an InstallContext for calling resolve() directly over a prior install's `.env`."""
+    return InstallContext(
+        resolved_template=None,
+        directory=directory,
+        newest_image_tag=None,
+        original_env_content=original_env_content,
+        log_level="INFO",
+        plugins_setup="{}",
+    )
+
+
+def local_mongo_resolve_kwargs(directory: Path) -> dict[str, Any]:
+    """Build explicit arguments for calling resolve() directly with a local MongoDB."""
+    kwargs = install_kwargs(directory)
+    for key in ("directory", "force_install", "template", "admin_name", "admin_email", "admin_password"):
+        del kwargs[key]
+    kwargs["mongodb_url"] = DF_MONGO_URL
+    kwargs["mongodb_database_name"] = DF_MONGO_DB
+    return kwargs
+
+
+@MOCK_REMOVE_VOLUME
+@MOCK_VOLUME_EXISTS
+@MOCK_RESOLVE_COMPOSE_VOLUME_NAME
+@MOCK_MIGRATE_MONGO_TO_APP_USER
+@MOCK_IS_LEGACY_MONGO_INSTALL
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_ECHO
+def test_resolve_migrates_legacy_mongo_install_and_keeps_its_accounts(
+    mock_echo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    mock_is_legacy_mongo_install: Mock,
+    mock_migrate_mongo_to_app_user: Mock,
+    mock_resolve_compose_volume_name: Mock,
+    mock_volume_exists: Mock,
+    mock_remove_volume: Mock,
+    tmp_path: Path,
+) -> None:
+    configure_install_mocks(mock_echo, Mock(), mock_configure_infra, mock_configure_vector_db, mock_configure_otel)
+    mock_echo.confirm.return_value = True
+    mock_is_legacy_mongo_install.return_value = True
+    mock_migrate_mongo_to_app_user.return_value = True
+    mock_resolve_compose_volume_name.return_value = "deepfellow_mongo"
+    mock_volume_exists.return_value = True
+    (tmp_path / ".env").write_text(MIGRATED_MONGO_ENV_FILE)
+
+    config = resolve(mongo_context(tmp_path, LEGACY_MONGO_ENV_CONTENT), **local_mongo_resolve_kwargs(tmp_path))
+
+    assert mock_is_legacy_mongo_install.call_args == mock.call(tmp_path)
+    assert mock_migrate_mongo_to_app_user.call_count == 1
+    assert mock_migrate_mongo_to_app_user.call_args == mock.call(tmp_path)
+    assert mock_remove_volume.call_count == 0
+    assert config.custom_mongo_db_server is False
+    assert config.mongo_env["DF_MONGO_INITDB_ROOT_USERNAME"] == "root-user"
+    assert config.mongo_env["DF_MONGO_INITDB_ROOT_PASSWORD"] == "root-pass"
+    assert config.mongo_env["DF_MONGO_USER"] == "app-user"
+    assert config.mongo_env["DF_MONGO_PASSWORD"] == "app-pass"
+
+
+@MOCK_REMOVE_VOLUME
+@MOCK_VOLUME_EXISTS
+@MOCK_RESOLVE_COMPOSE_VOLUME_NAME
+@MOCK_MIGRATE_MONGO_TO_APP_USER
+@MOCK_IS_LEGACY_MONGO_INSTALL
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_ECHO
+def test_resolve_keeps_mongo_volume_of_legacy_install_with_yes(
+    mock_echo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    mock_is_legacy_mongo_install: Mock,
+    mock_migrate_mongo_to_app_user: Mock,
+    mock_resolve_compose_volume_name: Mock,
+    mock_volume_exists: Mock,
+    mock_remove_volume: Mock,
+    tmp_path: Path,
+) -> None:
+    configure_install_mocks(mock_echo, Mock(), mock_configure_infra, mock_configure_vector_db, mock_configure_otel)
+    state.yes = True
+    mock_echo.confirm.return_value = True
+    mock_is_legacy_mongo_install.return_value = True
+    mock_migrate_mongo_to_app_user.return_value = True
+    mock_resolve_compose_volume_name.return_value = "deepfellow_mongo"
+    mock_volume_exists.return_value = True
+    (tmp_path / ".env").write_text(MIGRATED_MONGO_ENV_FILE)
+
+    config = resolve(mongo_context(tmp_path, LEGACY_MONGO_ENV_CONTENT), **local_mongo_resolve_kwargs(tmp_path))
+
+    assert mock_migrate_mongo_to_app_user.call_count == 1
+    assert mock_remove_volume.call_count == 0
+    assert config.mongo_env["DF_MONGO_INITDB_ROOT_USERNAME"] == "root-user"
+    assert config.mongo_env["DF_MONGO_USER"] == "app-user"
+
+
+@MOCK_CONFIGURE_MONGO
+@MOCK_MIGRATE_MONGO_TO_APP_USER
+@MOCK_IS_LEGACY_MONGO_INSTALL
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_ECHO
+def test_resolve_aborts_when_legacy_mongo_migration_fails(
+    mock_echo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    mock_is_legacy_mongo_install: Mock,
+    mock_migrate_mongo_to_app_user: Mock,
+    mock_configure_mongo: Mock,
+    tmp_path: Path,
+) -> None:
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+    mock_echo.confirm.return_value = True
+    mock_is_legacy_mongo_install.return_value = True
+    mock_migrate_mongo_to_app_user.return_value = False
+
+    with pytest.raises(InstallError, match="deepfellow server update"):
+        resolve(mongo_context(tmp_path, LEGACY_MONGO_ENV_CONTENT), **local_mongo_resolve_kwargs(tmp_path))
+
+    assert mock_migrate_mongo_to_app_user.call_count == 1
+    assert mock_configure_mongo.call_count == 0
+
+
+@MOCK_CONFIGURE_MONGO
+@MOCK_MIGRATE_MONGO_TO_APP_USER
+@MOCK_IS_LEGACY_MONGO_INSTALL
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_ECHO
+def test_resolve_skips_mongo_migration_for_install_with_least_privilege_account(
+    mock_echo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    mock_is_legacy_mongo_install: Mock,
+    mock_migrate_mongo_to_app_user: Mock,
+    mock_configure_mongo: Mock,
+    tmp_path: Path,
+) -> None:
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+    mock_echo.confirm.return_value = True
+    mock_is_legacy_mongo_install.return_value = False
+    original_env_content = {"df_mongo_user": "app-user", "df_mongo_initdb_root_username": "root-user"}
+
+    resolve(mongo_context(tmp_path, original_env_content), **local_mongo_resolve_kwargs(tmp_path))
+
+    assert mock_is_legacy_mongo_install.call_count == 1
+    assert mock_migrate_mongo_to_app_user.call_count == 0
+    assert mock_configure_mongo.call_count == 1
+    assert mock_configure_mongo.call_args.args[6] == original_env_content
+
+
+@MOCK_CONFIGURE_MONGO
+@MOCK_MIGRATE_MONGO_TO_APP_USER
+@MOCK_IS_LEGACY_MONGO_INSTALL
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_ECHO
+def test_resolve_skips_mongo_migration_for_custom_mongo(
+    mock_echo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    mock_is_legacy_mongo_install: Mock,
+    mock_migrate_mongo_to_app_user: Mock,
+    mock_configure_mongo: Mock,
+    tmp_path: Path,
+) -> None:
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+    kwargs = local_mongo_resolve_kwargs(tmp_path)
+    kwargs["mongodb_url"] = "custom-mongo:27017"
+
+    config = resolve(mongo_context(tmp_path, LEGACY_MONGO_ENV_CONTENT), **kwargs)
+
+    assert config.custom_mongo_db_server is True
+    assert mock_is_legacy_mongo_install.call_count == 0
+    assert mock_migrate_mongo_to_app_user.call_count == 0
 
 
 @pytest.fixture

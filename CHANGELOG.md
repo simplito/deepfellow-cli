@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 - `deepfellow server update` now moves installs that still connect to MongoDB as root over to a dedicated least-privilege account.
+- `deepfellow server install` and `deepfellow suite install` no longer offer to remove the `mongo` volume of an install that still connects to MongoDB as root (or remove it without asking with `--yes`). They now move it over to a least-privilege account first, as `server update` does, keeping the server's data; if that fails, the install stops without changes and asks to run `deepfellow server update`.
 - `.env`, config and secrets files written by the CLI (`infra/.env`, `server/.env`, `~/.deepfellow/config`, `~/.deepfellow/secrets`) and the suite install state file are now always created with owner-only permissions (0600) regardless of umask, and overwriting an existing file narrows its permissions too; previously they typically ended up world-readable (0644). Existing files are tightened the next time the CLI rewrites them (e.g. on `server login`, `env set`, reinstall).
 - `deepfellow server nightshift queue` no longer crashes with `KeyError: 'nightshift_enabled'` against servers that no longer return that field.
 - `infra install` and `suite install` now warn and ask for confirmation when the Docker socket belongs to rootful Docker, also when the socket comes from `DOCKER_HOST` or the active `docker context`.
