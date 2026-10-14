@@ -11,7 +11,7 @@ from deepfellow.common.config import (
     read_env_file_to_dict,
 )
 from deepfellow.common.defaults import DF_INFRA_IMAGE, DF_INFRA_IMAGE_HUB, DOCKER_COMPOSE_CONFIG_FILENAME
-from deepfellow.common.docker import load_compose_file, save_compose_file
+from deepfellow.common.docker import get_running_service_image, load_compose_file, save_compose_file
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
 from deepfellow.common.install import assert_docker
@@ -24,13 +24,13 @@ from deepfellow.infra.utils.validation import check_infra_directory
 app = typer.Typer()
 
 
-def _resolve_image(image: str, tag: str | None) -> str:
+def _resolve_image(image: str, tag: str | None, current: str = "") -> str:
     """Return the final image reference to use for update."""
     if tag:
         return f"{DF_INFRA_IMAGE_HUB}:{tag}"
     if image == DF_INFRA_IMAGE:
         newest = get_newest_image_tag(DF_INFRA_IMAGE_HUB)
-        if newest != image:
+        if newest != current:
             echo.info(f"Newest image: {newest}")
         return newest
     return image
@@ -75,12 +75,29 @@ def update(
             directory / DOCKER_COMPOSE_CONFIG_FILENAME,
         )
 
-    image = _resolve_image(image, tag)
+    track_registry = bool(tag) or image == DF_INFRA_IMAGE
+    current = str(infra_values["df_infra_image"])
+    image = _resolve_image(image, tag, current)
 
-    if infra_values["df_infra_image"] != image:
+    # Trust the running container, not .env alone: .env may point at an image that failed to pull
+    # or was pulled but never started (restart declined).
+    if (
+        track_registry
+        and not local_image
+        and not image.endswith(":latest")
+        and current == image
+        and get_running_service_image("infra", directory) == image
+    ):
+        echo.success(f"DeepFellow Infra is already up to date ({image.rsplit(':', 1)[-1]}).")
+        return
+
+    # Pull before touching .env so a failed pull leaves .env pointing at the image that still runs.
+    if not local_image:
+        run(["docker", "pull", image], cwd=directory)
+
+    if current != image:
         env_set(env_file, "INFRA_IMAGE", image, quiet=False, docker_note=False)
 
-    run(["docker", "compose", "pull", "infra"], cwd=directory)
     echo.success("Deepfellow Infra updated.")
     if echo.confirm("Do you want to restart?", default=True):
         stop_infra(directory)

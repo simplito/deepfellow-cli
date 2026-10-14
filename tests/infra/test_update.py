@@ -449,3 +449,284 @@ def test_update_does_not_restart_when_not_confirmed(
     assert mock_stop.call_count == 0
     assert mock_start.call_count == 0
     assert mock_assert_docker.call_count == 1
+
+
+@mock.patch("deepfellow.infra.update.get_running_service_image")
+@mock.patch("deepfellow.infra.update.get_newest_image_tag")
+@mock.patch("deepfellow.infra.update.start_infra")
+@mock.patch("deepfellow.infra.update.stop_infra")
+@mock.patch("deepfellow.infra.update.run")
+@mock.patch("deepfellow.infra.update.env_set")
+@mock.patch("deepfellow.infra.update.save_compose_file")
+@mock.patch("deepfellow.infra.update.load_compose_file")
+@mock.patch("deepfellow.infra.update.echo")
+@mock.patch("deepfellow.infra.update.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.update.assert_docker")
+@mock.patch("deepfellow.infra.update.check_infra_directory")
+def test_update_skips_pull_when_already_up_to_date(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_echo: Mock,
+    mock_load: Mock,
+    mock_save: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_stop: Mock,
+    mock_start: Mock,
+    mock_newest: Mock,
+    mock_running_image: Mock,
+    compose_data: dict,
+    default_update_kwargs: dict,
+) -> None:
+    current = f"{DF_INFRA_IMAGE_HUB}:v1.2.3"
+    mock_read.return_value = {"df_infra_image": current}
+    mock_load.return_value = compose_data
+    mock_running_image.return_value = current
+    mock_newest.return_value = current
+
+    update(**default_update_kwargs)
+
+    assert mock_run.call_count == 0
+    assert mock_env_set.call_count == 0
+    assert mock_echo.confirm.call_count == 0
+    assert mock_echo.success.call_count == 1
+
+
+@mock.patch("deepfellow.infra.update.get_newest_image_tag")
+@mock.patch("deepfellow.infra.update.start_infra")
+@mock.patch("deepfellow.infra.update.stop_infra")
+@mock.patch("deepfellow.infra.update.run")
+@mock.patch("deepfellow.infra.update.env_set")
+@mock.patch("deepfellow.infra.update.save_compose_file")
+@mock.patch("deepfellow.infra.update.load_compose_file")
+@mock.patch("deepfellow.infra.update.echo")
+@mock.patch("deepfellow.infra.update.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.update.assert_docker")
+@mock.patch("deepfellow.infra.update.check_infra_directory")
+def test_update_pulls_when_newer_version_available(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_echo: Mock,
+    mock_load: Mock,
+    mock_save: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_stop: Mock,
+    mock_start: Mock,
+    mock_newest: Mock,
+    compose_data: dict,
+    default_update_kwargs: dict,
+) -> None:
+    newest = f"{DF_INFRA_IMAGE_HUB}:v1.2.4"
+    mock_read.return_value = {"df_infra_image": f"{DF_INFRA_IMAGE_HUB}:v1.2.3"}
+    mock_load.return_value = compose_data
+    mock_echo.confirm.return_value = False
+    mock_newest.return_value = newest
+
+    update(**default_update_kwargs)
+
+    assert mock_run.call_count == 1
+    assert mock_run.call_args == mock.call(["docker", "pull", newest], cwd=default_update_kwargs["directory"])
+    assert mock_env_set.call_count == 1
+    assert mock_env_set.call_args == ((mock.ANY, "INFRA_IMAGE", newest), {"quiet": False, "docker_note": False})
+
+
+@mock.patch("deepfellow.infra.update.get_running_service_image")
+@mock.patch("deepfellow.infra.update.start_infra")
+@mock.patch("deepfellow.infra.update.stop_infra")
+@mock.patch("deepfellow.infra.update.run")
+@mock.patch("deepfellow.infra.update.env_set")
+@mock.patch("deepfellow.infra.update.save_compose_file")
+@mock.patch("deepfellow.infra.update.load_compose_file")
+@mock.patch("deepfellow.infra.update.echo")
+@mock.patch("deepfellow.infra.update.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.update.assert_docker")
+@mock.patch("deepfellow.infra.update.check_infra_directory")
+def test_update_with_same_tag_as_current_skips_pull(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_echo: Mock,
+    mock_load: Mock,
+    mock_save: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_stop: Mock,
+    mock_start: Mock,
+    mock_running_image: Mock,
+    compose_data: dict,
+    default_update_kwargs: dict,
+) -> None:
+    mock_read.return_value = {"df_infra_image": f"{DF_INFRA_IMAGE_HUB}:0.15.0"}
+    mock_load.return_value = compose_data
+    mock_running_image.return_value = f"{DF_INFRA_IMAGE_HUB}:0.15.0"
+
+    update(**{**default_update_kwargs, "tag": "0.15.0"})
+
+    assert mock_run.call_count == 0
+    assert mock_echo.success.call_count == 1
+
+
+@mock.patch("deepfellow.infra.update.get_running_service_image")
+@mock.patch("deepfellow.infra.update.get_newest_image_tag")
+@mock.patch("deepfellow.infra.update.start_infra")
+@mock.patch("deepfellow.infra.update.stop_infra")
+@mock.patch("deepfellow.infra.update.run")
+@mock.patch("deepfellow.infra.update.env_set")
+@mock.patch("deepfellow.infra.update.save_compose_file")
+@mock.patch("deepfellow.infra.update.load_compose_file")
+@mock.patch("deepfellow.infra.update.echo")
+@mock.patch("deepfellow.infra.update.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.update.assert_docker")
+@mock.patch("deepfellow.infra.update.check_infra_directory")
+def test_update_does_not_write_env_when_pull_fails(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_echo: Mock,
+    mock_load: Mock,
+    mock_save: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_stop: Mock,
+    mock_start: Mock,
+    mock_newest: Mock,
+    mock_running_image: Mock,
+    compose_data: dict,
+    default_update_kwargs: dict,
+) -> None:
+    newest = f"{DF_INFRA_IMAGE_HUB}:v1.2.4"
+    mock_read.return_value = {"df_infra_image": f"{DF_INFRA_IMAGE_HUB}:v1.2.3"}
+    mock_load.return_value = compose_data
+    mock_newest.return_value = newest
+    mock_run.side_effect = typer.Exit(1)
+
+    with pytest.raises(typer.Exit):
+        update(**default_update_kwargs)
+
+    assert mock_env_set.call_count == 0
+    assert mock_echo.confirm.call_count == 0
+
+
+@mock.patch("deepfellow.infra.update.get_running_service_image")
+@mock.patch("deepfellow.infra.update.get_newest_image_tag")
+@mock.patch("deepfellow.infra.update.start_infra")
+@mock.patch("deepfellow.infra.update.stop_infra")
+@mock.patch("deepfellow.infra.update.run")
+@mock.patch("deepfellow.infra.update.env_set")
+@mock.patch("deepfellow.infra.update.save_compose_file")
+@mock.patch("deepfellow.infra.update.load_compose_file")
+@mock.patch("deepfellow.infra.update.echo")
+@mock.patch("deepfellow.infra.update.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.update.assert_docker")
+@mock.patch("deepfellow.infra.update.check_infra_directory")
+def test_update_offers_restart_when_env_current_but_container_runs_old_image(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_echo: Mock,
+    mock_load: Mock,
+    mock_save: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_stop: Mock,
+    mock_start: Mock,
+    mock_newest: Mock,
+    mock_running_image: Mock,
+    compose_data: dict,
+    default_update_kwargs: dict,
+) -> None:
+    newest = f"{DF_INFRA_IMAGE_HUB}:v1.2.4"
+    mock_read.return_value = {"df_infra_image": newest}
+    mock_load.return_value = compose_data
+    mock_echo.confirm.return_value = True
+    mock_newest.return_value = newest
+    mock_running_image.return_value = f"{DF_INFRA_IMAGE_HUB}:v1.2.3"
+
+    update(**default_update_kwargs)
+
+    assert mock_run.call_args == mock.call(["docker", "pull", newest], cwd=default_update_kwargs["directory"])
+    assert mock_env_set.call_count == 0
+    assert mock_echo.confirm.call_count == 1
+    assert mock_stop.call_count == 1
+    assert mock_start.call_count == 1
+
+
+@mock.patch("deepfellow.infra.update.get_running_service_image")
+@mock.patch("deepfellow.infra.update.get_newest_image_tag")
+@mock.patch("deepfellow.infra.update.start_infra")
+@mock.patch("deepfellow.infra.update.stop_infra")
+@mock.patch("deepfellow.infra.update.run")
+@mock.patch("deepfellow.infra.update.env_set")
+@mock.patch("deepfellow.infra.update.save_compose_file")
+@mock.patch("deepfellow.infra.update.load_compose_file")
+@mock.patch("deepfellow.infra.update.echo")
+@mock.patch("deepfellow.infra.update.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.update.assert_docker")
+@mock.patch("deepfellow.infra.update.check_infra_directory")
+def test_update_offers_restart_when_env_current_but_container_not_running(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_echo: Mock,
+    mock_load: Mock,
+    mock_save: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_stop: Mock,
+    mock_start: Mock,
+    mock_newest: Mock,
+    mock_running_image: Mock,
+    compose_data: dict,
+    default_update_kwargs: dict,
+) -> None:
+    newest = f"{DF_INFRA_IMAGE_HUB}:v1.2.4"
+    mock_read.return_value = {"df_infra_image": newest}
+    mock_load.return_value = compose_data
+    mock_echo.confirm.return_value = False
+    mock_newest.return_value = newest
+    mock_running_image.return_value = None
+
+    update(**default_update_kwargs)
+
+    assert mock_running_image.call_args == mock.call("infra", default_update_kwargs["directory"])
+    assert mock_run.call_count == 1
+    assert mock_echo.confirm.call_count == 1
+
+
+@mock.patch("deepfellow.infra.update.get_newest_image_tag")
+@mock.patch("deepfellow.infra.update.start_infra")
+@mock.patch("deepfellow.infra.update.stop_infra")
+@mock.patch("deepfellow.infra.update.run")
+@mock.patch("deepfellow.infra.update.env_set")
+@mock.patch("deepfellow.infra.update.save_compose_file")
+@mock.patch("deepfellow.infra.update.load_compose_file")
+@mock.patch("deepfellow.infra.update.echo")
+@mock.patch("deepfellow.infra.update.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.update.assert_docker")
+@mock.patch("deepfellow.infra.update.check_infra_directory")
+def test_update_local_image_does_not_pull(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_echo: Mock,
+    mock_load: Mock,
+    mock_save: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_stop: Mock,
+    mock_start: Mock,
+    mock_newest: Mock,
+    compose_data: dict,
+    default_update_kwargs: dict,
+) -> None:
+    mock_read.return_value = {"df_infra_image": "local-image"}
+    mock_load.return_value = compose_data
+    mock_echo.confirm.return_value = False
+
+    update(**{**default_update_kwargs, "image": "local-image", "local_image": True})
+
+    assert mock_run.call_count == 0
+    assert mock_newest.call_count == 0

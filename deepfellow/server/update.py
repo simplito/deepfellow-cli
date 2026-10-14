@@ -9,7 +9,7 @@ import typer
 
 from deepfellow.common.config import read_env_file_to_dict
 from deepfellow.common.defaults import DF_SERVER_IMAGE, DF_SERVER_IMAGE_HUB, DOCKER_COMPOSE_CONFIG_FILENAME
-from deepfellow.common.docker import load_compose_file, save_compose_file
+from deepfellow.common.docker import get_running_service_image, load_compose_file, save_compose_file
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
 from deepfellow.common.install import assert_docker
@@ -34,16 +34,48 @@ from deepfellow.server.utils.validation import check_server_directory
 app = typer.Typer()
 
 
-def _resolve_image(image: str, tag: str | None) -> str:
+def _resolve_image(image: str, tag: str | None, current: str = "") -> str:
     """Return the final image reference to use for update."""
     if tag:
         return f"{DF_SERVER_IMAGE_HUB}:{tag}"
     if image == DF_SERVER_IMAGE:
         newest = get_newest_image_tag(DF_SERVER_IMAGE_HUB)
-        if newest != image:
+        if newest != current:
             echo.info(f"Newest image: {newest}")
         return newest
     return image
+
+
+def _report_if_up_to_date(directory: Path, image: str, current: str, had_nightshift: bool) -> bool:
+    """Return whether the server already runs `image` and has nothing else to update, telling the user so.
+
+    Trusts the running container, not `.env` alone: `.env` may point at an image that failed to pull
+    or was pulled but never started (restart declined). A legacy MongoDB install still needs the full
+    update for its migration, even on the newest image.
+    """
+    up_to_date = (
+        not image.endswith(":latest")
+        and current == image
+        and not is_legacy_mongo_install(directory)
+        and get_running_service_image("server", directory) == image
+    )
+    if up_to_date:
+        echo.success(f"DeepFellow Server is already up to date ({image.rsplit(':', 1)[-1]}).")
+        if not had_nightshift:
+            warn_nightshift_declined()
+    return up_to_date
+
+
+def _pull_and_pin_image(directory: Path, image: str, current: str, local_image: bool) -> None:
+    """Pull `image` and point `.env` at it.
+
+    Pulls before touching `.env`, so a failed pull leaves `.env` pointing at the image that still runs.
+    """
+    if not local_image:
+        run(["docker", "pull", image], cwd=directory)
+
+    if current != image:
+        env_set(directory / ".env", "SERVER_IMAGE", image, quiet=False, docker_note=False)
 
 
 def _sync_pull_policy(directory: Path, local_image: bool) -> None:
@@ -110,10 +142,19 @@ def update(
 
     _sync_pull_policy(directory, local_image)
 
-    image = _resolve_image(image, tag)
+    track_registry = bool(tag) or image == DF_SERVER_IMAGE
+    current = str(values["df_server_image"])
+    image = _resolve_image(image, tag, current)
 
-    if values["df_server_image"] != image:
-        env_set(env_file, "SERVER_IMAGE", image, quiet=False, docker_note=False)
+    if (
+        track_registry
+        and not local_image
+        and nightshift_config is None
+        and _report_if_up_to_date(directory, image, current, had_nightshift)
+    ):
+        return
+
+    _pull_and_pin_image(directory, image, current, local_image)
 
     if nightshift_config is not None:
         add_nightshift_to_install(directory, nightshift_config)
