@@ -301,6 +301,26 @@ def is_service_running(service: str, cwd: Path) -> bool:
     return result is not None and len(result.splitlines()) > 1
 
 
+def get_running_service_image(service: str, cwd: Path) -> str | None:
+    """Return the image reference the service's running container was created from.
+
+    Returns `None` when the service is not running or `docker compose ps` fails - callers should
+    treat that as "not confirmed up to date", never as a reason to skip work.
+    """
+    try:
+        result = run(
+            ["docker", "compose", "ps", service, "--status", "running", "--format", "{{.Image}}"],
+            cwd=cwd,
+            raises=DockerError,
+            capture_output=True,
+        )
+    except DockerError:
+        return None
+
+    lines = (result or "").split()
+    return lines[0] if lines else None
+
+
 def is_service_running_or_raise(service: str, cwd: Path) -> bool:
     """Check if a Compose service is running, distinguishing confirmed absence from a `docker compose ps` failure.
 

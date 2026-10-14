@@ -22,6 +22,7 @@ from deepfellow.common.docker import (
     ensure_network,
     get_container_id,
     get_docker_network,
+    get_running_service_image,
     get_socket,
     is_docker_compose_installed,
     is_docker_group_available,
@@ -1115,3 +1116,36 @@ def test_print_docker_status_prints_combined_info(
         "\nNET I/O: 1kB / 1kB"
         "\nDisk I/O: 2kB / 2kB"
     )
+
+
+@mock.patch("deepfellow.common.docker.run")
+def test_get_running_service_image_returns_image_when_running(mock_run: Mock, tmp_path: Path) -> None:
+    mock_run.return_value = "hub.simplito.com/deepfellow/deepfellow-server:v1.2.3\n"
+
+    result = get_running_service_image("server", tmp_path)
+
+    assert result == "hub.simplito.com/deepfellow/deepfellow-server:v1.2.3"
+    assert mock_run.call_args == mock.call(
+        ["docker", "compose", "ps", "server", "--status", "running", "--format", "{{.Image}}"],
+        cwd=tmp_path,
+        raises=DockerError,
+        capture_output=True,
+    )
+
+
+@mock.patch("deepfellow.common.docker.run")
+def test_get_running_service_image_returns_none_when_not_running(mock_run: Mock, tmp_path: Path) -> None:
+    mock_run.return_value = ""
+
+    result = get_running_service_image("server", tmp_path)
+
+    assert result is None
+
+
+@mock.patch("deepfellow.common.docker.run")
+def test_get_running_service_image_returns_none_on_docker_error(mock_run: Mock, tmp_path: Path) -> None:
+    mock_run.side_effect = DockerError("docker")
+
+    result = get_running_service_image("server", tmp_path)
+
+    assert result is None
