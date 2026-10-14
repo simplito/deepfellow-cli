@@ -52,8 +52,9 @@ def install_with_progress(
     data: dict[str, Any],
     timeout: float = 60 * 60 * 24,
     message: str = "Installing...",
+    method: str = "POST",
 ) -> dict[str, Any]:
-    """POST with stream=true and render progress; fall back to plain JSON if unsupported.
+    """Send a request with stream=true and render progress; fall back to plain JSON if unsupported.
 
     Args:
         url: Full endpoint URL.
@@ -61,6 +62,7 @@ def install_with_progress(
         data: Request body; ``{"stream": true}`` is injected automatically.
         timeout: Read timeout for the long-running download.
         message: Install message shown with a spinner for the whole install.
+        method: HTTP method of the endpoint (``POST`` or ``PUT``).
 
     Returns:
         The terminal payload as a dict. For an SSE response this is the
@@ -73,12 +75,12 @@ def install_with_progress(
     """
     body = data | {STREAM_BODY_KEY: True}
     headers = {"Authorization": f"Bearer {token}", "Accept": "text/event-stream"}
-    echo.debug(f"POST (stream) {url} data={body}")
+    echo.debug(f"{method} (stream) {url} data={body}")
 
     with ExitStack() as stack:
         # Spinner must close before _consume_sse starts Progress — rich allows one live display at a time.
         with echo.spinner(message):
-            response = stack.enter_context(httpx.stream("POST", url, headers=headers, json=body, timeout=timeout))
+            response = stack.enter_context(httpx.stream(method, url, headers=headers, json=body, timeout=timeout))
             # Any error status must be read here, inside the stream context - `call_infra` reads
             # `exc.response.json()`/`.text` from the raised error to build its message, and once this
             # `with` block exits the unread body is gone, raising `httpx.ResponseNotRead` instead.
