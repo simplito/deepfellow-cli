@@ -23,6 +23,7 @@ from deepfellow.common.defaults import (
     DF_SERVER_IMAGE,
     DF_SERVER_PORT,
     DF_SUITE_INSTALL_STATE_FILE,
+    DOC_CHUNKER_STT_MODEL,
 )
 from deepfellow.common.exceptions import InstallError
 from deepfellow.common.state import state
@@ -71,6 +72,14 @@ _SERVER_WORKSPACE_POST_START_ACTIONS: list[PostStartAction] = SERVER_BUILTIN_TEM
 # so every existing STEPS/TOTAL_STEPS usage below needs no further change.
 STEPS = _build_steps(_WORKSPACE_POST_START_ACTIONS, _SERVER_WORKSPACE_POST_START_ACTIONS)
 TOTAL_STEPS = len(STEPS)
+
+
+def _step_ids_through(last_step_id: str) -> list[str]:
+    """Ids of STEPS up to and including `last_step_id`, so a slice doesn't depend on the template's action count."""
+    step_ids = [step_id for step_id, _ in STEPS]
+    return step_ids[: step_ids.index(last_step_id) + 1]
+
+
 DOCKER_SOCKET = "/var/run/docker.sock"
 
 
@@ -280,7 +289,7 @@ def test_install_success_calls_all_steps_in_order(
     assert mock_infra_install_apply.call_count == 1
     assert mock_infra_install_apply.call_args == _infra_install_apply_call()
     assert mock_infra_start.call_count == 1
-    assert mock_infra_post_start_action.call_count == 4
+    assert mock_infra_post_start_action.call_count == len(_WORKSPACE_POST_START_ACTIONS)
     # Fresh (non --resume) run: "Updated config/secrets" stays visible - only --resume quiets it.
     assert mock_infra_post_start_action.call_args_list == [
         mock.call(action, DF_INFRA_DIRECTORY, False) for action in _WORKSPACE_POST_START_ACTIONS
@@ -829,7 +838,7 @@ def test_install_resume_skips_already_completed_steps_still_live(
     assert mock_server_config.call_count == 0
     assert mock_infra_install_apply.call_count == 0
     assert mock_infra_start.call_count == 0
-    assert mock_infra_post_start_action.call_count == 4
+    assert mock_infra_post_start_action.call_count == len(_WORKSPACE_POST_START_ACTIONS)
     # A --resume run repeats these calls (once per action) against the exact same, already-confirmed
     # connection - "Updated config/secrets" would just be noise, so it's quieted here.
     assert mock_infra_post_start_action.call_args_list == [
@@ -924,10 +933,10 @@ def test_install_infra_start_reruns_when_container_no_longer_running_despite_com
     assert mock_infra_install_apply.call_count == 0
     assert mock_infra_start.call_count == 1
     assert mock_is_service_running.call_args_list[0] == mock.call("infra", cwd=DF_INFRA_DIRECTORY)
-    assert mock_infra_post_start_action.call_count == 4
+    assert mock_infra_post_start_action.call_count == len(_WORKSPACE_POST_START_ACTIONS)
     warning_messages = [call.args[0] for call in mock_echo.warning.call_args_list]
     assert (
-        "Step 4/14: infra start... was marked complete previously, but is no longer detected as up; "
+        f"Step 4/{TOTAL_STEPS}: infra start... was marked complete previously, but is no longer detected as up; "
         "re-running." in warning_messages
     )
 
@@ -974,7 +983,7 @@ def test_install_infra_install_reruns_when_directory_missing_despite_completed_s
     assert mock_infra_install_apply.call_args == _infra_install_apply_call()
     warning_messages = [call.args[0] for call in mock_echo.warning.call_args_list]
     assert (
-        "Step 3/14: infra install... was marked complete previously, but is no longer detected as up; "
+        f"Step 3/{TOTAL_STEPS}: infra install... was marked complete previously, but is no longer detected as up; "
         "re-running." in warning_messages
     )
 
@@ -1099,9 +1108,7 @@ def test_install_server_start_reruns_when_container_no_longer_running_despite_co
     mock_echo: Mock,
     mock_env_get: Mock,
 ) -> None:
-    completed_through_server_start = [
-        step_id for step_id, _ in STEPS if step_id not in ("server_post_start_action_0", "server_login")
-    ][:10]
+    completed_through_server_start = _step_ids_through("server_start")
     mock_load_state.return_value = SuiteInstallState(completed_steps=completed_through_server_start)
     mock_install_directory_intact.return_value = True
     mock_is_service_running.side_effect = lambda service, cwd: service == "infra"  # infra up, server down
@@ -1142,9 +1149,7 @@ def test_install_server_install_reruns_when_directory_missing_despite_completed_
     mock_echo: Mock,
     mock_env_get: Mock,
 ) -> None:
-    completed_through_server_install = [
-        step_id for step_id, _ in STEPS if step_id not in ("server_start", "server_post_start_action_0", "server_login")
-    ][:9]
+    completed_through_server_install = _step_ids_through("server_install")
     mock_load_state.return_value = SuiteInstallState(completed_steps=completed_through_server_install)
     mock_install_directory_intact.side_effect = lambda directory: directory != DF_SERVER_DIRECTORY
     mock_is_service_running.return_value = True
@@ -1188,9 +1193,7 @@ def test_install_infra_self_heal_no_longer_forces_server_repair(
     """DFCLI-91's fix: repairing infra no longer regenerates DF_INFRA_API_KEY (config is reapplied,
     not re-resolved - see test_install_self_heal_does_not_re_resolve_infra_config), so an intact
     server install must stay skipped, not be force-repaired just because infra was."""
-    completed_through_server_start = [
-        step_id for step_id, _ in STEPS if step_id not in ("server_post_start_action_0", "server_login")
-    ][:10]
+    completed_through_server_start = _step_ids_through("server_start")
     mock_load_state.return_value = SuiteInstallState(
         completed_steps=completed_through_server_start,
         infra_config={"api_key": "persisted-infra-key"},
@@ -1237,7 +1240,7 @@ def test_install_create_admin_always_executes_even_when_completed(
 ) -> None:
     """create_admin is not cheaply live-checkable (an admin is a DB record, not a docker service) -
     it must always re-attempt, relying on create_admin_util's own idempotency for an existing admin."""
-    completed_through_create_admin = [step_id for step_id, _ in STEPS if step_id not in ("server_login",)][:11]
+    completed_through_create_admin = _step_ids_through("server_post_start_action_0")
     mock_load_state.return_value = SuiteInstallState(completed_steps=completed_through_create_admin)
     mock_get_token_from_login.return_value = "token"
     mock_create_workspace.return_value = _make_workspace()
@@ -2412,9 +2415,7 @@ def test_install_resumed_create_admin_step_succeeds_and_continues(
 ) -> None:
     """create_admin is idempotent (see server/utils/users.py) - a resumed run whose admin already
     existed from before the interruption must succeed, not abort."""
-    completed_through_server_start = [
-        step_id for step_id, _ in STEPS if step_id not in ("server_post_start_action_0", "server_login")
-    ][:10]
+    completed_through_server_start = _step_ids_through("server_start")
     mock_load_state.return_value = SuiteInstallState(completed_steps=completed_through_server_start)
     mock_server_post_start_action.return_value = None  # idempotent no-op, not an error
     mock_get_token_from_login.return_value = "token"
@@ -3833,6 +3834,111 @@ def test_install_derives_post_start_action_steps_and_granted_models_from_templat
     )
 
 
+@mock.patch("deepfellow.suite.utils.install.infra_resolve_template")
+@_patch_all_steps
+def test_install_skips_custom_service_models_when_granting_model_access(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_infra_resolve_template: Mock,
+) -> None:
+    mock_infra_resolve_template.return_value = {
+        "config": {},
+        "post_start_actions": [
+            {"function": "infra.model.install", "kwargs": {"service_name": "vllm", "model_name": "llm-model"}},
+            {"function": "infra.model.install", "kwargs": {"service_name": "custom", "model_name": "doc_chunker"}},
+        ],
+    }
+    mock_load_state.return_value = None
+    mock_get_token_from_login.return_value = "token"
+    workspace = _make_workspace()
+    mock_create_workspace.return_value = workspace
+
+    install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
+
+    assert mock_infra_post_start_action.call_count == 2
+    assert mock_update_project.call_args.args[2:] == (
+        workspace.organization.id,
+        workspace.project.id,
+        {"models": ["llm-model"]},
+    )
+
+
+@mock.patch("deepfellow.suite.utils.install.infra_resolve_template")
+@_patch_all_steps
+def test_install_skips_doc_chunker_only_models_when_granting_model_access(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_infra_resolve_template: Mock,
+) -> None:
+    mock_infra_resolve_template.return_value = {
+        "config": {},
+        "post_start_actions": [
+            {"function": "infra.model.install", "kwargs": {"service_name": "vllm", "model_name": "llm-model"}},
+            {
+                "function": "infra.model.install",
+                "kwargs": {"service_name": "speaches-ai", "model_name": DOC_CHUNKER_STT_MODEL},
+            },
+        ],
+    }
+    mock_load_state.return_value = None
+    mock_get_token_from_login.return_value = "token"
+    workspace = _make_workspace()
+    mock_create_workspace.return_value = workspace
+
+    install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
+
+    assert mock_infra_post_start_action.call_count == 2
+    assert mock_update_project.call_args.args[2:] == (
+        workspace.organization.id,
+        workspace.project.id,
+        {"models": ["llm-model"]},
+    )
+
+
 @mock.patch("deepfellow.suite.utils.install.server_resolve_template")
 @mock.patch("deepfellow.suite.utils.install.infra_resolve_template")
 @mock.patch("deepfellow.suite.utils.install._SUITE_BUILTIN_TEMPLATES", frozenset({"workspace", "other"}))
@@ -3961,4 +4067,4 @@ def test_install_resume_ignores_leftover_old_post_start_action_step_ids(
 
     install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", resume=True)
 
-    assert mock_infra_post_start_action.call_count == 4
+    assert mock_infra_post_start_action.call_count == len(_WORKSPACE_POST_START_ACTIONS)

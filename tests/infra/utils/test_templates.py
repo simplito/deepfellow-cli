@@ -10,6 +10,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from deepfellow.common.defaults import DOC_CHUNKER_STT_MODEL
 from deepfellow.common.exceptions import InstallError
 from deepfellow.infra.utils.templates import (
     BUILTIN_TEMPLATES,
@@ -99,7 +100,7 @@ def test_builtin_workspace_post_start_actions_leave_server_for_install_to_inject
     # from this module, which has no way to know that port at template-definition time.
     actions = BUILTIN_TEMPLATES["workspace"]["post_start_actions"]
 
-    assert len(actions) == 4
+    assert len(actions) == 8
     assert all("server" not in action["kwargs"] for action in actions)
 
 
@@ -334,3 +335,27 @@ def test_resolve_template_action_kwargs_and_config_type_coercion_errors_both_app
     assert config_type_error in message
     # validate_action_kwargs runs before coerce_config_types, so its error is listed first.
     assert message.index(action_kwargs_error) < message.index(config_type_error)
+
+
+def test_builtin_workspace_installs_doc_chunker_with_single_worker() -> None:
+    actions = BUILTIN_TEMPLATES["workspace"]["post_start_actions"]
+
+    doc_chunker = next(action for action in actions if action["kwargs"].get("model_name") == "doc_chunker")
+
+    assert doc_chunker["function"] == "infra.model.install"
+    assert json.loads(doc_chunker["kwargs"]["spec"]) == {"max_concurrent": 1}
+
+
+def test_builtin_workspace_installs_doc_chunker_stt_model() -> None:
+    actions = BUILTIN_TEMPLATES["workspace"]["post_start_actions"]
+
+    model_installs = [
+        (action["kwargs"]["service_name"], action["kwargs"]["model_name"])
+        for action in actions
+        if action["function"] == "infra.model.install"
+    ]
+    speaches_install = next(action for action in actions if action["kwargs"].get("name") == "speaches-ai")
+
+    assert ("speaches-ai", DOC_CHUNKER_STT_MODEL) in model_installs
+    assert speaches_install["function"] == "infra.service.install"
+    assert json.loads(speaches_install["kwargs"]["spec"]) == {}

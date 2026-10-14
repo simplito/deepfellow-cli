@@ -237,6 +237,63 @@ def test_apply_install_performs_no_prompting(
     assert mock_echo.success.call_args == mock.call("Model llama-3.1-8B installed.")
 
 
+@mock.patch("deepfellow.infra.utils.connection.env_set")
+@mock.patch("deepfellow.infra.utils.model_install.echo")
+@mock.patch("deepfellow.infra.utils.model_install.install_with_progress")
+def test_apply_install_sends_empty_spec_when_none_given(
+    mock_install_with_progress: Mock,
+    mock_echo: Mock,
+    mock_env_set: Mock,
+) -> None:
+    mock_install_with_progress.return_value = {"status": "OK"}
+    connection = ModelInstallConnection(server="http://infra:8086", api_key="test-key")
+
+    apply_install(service_name="ollama", model_name="llama-3.1-8B", connection=connection)
+
+    assert mock_install_with_progress.call_args.kwargs["data"] == {"spec": {}}
+
+
+@mock.patch("deepfellow.infra.utils.connection.env_set")
+@mock.patch("deepfellow.infra.utils.model_install.echo")
+@mock.patch("deepfellow.infra.utils.model_install.install_with_progress")
+@mock.patch(
+    "deepfellow.infra.utils.model_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
+)
+def test_install_sends_parsed_spec(
+    mock_resolve: Mock,
+    mock_install_with_progress: Mock,
+    mock_echo: Mock,
+    mock_env_set: Mock,
+) -> None:
+    mock_install_with_progress.return_value = {"status": "OK"}
+
+    install(service_name="custom", model_name="doc_chunker", spec='{"max_concurrent": 1}')
+
+    assert mock_install_with_progress.call_count == 1
+    assert mock_install_with_progress.call_args == mock.call(
+        "http://infra:8086/admin/services/custom/models/_?model_id=doc_chunker",
+        "test-key",
+        data={"spec": {"max_concurrent": 1}},
+        message="Installing model doc_chunker...",
+    )
+
+
+@mock.patch("deepfellow.infra.utils.fields.echo")
+@mock.patch("deepfellow.infra.utils.model_install.install_with_progress")
+@mock.patch("deepfellow.infra.utils.model_install.resolve_infra_connection")
+def test_install_exits_on_invalid_spec_before_resolving_connection(
+    mock_resolve: Mock,
+    mock_install_with_progress: Mock,
+    mock_fields_echo: Mock,
+) -> None:
+    with pytest.raises(typer.Exit):
+        install(service_name="custom", model_name="doc_chunker", spec="not json")
+
+    assert mock_resolve.call_count == 0
+    assert mock_install_with_progress.call_count == 0
+    assert mock_fields_echo.error.call_count == 1
+
+
 @mock.patch("deepfellow.infra.utils.model_install.cancel_model_install")
 @mock.patch("deepfellow.infra.utils.connection.env_set")
 @mock.patch("deepfellow.infra.utils.model_install.echo")
@@ -259,9 +316,21 @@ def test_apply_install_cancels_install_on_keyboard_interrupt(
 
 @mock.patch("deepfellow.infra.model.install.install_util")
 def test_install_command_delegates_to_install_util(mock_install_util: Mock) -> None:
-    install_command(server="http://infra:8086", service_name="ollama", model_name="llama-3.1-8B")
+    install_command(server="http://infra:8086", service_name="ollama", model_name="llama-3.1-8B", spec=None)
 
     assert mock_install_util.call_count == 1
     assert mock_install_util.call_args == mock.call(
-        service_name="ollama", model_name="llama-3.1-8B", server="http://infra:8086"
+        service_name="ollama", model_name="llama-3.1-8B", server="http://infra:8086", spec=None
+    )
+
+
+@mock.patch("deepfellow.infra.model.install.install_util")
+def test_install_command_passes_spec_to_install_util(mock_install_util: Mock) -> None:
+    install_command(
+        server="http://infra:8086", service_name="custom", model_name="doc_chunker", spec='{"max_concurrent": 1}'
+    )
+
+    assert mock_install_util.call_count == 1
+    assert mock_install_util.call_args == mock.call(
+        service_name="custom", model_name="doc_chunker", server="http://infra:8086", spec='{"max_concurrent": 1}'
     )

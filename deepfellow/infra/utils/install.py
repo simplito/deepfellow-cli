@@ -52,6 +52,7 @@ from deepfellow.common.system import run
 from deepfellow.common.templates import InstallTemplate, PostStartAction
 from deepfellow.common.validation import validate_df_name, validate_url
 from deepfellow.infra.utils.docker import start_infra
+from deepfellow.infra.utils.fields import parse_spec_json
 from deepfellow.infra.utils.model_install import apply_install as apply_model_install
 from deepfellow.infra.utils.model_install import resolve_connection as resolve_model_connection
 from deepfellow.infra.utils.service_install import apply_spec as apply_service_spec
@@ -586,12 +587,13 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:
 def _prepare_post_start_action(action: PostStartAction) -> Callable[[], None]:
     """Run whatever of a post-start action's ask/build phase can run now, returning its apply phase.
 
-    `infra.model.install`'s build phase only resolves an infra connection (which may prompt for a
-    URL and/or an admin API key), and `infra.service.install`'s build phase resolves that same
-    connection plus the service's install spec (which may prompt for individual spec fields, driven
-    by a field list fetched from the already-running infra's API) - both are hoisted here, leaving
-    only the install API call itself in the returned callable. Every other (currently hypothetical)
-    action is deferred whole to the returned callable and dispatched as one, exactly as before.
+    `infra.model.install`'s build phase only parses its optional JSON spec and resolves an infra
+    connection (which may prompt for a URL and/or an admin API key), and `infra.service.install`'s
+    build phase resolves that same connection plus the service's install spec (which may prompt for
+    individual spec fields, driven by a field list fetched from the already-running infra's API) -
+    both are hoisted here, leaving only the install API call itself in the returned callable. Every
+    other (currently hypothetical) action is deferred whole to the returned callable and dispatched
+    as one, exactly as before.
 
     Args:
         action: The post-start action to prepare, with its kwargs already finalized by the caller.
@@ -605,8 +607,9 @@ def _prepare_post_start_action(action: PostStartAction) -> Callable[[], None]:
     """
     if action["function"] == "infra.model.install":
         kwargs = dict(action["kwargs"])
+        spec = parse_spec_json(kwargs.pop("spec", None))
         connection = resolve_model_connection(kwargs.pop("server", None))
-        apply_phase: Callable[[], None] = partial(apply_model_install, connection=connection, **kwargs)
+        apply_phase: Callable[[], None] = partial(apply_model_install, connection=connection, spec=spec, **kwargs)
     elif action["function"] == "infra.service.install":
         kwargs = dict(action["kwargs"])
         name = kwargs.pop("name")
