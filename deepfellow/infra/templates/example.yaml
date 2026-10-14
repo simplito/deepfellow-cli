@@ -24,3 +24,21 @@ post_start_actions:
     kwargs:
       service_name: ollama
       model_name: qwen3.5:4b
+  # Doc Chunker transcribes audio and video with this model.
+  # An explicit spec skips the hardware prompt; Infra then picks GPU or CPU itself.
+  - function: infra.service.install
+    kwargs:
+      name: speaches-ai
+      spec: '{}'
+  - function: infra.model.install
+    kwargs:
+      service_name: speaches-ai
+      model_name: Systran/faster-whisper-large-v3
+  - function: infra.service.install
+    kwargs:
+      name: custom
+  - function: infra.model.install
+    kwargs:
+      service_name: custom
+      model_name: doc_chunker
+      spec: '{"max_concurrent": 1}'

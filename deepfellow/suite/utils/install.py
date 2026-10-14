@@ -31,6 +31,7 @@ from deepfellow.common.defaults import (
     DF_SERVER_IMAGE,
     DF_SERVER_PORT,
     DF_SUITE_INSTALL_STATE_FILE,
+    DOC_CHUNKER_STT_MODEL,
     MILVUS_DATABASE,
     VectorDBTypeChoice,
 )
@@ -125,6 +126,9 @@ STEP_SERVER_START = "server_start"
 STEP_SERVER_LOGIN = "server_login"
 STEP_WORKSPACE_CREATION = "workspace_creation"
 STEP_GRANT_MODEL_ACCESS = "grant_model_access"
+
+# Never granted to the project: Server reaches them only through Doc Chunker (see STEP_GRANT_MODEL_ACCESS).
+_DOC_CHUNKER_ONLY_MODELS = frozenset({DOC_CHUNKER_STT_MODEL})
 
 
 def _infra_post_start_action_step_id(index: int) -> str:
@@ -1239,11 +1243,15 @@ def install(
     # idempotent - update_project() is a plain "set the models field" call. Same rationale as
     # STEP_SERVER_LOGIN above. The granted model list is derived from the same resolved
     # infra_post_start_actions the install steps above just ran, not a separate hardcoded list, so
-    # the two can never drift apart.
+    # the two can never drift apart. Models of the "custom" service (e.g. doc_chunker) are skipped:
+    # Server gates those by the project's custom_endpoints, never by its models list. So are the
+    # models only Doc Chunker uses, which Server reaches through Doc Chunker, not through a project.
     granted_models = [
         action["kwargs"]["model_name"]
         for action in infra_post_start_actions
         if action["function"] == "infra.model.install"
+        and action["kwargs"]["service_name"] != "custom"
+        and action["kwargs"]["model_name"] not in _DOC_CHUNKER_ONLY_MODELS
     ]
     run_step(
         STEP_GRANT_MODEL_ACCESS,

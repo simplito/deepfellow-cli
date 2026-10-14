@@ -2724,6 +2724,7 @@ def test_install_starts_infra_and_dispatches_post_start_actions_in_order(
     assert install_mocks.apply_model_install.call_args_list == [
         mock.call(
             connection=install_mocks.resolve_model_connection.return_value,
+            spec={},
             service_name="ollama",
             model_name="gemma4:e4b",
         )
@@ -2747,6 +2748,44 @@ def test_prepare_post_start_action_falls_back_to_dispatch_for_an_unhoisted_actio
     apply_phase()
 
     assert install_mocks.dispatch_post_start_action.call_args_list == [mock.call(action)]
+
+
+def test_prepare_post_start_action_passes_parsed_model_spec_to_apply_phase(
+    install_mocks: InstallMocks,
+) -> None:
+    action: PostStartAction = {
+        "function": "infra.model.install",
+        "kwargs": {"service_name": "custom", "model_name": "doc_chunker", "spec": '{"max_concurrent": 1}'},
+    }
+
+    apply_phase = _prepare_post_start_action(action)
+    apply_phase()
+
+    assert install_mocks.apply_model_install.call_args_list == [
+        mock.call(
+            connection=install_mocks.resolve_model_connection.return_value,
+            spec={"max_concurrent": 1},
+            service_name="custom",
+            model_name="doc_chunker",
+        )
+    ]
+
+
+@mock.patch("deepfellow.infra.utils.fields.echo")
+def test_prepare_post_start_action_rejects_invalid_model_spec_before_connecting(
+    mock_fields_echo: Mock,
+    install_mocks: InstallMocks,
+) -> None:
+    action: PostStartAction = {
+        "function": "infra.model.install",
+        "kwargs": {"service_name": "custom", "model_name": "doc_chunker", "spec": "not json"},
+    }
+
+    with pytest.raises(InstallError):
+        _prepare_post_start_action(action)
+
+    assert install_mocks.resolve_model_connection.call_count == 0
+    assert install_mocks.apply_model_install.call_count == 0
 
 
 def test_install_resolves_every_post_start_prompt_before_any_apply_phase(

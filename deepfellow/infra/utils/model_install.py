@@ -4,6 +4,7 @@
 """Install model core logic."""
 
 from dataclasses import dataclass
+from typing import Any
 
 import typer
 
@@ -15,6 +16,7 @@ from deepfellow.infra.utils.connection import (
     cancel_on_interrupt,
     resolve_infra_connection,
 )
+from deepfellow.infra.utils.fields import parse_spec_json
 from deepfellow.infra.utils.progress import install_with_progress
 
 
@@ -43,6 +45,7 @@ def apply_install(
     service_name: str,
     model_name: str,
     connection: ModelInstallConnection,
+    spec: dict[str, Any] | None = None,
     quiet: bool = False,
 ) -> None:
     """Install a model by calling the install API with an already-resolved connection. Prompts nothing.
@@ -51,6 +54,7 @@ def apply_install(
         service_name: Name of the service the model belongs to (e.g. "ollama").
         model_name: Name of the model to install.
         connection: The connection built by `resolve_connection`.
+        spec: Model install spec sent as-is. Fields left out fall back to infra's own defaults.
         quiet: Suppress the "Updated ..." confirmation when the resolved server/API key are
             re-persisted - e.g. suite install --resume calls this repeatedly (once per model) with
             the exact same, already-confirmed connection, so re-announcing it every time is noise.
@@ -62,7 +66,7 @@ def apply_install(
         data = cancel_on_interrupt(
             lambda: call_infra(
                 lambda: install_with_progress(
-                    url, api_key, data={"spec": {}}, message=f"Installing model {model_name}..."
+                    url, api_key, data={"spec": spec or {}}, message=f"Installing model {model_name}..."
                 ),
                 "Unable to install model.",
                 server=server,
@@ -92,6 +96,7 @@ def install(
     service_name: str,
     model_name: str,
     server: str | None = None,
+    spec: str | None = None,
     quiet: bool = False,
 ) -> None:
     """Install model.
@@ -100,9 +105,11 @@ def install(
         service_name: Name of the service the model belongs to (e.g. "ollama").
         model_name: Name of the model to install.
         server: Infra server URL. Resolved from config/prompt if not given.
+        spec: Model install spec as a JSON object. Fields left out fall back to infra's own defaults.
         quiet: Suppress the "Updated ..." confirmation when the resolved server/API key are
             re-persisted - e.g. suite install --resume calls this repeatedly (once per model) with
             the exact same, already-confirmed connection, so re-announcing it every time is noise.
     """
+    parsed_spec = parse_spec_json(spec)
     connection = resolve_connection(server)
-    apply_install(service_name, model_name, connection, quiet=quiet)
+    apply_install(service_name, model_name, connection, spec=parsed_spec, quiet=quiet)

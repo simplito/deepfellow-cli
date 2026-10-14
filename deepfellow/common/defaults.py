@@ -50,6 +50,7 @@ ALLOWED_VECTOR_DB_TYPES = [e.value for e in VectorDBTypeChoice]
 QDRANT_DATABASE_URL = "http://qdrant:6333"
 SPARSE_EMBEDDING_MODEL = "deepfellow-bge-m3"
 SPARSE_EMBEDDING_SIZE = 1024
+DOC_CHUNKER_STT_MODEL = "Systran/faster-whisper-large-v3"
 
 DEFAULT_EMBEDDING = {
     "embedding": {"active": 1, "endpoint": "openai", "model": "mxbai-embed-large", "size": "1024"},

@@ -15,7 +15,13 @@ import copy
 import json
 from collections.abc import Callable
 
-from deepfellow.common.defaults import DF_INFRA_DOCKER_NETWORK, DF_INFRA_NAME, DF_INFRA_PORT, DF_INFRA_URL
+from deepfellow.common.defaults import (
+    DF_INFRA_DOCKER_NETWORK,
+    DF_INFRA_NAME,
+    DF_INFRA_PORT,
+    DF_INFRA_URL,
+    DOC_CHUNKER_STT_MODEL,
+)
 from deepfellow.common.templates import (
     InstallTemplate,
     PostStartAction,
@@ -97,6 +103,28 @@ BUILTIN_TEMPLATES: dict[str, InstallTemplate] = {
             {
                 "function": "infra.model.install",
                 "kwargs": {"service_name": "ollama", "model_name": "qwen3.5:4b"},
+            },
+            # Doc Chunker transcribes audio and video with this model.
+            {
+                # An explicit spec skips the hardware prompt; Infra then picks GPU or CPU itself.
+                "function": "infra.service.install",
+                "kwargs": {"name": "speaches-ai", "spec": json.dumps({})},
+            },
+            {
+                "function": "infra.model.install",
+                "kwargs": {"service_name": "speaches-ai", "model_name": DOC_CHUNKER_STT_MODEL},
+            },
+            {
+                "function": "infra.service.install",
+                "kwargs": {"name": "custom"},
+            },
+            {
+                "function": "infra.model.install",
+                "kwargs": {
+                    "service_name": "custom",
+                    "model_name": "doc_chunker",
+                    "spec": json.dumps({"max_concurrent": 1}),
+                },
             },
         ],
     }
