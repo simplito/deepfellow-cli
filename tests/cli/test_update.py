@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: LicenseRef-DeepFellow-Free
 # SPDX-FileCopyrightText: 2026 Simplito sp. z o.o.
 
+from pathlib import Path
 from unittest import mock
 from unittest.mock import Mock
 
@@ -128,3 +129,33 @@ def test_update_succeeds_when_run_returns_none(mock_resolve: Mock, mock_run: Moc
     update()
 
     assert mock_echo.success.call_count == 1
+
+
+@mock.patch("deepfellow.cli.update.tighten_secret_files", return_value=[Path("/home/u/.deepfellow/secrets")])
+@mock.patch("deepfellow.cli.update.echo")
+@mock.patch("deepfellow.cli.update.run", return_value=None)
+@mock.patch("deepfellow.cli.update.resolve_cli_command")
+def test_update_reports_tightened_secret_files(
+    mock_resolve: Mock, mock_run: Mock, mock_echo: Mock, mock_tighten: Mock
+) -> None:
+    mock_resolve.return_value = ["uv", "tool", "upgrade", "deepfellow-cli"]
+
+    update()
+
+    assert mock_tighten.call_count == 1
+    assert mock_echo.info.call_args == mock.call("Restricted permissions of /home/u/.deepfellow/secrets to owner only.")
+
+
+@mock.patch("deepfellow.cli.update.tighten_secret_files")
+@mock.patch("deepfellow.cli.update.echo")
+@mock.patch("deepfellow.cli.update.run", side_effect=UpdateError("boom"))
+@mock.patch("deepfellow.cli.update.resolve_cli_command")
+def test_update_skips_tightening_when_update_fails(
+    mock_resolve: Mock, mock_run: Mock, mock_echo: Mock, mock_tighten: Mock
+) -> None:
+    mock_resolve.return_value = ["uv", "tool", "upgrade", "deepfellow-cli"]
+
+    with pytest.raises(typer.Exit):
+        update()
+
+    assert mock_tighten.call_count == 0
