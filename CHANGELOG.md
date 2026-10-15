@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased]
+## [0.35.0] - 2026-10-15
 
 ### Added
 - `deepfellow infra model update SERVICE_NAME MODEL_NAME` and `deepfellow infra service update NAME` change the settings of an installed model or service without the Infra Web Panel. `--image-version` moves it to another Docker image tag (e.g. `deepfellow infra model update custom doc_chunker --image-version v2.4.0`). Without it Infra picks the newest version of the installed variant (so also llama.cpp builds like `server-vulkan-b11580`, a `-rocm` tag stays `-rocm`, and a CUDA build may move up to the CUDA version the host's NVIDIA driver supports; an Infra without this falls back to the newest `X.Y.Z` release with the installed suffix). If a newer version needs a newer CUDA than the driver supports, a warning says so and that the NVIDIA driver has to be updated. The change is confirmed first (the global `--yes` option skips the question), unless `--set key=value` or `--spec` ask for other changes only, which leave the image as it is. `deepfellow infra model versions SERVICE_NAME MODEL_NAME` and `deepfellow infra service versions NAME` list the available image tags, newest first, marking the installed, newest, and default ones, and warn about a newer version held back by the host's CUDA version. The command reads the current settings, applies only the requested changes, and sends them to Infra, which reinstalls the model (or recreates the service) and restores the old settings if that fails.
