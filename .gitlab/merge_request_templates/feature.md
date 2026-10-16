@@ -1,10 +1,13 @@
+<!-- One plain sentence: what this MR changes, for someone not following the work. No "Summary:" label. -->
+
 ## Why
-<!-- Why is this needed? Copy from the issue. -->
+<!-- Why is this needed? Copy from the work item. -->
 
 ## Use
 <!-- How to use this feature? -->
 
 **Steps:**
+
 1.
 
 **Conditions:**
@@ -17,8 +20,9 @@
 <!-- What solution was applied? -->
 
 ## Relates
-<!-- Related issues or MRs -->
-- Closes #
+<!-- Related work items (e.g. DFMAIN-12) or MRs. No [ ] brackets here: brackets change the work item state. The MR title [PROJECT-NN] already links this MR. -->
+
+-
 
 ## Docs
 <!-- Assignee and reviewer decide together, before merge. Tick exactly one outcome. -->
@@ -33,9 +37,9 @@
 - [ ] Assignee
 - [ ] Reviewer
 
-## ToDo
+## Human in the Loop
 
 - [ ] I reviewed the code
-- [ ] I updated CHANGELOG.md
-- [ ] I wrote/updated tests
-- [ ] I added issue number "Closes #{ISSUE_NUMBER}" in the Relates section above
+- [ ] I checked the solution works
+- [ ] CHANGELOG.md was updated
+- [ ] Tests were updated/added
