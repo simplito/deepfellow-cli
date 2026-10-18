@@ -11,7 +11,6 @@ from deepfellow.cli.uninstall import _build_uninstall_command, _down_docker_comp
 from deepfellow.cli.utils.command_resolver import resolve_cli_command
 from deepfellow.common.defaults import DF_DEEPFELLOW_DIRECTORY, DF_INFRA_DIRECTORY
 from deepfellow.common.echo import echo
-from deepfellow.common.state import state
 from deepfellow.common.system import rmtree, run
 from deepfellow.server.utils.options import get_default_server_directory
 
@@ -47,9 +46,7 @@ def prune() -> None:
     """
     cmd = resolve_cli_command("DF_UNINSTALL_COMMAND", _build_uninstall_command)
 
-    if not state.yes and not echo.confirm(
-        "This will permanently remove all DeepFellow data and uninstall the CLI. Are you sure?"
-    ):
+    if not echo.confirm("This will permanently remove all DeepFellow data and uninstall the CLI. Are you sure?"):
         raise typer.Exit(0)
 
     server_directory = get_default_server_directory()

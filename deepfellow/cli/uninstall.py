@@ -49,16 +49,20 @@ def _down_docker_compose(directory: Path) -> None:
         echo.warning(f"Failed to remove containers in {directory.as_posix()}. They may still be running.")
 
 
-def _resolve_prune(prune: bool, yes: bool) -> bool:
+def _resolve_prune(prune: bool) -> bool:
     """Determine whether pruning should proceed, prompting the user if needed.
 
     Returns True when the caller should prune data, False otherwise.
     Raises typer.Exit(0) when the user declines the safety confirmation.
     """
     do_prune = prune
-    if not do_prune and not yes:
-        do_prune = echo.confirm("Also remove all DeepFellow data (infra and server containers, volumes, and files)?")
-    if do_prune and not yes and not echo.confirm("All DeepFellow data will be permanently deleted. Are you sure?"):
+    if not do_prune and not state.yes:
+        # Opting in to data removal needs an explicit answer or --prune; --yes must not imply it,
+        # and must not stall a scripted run on this question either, so it skips it (no pruning).
+        do_prune = echo.confirm(
+            "Also remove all DeepFellow data (infra and server containers, volumes, and files)?", ignore_yes=True
+        )
+    if do_prune and not echo.confirm("All DeepFellow data will be permanently deleted. Are you sure?"):
         raise typer.Exit(0)
     return do_prune
 
@@ -77,10 +81,9 @@ def uninstall(
         echo.error("Unable to detect package manager. Uninstall manually: pip uninstall deepfellow-cli")
         raise typer.Exit(1)
 
-    yes = state.yes
-    do_prune = _resolve_prune(prune, yes)
+    do_prune = _resolve_prune(prune)
 
-    if not yes and not echo.confirm("This will uninstall the DeepFellow CLI. Are you sure?"):
+    if not echo.confirm("This will uninstall the DeepFellow CLI. Are you sure?"):
         raise typer.Exit(0)
 
     if do_prune:

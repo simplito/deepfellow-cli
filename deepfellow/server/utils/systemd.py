@@ -292,7 +292,7 @@ def ensure_linger_enabled() -> None:
         "Enabling Nightshift to run unattended (survive reboot without a login session) needs "
         f"elevated privileges on this host: `loginctl enable-linger {username}`."
     )
-    if state.yes or echo.confirm("Retry with sudo?", default=True):
+    if echo.confirm("Retry with sudo?", default=True):
         sudo = ["sudo", "-n"] if state.non_interactive else ["sudo"]
         try:
             run([*sudo, "loginctl", "enable-linger", username], raises=SudoLingerError, quiet=True)

@@ -214,6 +214,13 @@ def test_configure_otel_local_run_with_elasticsearch(mock_echo, mock_load, tmp_d
 
     result = configure_otel(tmp_directory, None, None)
 
+    assert mock_echo.confirm.call_args_list[0] == mock.call(
+        "Do you have an Open Telemetry server ready?", ignore_yes=True
+    )
+    assert mock_echo.confirm.call_args_list[1].kwargs["ignore_yes"] is True
+    assert mock_echo.confirm.call_args_list[2] == mock.call(
+        "Do you want to export to Elasticsearch?", default=False, ignore_yes=True
+    )
     assert result.envs["DF_OTEL_EXPORTER_OTLP_ENDPOINT"] == DEFAULT_OTEL_URL
     assert result.envs["DF_OTEL_TRACING_ENABLED"] == "true"
     assert result.docker_compose == DOCKER_COMPOSE_OTEL_COLLECTOR
@@ -491,7 +498,7 @@ def test_is_custom_vectordb_false_when_defaults_and_local_confirmed(mock_echo):
 
     assert result is False
     assert mock_echo.confirm.call_args == mock.call(
-        "Install a local vector database for DeepFellow Server?", default=True
+        "Install a local vector database for DeepFellow Server?", default=True, ignore_yes=True
     )
 
 
@@ -1130,23 +1137,6 @@ def test_resolve_mongo_volume_conflict_raises_when_user_declines_without_removin
     assert mock_echo.error.call_count == 1
 
 
-@mock.patch("deepfellow.server.utils.configure.remove_volume")
-@mock.patch("deepfellow.server.utils.configure.volume_exists", return_value=True)
-@mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value="server_mongo")
-@mock.patch("deepfellow.server.utils.configure.echo")
-def test_resolve_mongo_volume_conflict_removes_volume_without_asking_when_yes_flag_set(
-    mock_echo, mock_resolve_volume, mock_volume_exists, mock_remove_volume, tmp_directory: Path
-):
-    state.yes = True
-
-    _resolve_mongo_volume_conflict(tmp_directory)
-
-    assert mock_echo.confirm.call_count == 0
-    assert mock_remove_volume.call_count == 1
-    assert mock_remove_volume.call_args == mock.call("server_mongo")
-    assert mock_echo.error.call_count == 0
-
-
 @mock.patch("deepfellow.server.utils.configure.remove_volume", side_effect=DockerError("volume in use"))
 @mock.patch("deepfellow.server.utils.configure.volume_exists", return_value=True)
 @mock.patch("deepfellow.server.utils.configure.resolve_compose_volume_name", return_value="server_mongo")
@@ -1198,7 +1188,7 @@ def test_should_use_falkordb_false_when_user_declines(mock_echo):
 
     assert result is False
     assert mock_echo.confirm.call_args == mock.call(
-        "Do you want to enable the Knowledge Graph (FalkorDB) feature?", default=True
+        "Do you want to enable the Knowledge Graph (FalkorDB) feature?", default=True, ignore_yes=True
     )
 
 
@@ -1226,7 +1216,9 @@ def test_is_custom_falkordb_false_when_default_and_local_confirmed(mock_echo):
     result = is_custom_falkordb(DF_FALKORDB_URL)
 
     assert result is False
-    assert mock_echo.confirm.call_args == mock.call("Install a local FalkorDB for DeepFellow Server?", default=True)
+    assert mock_echo.confirm.call_args == mock.call(
+        "Install a local FalkorDB for DeepFellow Server?", default=True, ignore_yes=True
+    )
 
 
 @mock.patch("deepfellow.server.utils.configure.echo")
@@ -1323,7 +1315,9 @@ def test_is_custom_rabbitmq_false_when_default_and_local_confirmed(mock_echo):
     result = is_custom_rabbitmq(DF_RABBITMQ_URL)
 
     assert result is False
-    assert mock_echo.confirm.call_args == mock.call("Install a local RabbitMQ for DeepFellow Server?", default=True)
+    assert mock_echo.confirm.call_args == mock.call(
+        "Install a local RabbitMQ for DeepFellow Server?", default=True, ignore_yes=True
+    )
 
 
 @mock.patch("deepfellow.server.utils.configure.echo")
@@ -1623,3 +1617,15 @@ def test_external_rabbitmq_envs_prompts_for_missing_values(mock_echo: mock.Magic
 def test_external_rabbitmq_envs_fails_in_non_interactive_mode_without_username():
     with pytest.raises(typer.BadParameter):
         external_rabbitmq_envs("mq.example:5672", "", "")
+
+
+@mock.patch("deepfellow.server.utils.configure.load_compose_file", return_value={})
+@mock.patch("deepfellow.common.echo.Confirm.ask", return_value=False)
+@mock.patch("deepfellow.common.echo.state", mock.Mock(yes=True, non_interactive=False))
+def test_configure_otel_yes_flag_does_not_opt_in_to_opentelemetry(mock_ask, mock_load, tmp_directory):
+    result = configure_otel(tmp_directory, None, None)
+
+    assert mock_ask.call_count == 2
+    assert result.envs == {}
+    assert result.docker_compose == {}
+    assert result.collector_config is None

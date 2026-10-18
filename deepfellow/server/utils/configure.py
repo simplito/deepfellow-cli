@@ -47,7 +47,6 @@ from deepfellow.common.docker import (
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
 from deepfellow.common.generate import generate_password
-from deepfellow.common.state import state
 from deepfellow.common.validation import (
     validate_connection_string,
     validate_distinct_hours,
@@ -73,7 +72,9 @@ def should_use_vector_db(
 
     # If we are in interactive mode, user will answer the question if the vector DB is wanted.
     # In non-interactive mode the default answer will be taken (default_vectordb_active)
-    if not echo.confirm("Do you want to use a vector database with DeepFellow?", default=bool(default_vectordb_active)):
+    if not echo.confirm(
+        "Do you want to use a vector database with DeepFellow?", default=bool(default_vectordb_active), ignore_yes=True
+    ):
         echo.warning("You've chosen to not use vector database.")
         return False
 
@@ -100,7 +101,7 @@ def is_custom_vectordb(
     ):
         return True
 
-    return not echo.confirm("Install a local vector database for DeepFellow Server?", default=True)
+    return not echo.confirm("Install a local vector database for DeepFellow Server?", default=True, ignore_yes=True)
 
 
 def configure_milvus_specific_fields(
@@ -453,8 +454,7 @@ def _resolve_mongo_volume_conflict(directory: Path) -> None:
     for the user: wipe the volume so the new credentials will work, or abort so they can
     investigate or restore the original .env first. A plain --non-interactive run still aborts by
     default (echo.confirm can't prompt, so it takes default=False) - only an explicit --yes
-    authorizes removing the volume without asking, the same escape hatch prune() and the sudo rm
-    retry already use for other destructive actions.
+    (which echo.confirm answers automatically) authorizes removing the volume without asking.
     """
     volume_name = resolve_compose_volume_name(directory, "mongo")
     if volume_name is None or not volume_exists(volume_name):
@@ -465,10 +465,7 @@ def _resolve_mongo_volume_conflict(directory: Path) -> None:
         "matching credentials were found in .env. Generating new credentials without removing "
         "this volume is guaranteed to cause a MongoDB authentication failure at startup."
     )
-    if not (
-        state.yes
-        or echo.confirm(f"Remove the existing volume '{volume_name}' now so new credentials will work?", default=False)
-    ):
+    if not echo.confirm(f"Remove the existing volume '{volume_name}' now so new credentials will work?", default=False):
         echo.error(
             f"Installation aborted. Restore the original .env, or remove '{volume_name}' yourself "
             "and re-run, before trying again."
@@ -617,7 +614,7 @@ def configure_otel(
 
     if not otel_url:
         echo.info("DeepFellow Server might use an Open Telemetry.")
-        if echo.confirm("Do you have an Open Telemetry server ready?"):
+        if echo.confirm("Do you have an Open Telemetry server ready?", ignore_yes=True):
             otel_url = echo.prompt_until_valid(
                 "Provide OTL url",
                 default=original_env.get("df_otel_exporter_otlp_endpoint", DEFAULT_OTEL_URL),
@@ -626,11 +623,12 @@ def configure_otel(
         elif echo.confirm(
             "Do you want to run Open Telemetry from this machine?",
             default=config_file.exists(),
+            ignore_yes=True,
         ):
             docker_compose = DOCKER_COMPOSE_OTEL_COLLECTOR
             otel_url = DEFAULT_OTEL_URL
             echo.info("Let's configure Open Telemetry")
-            if echo.confirm("Do you want to export to Elasticsearch?", default=False):
+            if echo.confirm("Do you want to export to Elasticsearch?", default=False, ignore_yes=True):
                 otel_config: dict[str, Any] = deepcopy(OTEL_COLLECTOR_CONFIG)
                 otel_config["exporters"]["elasticsearch"]["endpoint"] = echo.prompt_until_valid(
                     "Provide your ElasticSearch endpoint", validation=validate_url, default=prev_endpoint
@@ -667,14 +665,16 @@ def should_use_falkordb(falkordb_active: bool) -> bool:
     """Check if server should configure the Knowledge Graph's FalkorDB instance."""
     if not falkordb_active:
         return False
-    return echo.confirm("Do you want to enable the Knowledge Graph (FalkorDB) feature?", default=falkordb_active)
+    return echo.confirm(
+        "Do you want to enable the Knowledge Graph (FalkorDB) feature?", default=falkordb_active, ignore_yes=True
+    )
 
 
 def is_custom_falkordb(falkordb_url: str) -> bool:
     """Check if user wants to connect an existing FalkorDB instance instead of a local one."""
     if falkordb_url != DF_FALKORDB_URL:
         return True
-    return not echo.confirm("Install a local FalkorDB for DeepFellow Server?", default=True)
+    return not echo.confirm("Install a local FalkorDB for DeepFellow Server?", default=True, ignore_yes=True)
 
 
 def _split_falkordb_host_port(value: str) -> tuple[str, str]:
@@ -752,7 +752,7 @@ def is_custom_rabbitmq(rabbitmq_url: str) -> bool:
     """Check if user wants to connect an existing RabbitMQ instance instead of a local one."""
     if rabbitmq_url != DF_RABBITMQ_URL:
         return True
-    return not echo.confirm("Install a local RabbitMQ for DeepFellow Server?", default=True)
+    return not echo.confirm("Install a local RabbitMQ for DeepFellow Server?", default=True, ignore_yes=True)
 
 
 def _split_rabbitmq_host_port(value: str) -> tuple[str, str]:

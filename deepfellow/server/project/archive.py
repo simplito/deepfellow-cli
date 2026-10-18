@@ -22,17 +22,11 @@ def archive(
     project_id: str = typer.Argument(...),
 ) -> None:
     """Archive a Project."""
-    yes = state.yes
-    if yes:
-        echo.debug("Automatically confirming the archive.")
-
     secrets_file = state.cli_secrets_file
     server_url = get_server_url(server)
     token = get_token(secrets_file, server_url)
 
-    if not yes and not echo.confirm(
-        "Are you sure you want to archive this project? This action cannot be undone.", default=False
-    ):
+    if not echo.confirm("Are you sure you want to archive this project? This action cannot be undone.", default=False):
         raise typer.Exit(1)
 
     project = archive_project(server_url, token, organization_id, project_id)

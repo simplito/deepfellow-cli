@@ -54,7 +54,9 @@ def uninstall(
     echo.info("Turning off DeepFellow Infra.")
     run(["docker", "compose", "rm", "-s", "-f"], directory, quiet=True)
 
-    flag_remove_images = remove_images if remove_images is not None else echo.confirm("Also remove Docker images?")
+    flag_remove_images = (
+        remove_images if remove_images is not None else echo.confirm("Also remove Docker images?", ignore_yes=True)
+    )
     if flag_remove_images:
         echo.info("Removing DeepFellow Infra Docker images.")
         for image in images:

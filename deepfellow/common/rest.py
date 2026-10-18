@@ -30,7 +30,8 @@ def get_server_url(server: str | None) -> str:
             echo.error("Invalid Deepfellow Server address. Please try again.")
 
     if config_server is None or (
-        server != config_server and echo.confirm(f"Do you want to set {server} as your default DeepFellow Server?")
+        server != config_server
+        and echo.confirm(f"Do you want to set {server} as your default DeepFellow Server?", ignore_yes=True)
     ):
         env_set(config_file, "SERVER_URL", server, should_raise=False, docker_note=False)
         config_server = server

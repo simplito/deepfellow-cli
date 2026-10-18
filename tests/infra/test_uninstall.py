@@ -112,7 +112,7 @@ def test_uninstall_asks_interactively_when_remove_images_not_given(
 
     assert mock_check.call_args == mock.call(directory, missing_message=_ALREADY_UNINSTALLED_MESSAGE)
     assert mock_echo.confirm.call_count == 1
-    assert mock_echo.confirm.call_args == mock.call("Also remove Docker images?")
+    assert mock_echo.confirm.call_args == mock.call("Also remove Docker images?", ignore_yes=True)
 
 
 @mock.patch("deepfellow.infra.uninstall.rmtree")

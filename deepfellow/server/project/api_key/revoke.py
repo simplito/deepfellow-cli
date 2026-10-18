@@ -23,19 +23,13 @@ def revoke(
     api_key_id: str = typer.Argument(..., help="Organization API Key to revoke"),
 ) -> None:
     """Revoke project API Key."""
-    yes = state.yes
-    if yes:
-        echo.debug("Automatically confirming the revoke.")
-
     secrets_file = state.cli_secrets_file
     server_url = get_server_url(server)
     token = get_token(secrets_file, server_url)
 
     api_key = get_api_key(server_url, token, organization_id, project_id, api_key_id)
 
-    if not yes and not echo.confirm(
-        f"Are you sure you want to delete the Project API Key {api_key.name}?", default=True
-    ):
+    if not echo.confirm(f"Are you sure you want to delete the Project API Key {api_key.name}?", default=True):
         raise typer.Exit(1)
 
     delete_api_key(server_url, token, organization_id, project_id, api_key_id)

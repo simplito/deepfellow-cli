@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- The global `--yes` option is now applied by every yes/no question in one place instead of command by command, so destructive commands such as `server project archive`, `server tool delete`, `server toolbox delete`, and `server organization delete` no longer ignore it. Questions that choose a feature or opt in to a destructive or risky action are never answered by `--yes` and still need an explicit answer or a dedicated option: removing all data in `cli uninstall` (`--prune`), removing Docker images in `infra uninstall` (`--remove-images`), continuing with rootful Docker (`--allow-rootful`), reinstalling over an existing installation (`--force-install`), printing API keys, setting a new default server, and choosing optional components (vector database, FalkorDB, local RabbitMQ or MongoDB, OpenTelemetry).
 - MR templates (`feature`, `bug`) follow the team-approved version (DFMAIN-56)
 
 ## [0.35.0] - 2026-10-15

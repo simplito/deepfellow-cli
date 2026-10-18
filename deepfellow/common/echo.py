@@ -123,17 +123,20 @@ class Echo(Console):
         else:
             yield
 
-    def confirm(self, message: str, from_args: bool | None = None, **kwargs: Any) -> bool:
+    def confirm(self, message: str, from_args: bool | None = None, *, ignore_yes: bool = False, **kwargs: Any) -> bool:
         """Prompt the user for confirmation.
 
         Args:
             message: The confirmation message to display
             from_args: Value provided via CLI arguments. When not `None`, it is returned
                 immediately without prompting, in both interactive and non-interactive mode.
+                Takes precedence over `--yes`.
+            ignore_yes: If True, `--yes` does not answer this question. Use it for safety prompts
+                that need an explicit answer or a dedicated argument.
             **kwargs: Additional arguments passed to Confirm.ask (e.g. `default`)
 
         Returns:
-            The final value (from args, user input, or default)
+            The final value (from args, `True` when `--yes` is set, user input, or default)
         """
         if "default" not in kwargs:
             kwargs["default"] = False
@@ -141,6 +144,10 @@ class Echo(Console):
         if from_args is not None:
             self.info(f"{message} (set automatically: {from_args})")
             return from_args
+
+        if state.yes and not ignore_yes:
+            self.debug(f"{message} (confirmed automatically: --yes)")
+            return True
 
         if not is_interactive():
             return kwargs["default"]

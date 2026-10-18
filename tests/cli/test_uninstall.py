@@ -85,14 +85,11 @@ def test_uninstall_resolves_command_with_uninstall_config_key(
     mock_resolve: Mock, mock_run: Mock, mock_echo: Mock
 ) -> None:
     mock_resolve.return_value = _UV_UNINSTALL_CMD
-    state.yes = True
 
     uninstall(prune=False)
 
     assert mock_resolve.call_count == 1
     assert mock_resolve.call_args == mock.call("DF_UNINSTALL_COMMAND", _build_uninstall_command)
-
-    state.reset()
 
 
 @mock.patch("deepfellow.cli.uninstall.echo")
@@ -108,9 +105,7 @@ def test_uninstall_exits_with_error_when_no_package_manager(mock_resolve: Mock, 
 @mock.patch("deepfellow.cli.uninstall.echo")
 @mock.patch("deepfellow.cli.uninstall.run", return_value="ok")
 @mock.patch("deepfellow.cli.uninstall.resolve_cli_command", return_value=_UV_UNINSTALL_CMD)
-def test_uninstall_runs_detected_command_with_yes_flag(mock_resolve: Mock, mock_run: Mock, mock_echo: Mock) -> None:
-    state.yes = True
-
+def test_uninstall_runs_detected_command(mock_resolve: Mock, mock_run: Mock, mock_echo: Mock) -> None:
     uninstall(prune=False)
 
     assert mock_run.call_count == 1
@@ -120,22 +115,17 @@ def test_uninstall_runs_detected_command_with_yes_flag(mock_resolve: Mock, mock_
     )
     assert mock_echo.success.call_count == 1
 
-    state.reset()
-
 
 @mock.patch("deepfellow.cli.uninstall.echo")
 @mock.patch("deepfellow.cli.uninstall.run", side_effect=typer.Exit(1))
 @mock.patch("deepfellow.cli.uninstall.resolve_cli_command", return_value=_UV_UNINSTALL_CMD)
 def test_uninstall_exits_when_run_fails(mock_resolve: Mock, mock_run: Mock, mock_echo: Mock) -> None:
-    state.yes = True
 
     with pytest.raises(typer.Exit) as exc_info:
         uninstall(prune=False)
 
     assert exc_info.value.exit_code == 1
     assert mock_echo.success.call_count == 0
-
-    state.reset()
 
 
 @mock.patch("deepfellow.cli.uninstall.DF_DEEPFELLOW_DIRECTORY")
@@ -159,15 +149,12 @@ def test_uninstall_prune_removes_data_when_prune_flag_set(
     mock_infra_dir.exists.return_value = True
     mock_server_dir.exists.return_value = True
     mock_deepfellow_dir.exists.return_value = True
-    state.yes = True
 
     uninstall(prune=True)
 
     assert mock_down.call_count == 2
     assert mock_rmtree.call_count == 1
     assert mock_rmtree.call_args == mock.call(mock_deepfellow_dir)
-
-    state.reset()
 
 
 @mock.patch("deepfellow.cli.uninstall.DF_DEEPFELLOW_DIRECTORY")
@@ -191,28 +178,22 @@ def test_uninstall_prune_skips_missing_directories(
     mock_infra_dir.exists.return_value = False
     mock_server_dir.exists.return_value = False
     mock_deepfellow_dir.exists.return_value = False
-    state.yes = True
 
     uninstall(prune=True)
 
     assert mock_down.call_count == 0
     assert mock_rmtree.call_count == 0
 
-    state.reset()
-
 
 @mock.patch("deepfellow.cli.uninstall.echo")
 @mock.patch("deepfellow.cli.uninstall.resolve_cli_command", return_value=_UV_UNINSTALL_CMD)
 def test_uninstall_exits_when_user_declines_confirmation(mock_resolve: Mock, mock_echo: Mock) -> None:
     mock_echo.confirm.return_value = False
-    state.yes = False
 
     with pytest.raises(typer.Exit) as exc_info:
         uninstall(prune=False)
 
     assert exc_info.value.exit_code == 0
-
-    state.reset()
 
 
 @mock.patch("deepfellow.cli.uninstall.run", return_value="ok")
@@ -254,7 +235,7 @@ def test_resolve_prune_exits_when_user_declines_safety_confirmation(mock_echo: M
     mock_echo.confirm.side_effect = [True, False]  # accept first, decline safety check
 
     with pytest.raises(typer.Exit) as exc_info:
-        _resolve_prune(prune=False, yes=False)
+        _resolve_prune(prune=False)
 
     assert exc_info.value.exit_code == 0
     assert mock_echo.confirm.call_count == 2
@@ -264,7 +245,60 @@ def test_resolve_prune_exits_when_user_declines_safety_confirmation(mock_echo: M
 def test_resolve_prune_returns_true_when_user_confirms_both_prompts(mock_echo: Mock) -> None:
     mock_echo.confirm.side_effect = [True, True]  # accept first, accept safety check
 
-    result = _resolve_prune(prune=False, yes=False)
+    result = _resolve_prune(prune=False)
 
     assert result is True
     assert mock_echo.confirm.call_count == 2
+
+
+@mock.patch("deepfellow.cli.uninstall.echo")
+def test_resolve_prune_first_prompt_asks_ignoring_yes_flag(mock_echo: Mock) -> None:
+    mock_echo.confirm.return_value = False
+
+    result = _resolve_prune(prune=False)
+
+    assert result is False
+    assert mock_echo.confirm.call_count == 1
+    assert mock_echo.confirm.call_args.kwargs == {"ignore_yes": True}
+
+
+@mock.patch("deepfellow.cli.uninstall.echo")
+def test_resolve_prune_yes_flag_skips_question_and_keeps_data(mock_echo: Mock) -> None:
+    state.yes = True
+
+    result = _resolve_prune(prune=False)
+
+    assert result is False
+    assert mock_echo.confirm.call_count == 0
+
+    state.reset()
+
+
+@mock.patch("deepfellow.cli.uninstall.echo")
+def test_resolve_prune_yes_flag_with_prune_confirms_automatically(mock_echo: Mock) -> None:
+    state.yes = True
+    mock_echo.confirm.return_value = True
+
+    result = _resolve_prune(prune=True)
+
+    assert result is True
+    assert mock_echo.confirm.call_args == mock.call("All DeepFellow data will be permanently deleted. Are you sure?")
+
+    state.reset()
+
+
+@mock.patch("deepfellow.cli.uninstall.rmtree")
+@mock.patch("deepfellow.cli.uninstall._down_docker_compose")
+@mock.patch("deepfellow.cli.uninstall.echo")
+@mock.patch("deepfellow.cli.uninstall.run", return_value="ok")
+@mock.patch("deepfellow.cli.uninstall.resolve_cli_command", return_value=_UV_UNINSTALL_CMD)
+def test_uninstall_keeps_data_when_user_declines_prune(
+    mock_resolve: Mock, mock_run: Mock, mock_echo: Mock, mock_down: Mock, mock_rmtree: Mock
+) -> None:
+    mock_echo.confirm.side_effect = [False, True]  # decline data removal, accept CLI uninstall
+
+    uninstall(prune=False)
+
+    assert mock_run.call_count == 1
+    assert mock_down.call_count == 0
+    assert mock_rmtree.call_count == 0

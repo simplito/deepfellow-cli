@@ -116,67 +116,6 @@ def test_revoke_raises_exit_when_declined(
 @mock.patch("deepfellow.server.organization.admin_api_key.revoke.get_admin_api_key")
 @mock.patch("deepfellow.server.organization.admin_api_key.revoke.get_token")
 @mock.patch("deepfellow.server.organization.admin_api_key.revoke.get_server_url")
-def test_revoke_skips_confirm_prompt_when_yes(
-    mock_get_server_url: Mock,
-    mock_get_token: Mock,
-    mock_get_admin_api_key: Mock,
-    mock_delete_admin_api_key: Mock,
-    mock_confirm: Mock,
-    mock_info: Mock,
-    mock_debug: Mock,
-    mock_state: Mock,
-    api_key: ApiKey,
-) -> None:
-    mock_state.yes = True
-    mock_get_server_url.return_value = "https://server"
-    mock_get_token.return_value = "token"
-    mock_get_admin_api_key.return_value = api_key
-
-    revoke(server=None, organization_id="org-id", api_key_id="key-id")
-
-    assert mock_confirm.call_count == 0
-    assert mock_delete_admin_api_key.call_count == 1
-    assert mock_info.call_args == mock.call("API Key revoked.")
-
-
-@mock.patch("deepfellow.server.organization.admin_api_key.revoke.state")
-@mock.patch("deepfellow.server.organization.admin_api_key.revoke.echo.debug")
-@mock.patch("deepfellow.server.organization.admin_api_key.revoke.echo.info")
-@mock.patch("deepfellow.server.organization.admin_api_key.revoke.echo.confirm")
-@mock.patch("deepfellow.server.organization.admin_api_key.revoke.delete_admin_api_key")
-@mock.patch("deepfellow.server.organization.admin_api_key.revoke.get_admin_api_key")
-@mock.patch("deepfellow.server.organization.admin_api_key.revoke.get_token")
-@mock.patch("deepfellow.server.organization.admin_api_key.revoke.get_server_url")
-def test_revoke_logs_debug_message_when_yes(
-    mock_get_server_url: Mock,
-    mock_get_token: Mock,
-    mock_get_admin_api_key: Mock,
-    mock_delete_admin_api_key: Mock,
-    mock_confirm: Mock,
-    mock_info: Mock,
-    mock_debug: Mock,
-    mock_state: Mock,
-    api_key: ApiKey,
-) -> None:
-    mock_state.yes = True
-    mock_get_server_url.return_value = "https://server"
-    mock_get_token.return_value = "token"
-    mock_get_admin_api_key.return_value = api_key
-
-    revoke(server=None, organization_id="org-id", api_key_id="key-id")
-
-    assert mock_debug.call_count == 1
-    assert mock_debug.call_args == mock.call("Automatically confirming the revoke.")
-
-
-@mock.patch("deepfellow.server.organization.admin_api_key.revoke.state")
-@mock.patch("deepfellow.server.organization.admin_api_key.revoke.echo.debug")
-@mock.patch("deepfellow.server.organization.admin_api_key.revoke.echo.info")
-@mock.patch("deepfellow.server.organization.admin_api_key.revoke.echo.confirm")
-@mock.patch("deepfellow.server.organization.admin_api_key.revoke.delete_admin_api_key")
-@mock.patch("deepfellow.server.organization.admin_api_key.revoke.get_admin_api_key")
-@mock.patch("deepfellow.server.organization.admin_api_key.revoke.get_token")
-@mock.patch("deepfellow.server.organization.admin_api_key.revoke.get_server_url")
 def test_revoke_resolves_server_and_token(
     mock_get_server_url: Mock,
     mock_get_token: Mock,

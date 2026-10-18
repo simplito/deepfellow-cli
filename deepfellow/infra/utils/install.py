@@ -387,7 +387,7 @@ def resolve(
         force_provided="docker_network" in already_resolved,
     )
 
-    flag_print_keys = echo.confirm("Is it safe to print API keys here?", from_args=allow_print_keys)
+    flag_print_keys = echo.confirm("Is it safe to print API keys here?", from_args=allow_print_keys, ignore_yes=True)
 
     # Collect DF_INFRA_ADMIN_API_KEY
     echo.info("Configuration of Admin API Key\nkey required for an admin to identify in DeepFellow Infra.")

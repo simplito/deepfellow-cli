@@ -740,47 +740,6 @@ def test_install_bare_rerun_declining_discard_continues_previous_install(
 
 
 @_patch_all_steps
-def test_install_bare_rerun_with_yes_flag_skips_confirmation_and_discards(
-    mock_server_config_to_dict: Mock,
-    mock_server_config_from_dict: Mock,
-    mock_server_config: Mock,
-    mock_infra_config_to_dict: Mock,
-    mock_infra_config_from_dict: Mock,
-    mock_infra_config: Mock,
-    mock_install_directory_intact: Mock,
-    mock_is_service_running: Mock,
-    mock_assert_docker: Mock,
-    mock_load_state: Mock,
-    mock_save_state: Mock,
-    mock_delete_state: Mock,
-    mock_update_project: Mock,
-    mock_create_workspace: Mock,
-    mock_get_token_from_login: Mock,
-    mock_set_default_server_directory: Mock,
-    mock_server_post_start_action: Mock,
-    mock_server_start: Mock,
-    mock_server_install_apply: Mock,
-    mock_infra_post_start_action: Mock,
-    mock_infra_start: Mock,
-    mock_infra_install_apply: Mock,
-    mock_echo: Mock,
-    mock_env_get: Mock,
-) -> None:
-    """--yes must skip the confirmation entirely (for scripted/CI use) and go straight to
-    discarding the previous state, same as answering "yes" interactively."""
-    mock_load_state.return_value = SuiteInstallState(completed_steps=["infra_config", "infra_install"])
-    mock_get_token_from_login.return_value = "token"
-    mock_create_workspace.return_value = _make_workspace()
-    state.yes = True
-
-    install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", resume=False)
-
-    assert mock_echo.confirm.call_count == 0
-    assert mock_infra_install_apply.call_count == 1
-    assert mock.call("Previous suite install state discarded; starting fresh.") in mock_echo.warning.call_args_list
-
-
-@_patch_all_steps
 def test_install_resume_skips_already_completed_steps_still_live(
     mock_server_config_to_dict: Mock,
     mock_server_config_from_dict: Mock,

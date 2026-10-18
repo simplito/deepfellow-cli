@@ -62,7 +62,9 @@ def main(
         DF_CLI_SECRETS_PATH, envvar="DF_CLI_SECRETS_PATH", help="Path to the CLI secrets file."
     ),
     debug: bool = typer.Option(False, "-v", "-vv", "--verbose", "--debug", help="Display debug information"),
-    yes: bool = typer.Option(False, "-y", "--yes", help="Automatically answer to all questions"),
+    yes: bool = typer.Option(
+        False, "-y", "--yes", help="Automatically confirm yes/no prompts, except safety and opt-in questions"
+    ),
     non_interactive: bool = typer.Option(False, help="Run in non-interactive mode"),
     _version: bool = typer.Option(False, "--version", help="Show version info."),
 ) -> None:

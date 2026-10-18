@@ -24,17 +24,13 @@ def delete(
     organization_id: str | None = typer.Option(None, help="Organization ID, if your user belongs to more than one"),
 ) -> None:
     """Delete a Tool."""
-    yes = state.yes
-    if yes:
-        echo.debug("Automatically confirming the delete.")
-
     secrets_file = state.cli_secrets_file
     server_url = get_server_url(server)
     token = get_token(secrets_file, server_url)
 
     get_tool(server_url, token, project_id, organization_id, toolbox_id, tool_id)
 
-    if not yes and not echo.confirm(
+    if not echo.confirm(
         f"Are you sure you want to delete the tool '{tool_id}'? This action cannot be undone.", default=False
     ):
         raise typer.Exit(1)

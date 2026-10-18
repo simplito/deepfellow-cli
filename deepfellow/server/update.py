@@ -14,7 +14,6 @@ from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
 from deepfellow.common.install import assert_docker
 from deepfellow.common.registry import get_newest_image_tag
-from deepfellow.common.state import state
 from deepfellow.common.system import run
 from deepfellow.server.utils.docker import (
     has_nightshift_service,
@@ -175,7 +174,7 @@ def update(
     # The root account is kept, so the running server works until the restart below switches it.
     mongo_migrated = is_legacy_mongo_install(directory) and migrate_mongo_to_app_user(directory)
     echo.success("DeepFellow Server updated.")
-    if state.yes or echo.confirm("Do you want to restart the server?", default=True):
+    if echo.confirm("Do you want to restart the server?", default=True):
         stop_server(directory)
         start_server(directory)
         # start_server()'s blanket `up` already recreates nightshift with the pulled image if it

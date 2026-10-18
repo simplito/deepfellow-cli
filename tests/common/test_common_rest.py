@@ -106,6 +106,9 @@ def test_get_server_url_saves_new_server_when_confirmed(
 
     assert result == "http://new.example.com"
     assert mock_confirm.call_count == 1
+    assert mock_confirm.call_args == mock.call(
+        "Do you want to set http://new.example.com as your default DeepFellow Server?", ignore_yes=True
+    )
     assert mock_env_set.call_count == 1
 
 

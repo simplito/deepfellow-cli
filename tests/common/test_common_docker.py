@@ -539,7 +539,7 @@ def test_get_socket_returns_rootful_socket_when_user_confirms(
 
     assert result == "/run/docker.sock"
     assert mock_echo.warning.call_count == 1
-    assert mock_echo.confirm.call_args == mock.call("Do you want to continue?", default=False)
+    assert mock_echo.confirm.call_args == mock.call("Do you want to continue?", default=False, ignore_yes=True)
 
 
 @mock.patch("deepfellow.common.docker.echo")
@@ -1149,3 +1149,16 @@ def test_get_running_service_image_returns_none_on_docker_error(mock_run: Mock, 
     result = get_running_service_image("server", tmp_path)
 
     assert result is None
+
+
+@mock.patch("deepfellow.common.echo.Confirm.ask", return_value=False)
+@mock.patch("deepfellow.common.echo.state", mock.Mock(yes=True, non_interactive=False))
+@mock.patch("deepfellow.common.docker._is_rootful_socket", return_value=True)
+@mock.patch("deepfellow.common.docker._find_socket", return_value="/run/docker.sock")
+def test_get_socket_raises_exit_when_rootful_and_yes_flag_does_not_confirm(
+    mock_find_socket: Mock, mock_is_rootful_socket: Mock, mock_ask: Mock
+) -> None:
+    with pytest.raises(typer.Exit):
+        get_socket(allow_rootful=False)
+
+    assert mock_ask.call_count == 1

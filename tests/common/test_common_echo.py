@@ -611,6 +611,55 @@ def test_confirm_interactive_from_args_none_still_prompts(mock_interactive, mock
     assert result is True
 
 
+@patch("deepfellow.common.echo.Confirm.ask")
+@patch("deepfellow.common.echo.state", Mock(yes=True))
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_confirm_yes_flag_returns_true_without_prompting(mock_interactive, mock_ask, prompter):
+    result = prompter.confirm("Keep X?", default=False)
+
+    assert mock_ask.call_count == 0
+    assert result is True
+
+
+@patch("deepfellow.common.echo.state", Mock(yes=True))
+@patch(_IS_INTERACTIVE, return_value=False)
+def test_confirm_yes_flag_returns_true_when_non_interactive(mock_interactive, prompter):
+    result = prompter.confirm("Keep X?", default=False)
+
+    assert result is True
+
+
+@patch.object(Echo, "debug")
+@patch.object(Echo, "info")
+@patch("deepfellow.common.echo.state", Mock(yes=True))
+@patch(_IS_INTERACTIVE, return_value=False)
+def test_confirm_yes_flag_logs_at_debug_level(mock_interactive, mock_info, mock_debug, prompter):
+    prompter.confirm("Keep X?", default=False)
+
+    assert mock_info.call_count == 0
+    assert mock_debug.call_args == mock.call("Keep X? (confirmed automatically: --yes)")
+
+
+@patch("deepfellow.common.echo.Confirm.ask")
+@patch("deepfellow.common.echo.state", Mock(yes=True))
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_confirm_yes_flag_does_not_override_from_args(mock_interactive, mock_ask, prompter):
+    result = prompter.confirm("Keep X?", from_args=False)
+
+    assert mock_ask.call_count == 0
+    assert result is False
+
+
+@patch("deepfellow.common.echo.Confirm.ask", return_value=False)
+@patch("deepfellow.common.echo.state", Mock(yes=True))
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_confirm_yes_flag_ignored_when_ignore_yes_set(mock_interactive, mock_ask, prompter):
+    result = prompter.confirm("Print keys?", ignore_yes=True)
+
+    assert mock_ask.call_count == 1
+    assert result is False
+
+
 def test_is_interactive_returns_true_when_non_interactive_false():
     state.non_interactive = False
 

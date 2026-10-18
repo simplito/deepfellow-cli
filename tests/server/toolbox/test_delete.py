@@ -76,33 +76,3 @@ def test_delete_raises_exit_when_declined(
 
     assert exc_info.value.exit_code == 1
     assert mock_delete_toolbox.call_count == 0
-
-
-@mock.patch("deepfellow.server.toolbox.delete.state")
-@mock.patch("deepfellow.server.toolbox.delete.echo.debug")
-@mock.patch("deepfellow.server.toolbox.delete.echo.success")
-@mock.patch("deepfellow.server.toolbox.delete.echo.confirm")
-@mock.patch("deepfellow.server.toolbox.delete.delete_toolbox")
-@mock.patch("deepfellow.server.toolbox.delete.get_toolbox")
-@mock.patch("deepfellow.server.toolbox.delete.get_token")
-@mock.patch("deepfellow.server.toolbox.delete.get_server_url")
-def test_delete_skips_confirm_prompt_when_yes(
-    mock_get_server_url: Mock,
-    mock_get_token: Mock,
-    mock_get_toolbox: Mock,
-    mock_delete_toolbox: Mock,
-    mock_confirm: Mock,
-    mock_success: Mock,
-    mock_debug: Mock,
-    mock_state: Mock,
-    toolbox: Toolbox,
-) -> None:
-    mock_state.yes = True
-    mock_get_toolbox.return_value = toolbox
-
-    delete(project_id="project-id", toolbox_id="toolbox-id", server=None, organization_id="org-id")
-
-    assert mock_confirm.call_count == 0
-    assert mock_delete_toolbox.call_count == 1
-    assert mock_debug.call_count == 1
-    assert mock_debug.call_args == mock.call("Automatically confirming the delete.")
