@@ -203,28 +203,6 @@ def test_rmtree_success(mock_shutil_rmtree: Mock, directory: Path) -> None:
 @mock.patch("deepfellow.common.system.run")
 @mock.patch("deepfellow.common.system.echo")
 @mock.patch("deepfellow.common.system.shutil.rmtree")
-def test_rmtree_permission_error_yes_flag_sudo_succeeds(
-    mock_shutil_rmtree: Mock,
-    mock_echo: Mock,
-    mock_run: Mock,
-    directory: Path,
-) -> None:
-    mock_shutil_rmtree.side_effect = PermissionError
-    mock_run.return_value = ""
-    state.yes = True
-
-    rmtree(directory)
-
-    assert mock_echo.confirm.call_count == 0
-    assert mock_run.call_count == 1
-    assert mock_run.call_args == mock.call(
-        ["sudo", "-n", "rm", "-rf", directory.as_posix()], raises=SudoRemoveError, quiet=True
-    )
-
-
-@mock.patch("deepfellow.common.system.run")
-@mock.patch("deepfellow.common.system.echo")
-@mock.patch("deepfellow.common.system.shutil.rmtree")
 def test_rmtree_permission_error_user_confirms_sudo_succeeds(
     mock_shutil_rmtree: Mock,
     mock_echo: Mock,

@@ -52,7 +52,7 @@ def ensure_directory(
                     "Non-interactive mode is ON. To force a reinstall over the existing installation, pass "
                     f"--force-install, or remove the directory manually: rm -rf {directory}"
                 )
-            if not echo.confirm(confirm_message):
+            if not echo.confirm(confirm_message, ignore_yes=True):
                 raise typer.Exit(1)
         elif not overwrite:
             raise typer.Exit(1)

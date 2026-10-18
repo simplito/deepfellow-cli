@@ -997,7 +997,7 @@ def install(
             if prior_state.workspace is not None
             else ""
         )
-        if state.yes or echo.confirm(
+        if echo.confirm(
             f"A previous incomplete suite install exists ({completed}/{total_steps} steps done)."
             f"{key_warning} Discard it and start fresh instead of continuing it?",
             default=True,

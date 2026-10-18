@@ -132,7 +132,7 @@ def test_ensure_directory_raises_when_existing_and_user_declines(mock_echo: Mock
     assert mock_echo.warning.call_count == 1
     assert mock_echo.warning.call_args == mock.call(f"Directory {tmp_path} already exists.")
     assert mock_echo.confirm.call_count == 1
-    assert mock_echo.confirm.call_args == mock.call("Should I override existing installation?")
+    assert mock_echo.confirm.call_args == mock.call("Should I override existing installation?", ignore_yes=True)
 
 
 @mock.patch("deepfellow.common.install.echo")
@@ -284,3 +284,14 @@ def test_validate_non_interactive_admin_values_is_noop_when_nothing_missing() ->
     validate_non_interactive_admin_values(
         {"name": "Admin", "email": "admin@example.com", "password": "pass"}, "suite install"
     )
+
+
+@mock.patch("deepfellow.common.echo.Confirm.ask", return_value=False)
+@mock.patch("deepfellow.common.echo.state", mock.Mock(yes=True, non_interactive=False))
+def test_ensure_directory_exits_when_directory_exists_and_yes_flag_does_not_confirm(
+    mock_ask: Mock, tmp_path: Path
+) -> None:
+    with pytest.raises(typer.Exit):
+        ensure_directory(tmp_path)
+
+    assert mock_ask.call_count == 1

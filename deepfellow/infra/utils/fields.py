@@ -184,7 +184,7 @@ def build_spec_from_fields(  # noqa: C901
             else:
                 value = echo.prompt(description, password=True, default=default or "")
                 if value == "":
-                    confirmed = echo.confirm(f"'{field_name}' is empty. Do you want to continue?")
+                    confirmed = echo.confirm(f"'{field_name}' is empty. Do you want to continue?", ignore_yes=True)
                     if not confirmed:
                         raise typer.Exit(1)
 

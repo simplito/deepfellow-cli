@@ -195,7 +195,7 @@ def get_socket(allow_rootful: bool = False) -> str:
             f"You're using rootful Docker ({socket_path}). "
             "The DeepFellow Infra container will get root-level access to the host. This is a security risk."
         )
-        if not allow_rootful and not echo.confirm("Do you want to continue?", default=False):
+        if not allow_rootful and not echo.confirm("Do you want to continue?", default=False, ignore_yes=True):
             echo.error("Aborted: rootful Docker not allowed. Re-run with --allow-rootful to continue anyway.")
             raise typer.Exit(1)
 

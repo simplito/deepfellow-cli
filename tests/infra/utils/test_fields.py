@@ -293,7 +293,7 @@ def test_build_spec_from_fields_exits_when_optional_password_left_empty_and_not_
         build_spec_from_fields(fields_spec, {}, None, prompt_all=True)
 
     assert mock_echo.confirm.call_count == 1
-    assert mock_echo.confirm.call_args == mock.call("'api_key' is empty. Do you want to continue?")
+    assert mock_echo.confirm.call_args == mock.call("'api_key' is empty. Do you want to continue?", ignore_yes=True)
 
 
 @mock.patch("deepfellow.infra.utils.fields.echo")

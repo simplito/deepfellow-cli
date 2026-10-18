@@ -13,7 +13,6 @@ import typer
 
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import reraise_if_debug
-from deepfellow.common.state import state
 
 
 def run(
@@ -129,7 +128,7 @@ def rmtree(path: Path) -> None:
         return
 
     echo.warning(f"Cannot remove {path.as_posix()}: permission denied (Docker-owned files).")
-    if state.yes or echo.confirm("Retry with sudo?", default=True):
+    if echo.confirm("Retry with sudo?", default=True):
         try:
             run(["sudo", "-n", "rm", "-rf", path.as_posix()], raises=SudoRemoveError, quiet=True)
         except SudoRemoveError:

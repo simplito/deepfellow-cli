@@ -1279,7 +1279,9 @@ def test_resolve_skips_storage_prompt_when_stored_value_equals_default(
 
     assert config.storage_dir == DF_INFRA_STORAGE_DIR
     assert mock_echo.confirm.call_count == 1
-    assert mock_echo.confirm.call_args == mock.call("Is it safe to print API keys here?", from_args=None)
+    assert mock_echo.confirm.call_args == mock.call(
+        "Is it safe to print API keys here?", from_args=None, ignore_yes=True
+    )
 
 
 @mock.patch("deepfellow.infra.utils.install.run")

@@ -733,7 +733,9 @@ def resolve(
     if mongodb_url != DF_MONGO_URL or mongodb_database_name != DF_MONGO_DB:
         custom_mongo_db_server = True
     else:
-        custom_mongo_db_server = not echo.confirm("Install a local MongoDB for DeepFellow Server?", default=True)
+        custom_mongo_db_server = not echo.confirm(
+            "Install a local MongoDB for DeepFellow Server?", default=True, ignore_yes=True
+        )
 
     # An install from before the least-privilege MongoDB account has no DF_MONGO_INITDB_ROOT_*, which
     # configure_mongo() would take for a stale volume to remove - switched first, as `server update` does.

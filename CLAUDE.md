@@ -68,6 +68,8 @@ echo.prompt_until_valid(...)  # retries until validation passes
 echo.choice(...)        # questionary select
 ```
 
+When adding a new command, check whether the global flags apply to it. In particular, every yes/no question must go through `echo.confirm()` so that `--yes` and `--non-interactive` are honored — never hand-roll an `if state.yes` guard. Direct `state.yes` checks are fine only where the logic is not a plain confirmation (e.g. erroring out in non-interactive mode unless `--yes` is passed). Prompts that choose features or opt in to destructive actions should pass `ignore_yes=True`.
+
 Interactive mode (default) shows emojis and rich formatting. Non-interactive mode (`--non-interactive`) strips formatting and uses defaults or raises `typer.Exit(1)` if no default.
 
 ### Config and secrets files

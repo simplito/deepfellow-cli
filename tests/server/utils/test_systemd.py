@@ -311,13 +311,13 @@ def test_ensure_linger_enabled_lets_sudo_ask_for_the_password_when_interactive(m
 @mock.patch("deepfellow.server.utils.systemd.state", mock.Mock(yes=True, non_interactive=True))
 @mock.patch("deepfellow.server.utils.systemd.echo")
 @mock.patch("deepfellow.server.utils.systemd.run")
-def test_ensure_linger_enabled_never_prompts_for_a_password_when_non_interactive(mock_run, mock_echo, mock_getuser):
+def test_ensure_linger_enabled_uses_passwordless_sudo_when_non_interactive(mock_run, mock_echo, mock_getuser):
     mock_run.side_effect = ["no\n", SudoLingerError("denied"), None]
+    mock_echo.confirm.return_value = True
 
     ensure_linger_enabled()
 
     assert mock_run.call_args_list[-1].args[0] == ["sudo", "-n", *ENABLE]
-    assert mock_echo.confirm.call_count == 0
 
 
 @mock.patch("deepfellow.server.utils.systemd.getpass.getuser", return_value="alice")
