@@ -3,6 +3,8 @@
 
 """Configure methods."""
 
+import json
+import shlex
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -789,7 +791,57 @@ def local_rabbitmq_envs(
         "DF_RABBITMQ_USER": rabbitmq_username or str(original_env.get("df_rabbitmq_user") or generate_password(8)),
         "DF_RABBITMQ_PASSWORD": rabbitmq_password,
     }
+    _warn_if_rabbitmq_section_differs(original_env, envs)
     return NightshiftConfig(envs=envs, docker_compose=DOCKER_COMPOSE_RABBITMQ)
+
+
+def _rabbitmq_defaults(original_env: dict[str, Any]) -> tuple[str, str, str]:
+    """Return the prompt defaults (host:port, username, password) for an existing RabbitMQ.
+
+    Once the server has started, it keeps the broker settings in the `rabbitmq` section of
+    config.json (changed via `server config set`) and reads `DF_RABBITMQ_*` from `.env` only on its
+    first start, so that section wins over a possibly outdated `.env` when it exists.
+    """
+    section = original_env.get("df_rabbitmq")
+    if not isinstance(section, dict):
+        return (
+            str(original_env.get("df_rabbitmq_url", "")),
+            str(original_env.get("df_rabbitmq_user", "")),
+            str(original_env.get("df_rabbitmq_password", "")),
+        )
+    host = str(section.get("host") or "")
+    url = f"{host}:{section.get('port') or DF_RABBITMQ_PORT}" if host else ""
+    return url, str(section.get("username") or ""), str(section.get("password") or "")
+
+
+def _warn_if_rabbitmq_section_differs(original_env: dict[str, Any], envs: dict[str, Any]) -> None:
+    """Warn when the entered RabbitMQ values differ from the server's dynamic `rabbitmq` config.
+
+    The server ignores `DF_RABBITMQ_*` in `.env` once the `rabbitmq` section exists, so such a change
+    needs `server config set` to take effect.
+    """
+    section = original_env.get("df_rabbitmq")
+    if not isinstance(section, dict):
+        return
+    host, port = _split_rabbitmq_host_port(str(envs["DF_RABBITMQ_URL"]))
+    entered = {
+        "host": host,
+        "port": int(port),
+        "username": envs["DF_RABBITMQ_USER"],
+        "password": envs["DF_RABBITMQ_PASSWORD"],
+    }
+    current = {"port": DF_RABBITMQ_PORT} | section
+    changed = {key: value for key, value in entered.items() if current.get(key) != value}
+    if not changed:
+        return
+    if "password" in changed:
+        changed["password"] = "<password>"
+    argument = shlex.quote(f"rabbitmq={json.dumps(changed)}")
+    echo.warning(
+        "The server keeps the RabbitMQ connection in config.json and ignores these values from .env, "
+        f"so they will not change the connection it uses. Apply them with `deepfellow server config set {argument}` "
+        "(replace <password> with the actual password)."
+    )
 
 
 def external_rabbitmq_envs(
@@ -807,12 +859,13 @@ def external_rabbitmq_envs(
         The `DF_RABBITMQ_*` envs, without any compose service.
     """
     original_env = original_env or {}
+    default_url, default_username, default_password = _rabbitmq_defaults(original_env)
     rabbitmq_url = echo.prompt_until_valid(
         "Provide host:port for RabbitMQ e.g. 192.168.1.5:5672",
         validate_connection_string,
         from_args=rabbitmq_url,
         original_default=DF_RABBITMQ_URL,
-        default=original_env.get("df_rabbitmq_url", rabbitmq_url),
+        default=default_url or rabbitmq_url,
     )
     envs = {
         "DF_RABBITMQ_URL": rabbitmq_url,
@@ -821,17 +874,18 @@ def external_rabbitmq_envs(
             validate_rabbitmq_credential,
             from_args=rabbitmq_username,
             original_default="",
-            default=original_env.get("df_rabbitmq_user", ""),
+            default=default_username,
         ),
         "DF_RABBITMQ_PASSWORD": echo.prompt_until_valid(
             "Provide RabbitMQ password",
             validate_rabbitmq_credential,
             from_args=rabbitmq_password,
             original_default="",
-            default=original_env.get("df_rabbitmq_password", ""),
+            default=default_password,
             password=True,
         ),
     }
+    _warn_if_rabbitmq_section_differs(original_env, envs)
     return NightshiftConfig(envs=envs, docker_compose={})
 
 

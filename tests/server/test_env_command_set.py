@@ -617,3 +617,121 @@ def test_set_other_variable_leaves_stored_server_url_alone(
 
     assert mock_env_set.call_count == 1
     assert mock_env_set.call_args.args[0] == directory / ".env"
+
+
+@mock.patch("deepfellow.server.env_command.set.httpx.get")
+@mock.patch("deepfellow.server.env_command.set.is_service_running", return_value=True)
+def test_dynamic_field_name_returns_rabbitmq_when_server_has_rabbitmq_section(
+    mock_is_service_running: Mock,
+    mock_get: Mock,
+    directory: Path,
+) -> None:
+    (directory / ".env").write_text("DF_SERVER_PORT=8000\n")
+    secrets_file = directory / "secrets"
+    secrets_file.write_text("DF_USER_TOKEN=abc\n")
+    state.cli_secrets_file = secrets_file
+    mock_get.return_value = Mock(json=lambda: {"rabbitmq": {"host": "mq", "port": 5672}})
+
+    result = _dynamic_field_name(directory, "DF_RABBITMQ_URL")
+
+    assert result == "rabbitmq"
+
+
+@mock.patch("deepfellow.server.env_command.set.httpx.get")
+@mock.patch("deepfellow.server.env_command.set.is_service_running", return_value=True)
+def test_dynamic_field_name_returns_none_for_rabbitmq_when_server_has_no_rabbitmq_section(
+    mock_is_service_running: Mock,
+    mock_get: Mock,
+    directory: Path,
+) -> None:
+    (directory / ".env").write_text("DF_SERVER_PORT=8000\n")
+    secrets_file = directory / "secrets"
+    secrets_file.write_text("DF_USER_TOKEN=abc\n")
+    state.cli_secrets_file = secrets_file
+    mock_get.return_value = Mock(json=lambda: {"otel_tracing_enabled": True})
+
+    result = _dynamic_field_name(directory, "DF_RABBITMQ_URL")
+
+    assert result is None
+
+
+@mock.patch("deepfellow.server.env_command.set._dynamic_field_name", return_value="rabbitmq")
+@mock.patch("deepfellow.server.env_command.set.start_server")
+@mock.patch("deepfellow.server.env_command.set.stop_server")
+@mock.patch("deepfellow.server.env_command.set.echo")
+@mock.patch("deepfellow.server.env_command.set.env_set")
+@mock.patch("deepfellow.server.env_command.set.assert_docker")
+@mock.patch("deepfellow.server.env_command.set.check_server_directory")
+def test_set_blocks_rabbitmq_variable_when_server_has_rabbitmq_section(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_env_set: Mock,
+    mock_echo: Mock,
+    mock_stop: Mock,
+    mock_start: Mock,
+    mock_dynamic_field_name: Mock,
+    directory: Path,
+) -> None:
+    with pytest.raises(typer.Exit):
+        set(directory=directory, env_name="DF_RABBITMQ_URL", env_value="mq:5672", df_prefix=True, no_restart=False)
+
+    assert mock_env_set.call_count == 0
+    assert mock_echo.error.call_count == 1
+    assert "server config set" in mock_echo.error.call_args[0][0]
+    assert "rabbitmq=" in mock_echo.error.call_args[0][0]
+    assert mock_stop.call_count == 0
+    assert mock_start.call_count == 0
+
+
+@pytest.mark.parametrize("env_name", ["DF_RABBITMQ_USER", "DF_RABBITMQ_PASSWORD"])
+@mock.patch("deepfellow.server.env_command.set._dynamic_field_name", return_value="rabbitmq")
+@mock.patch("deepfellow.server.env_command.set.start_server")
+@mock.patch("deepfellow.server.env_command.set.stop_server")
+@mock.patch("deepfellow.server.env_command.set.echo")
+@mock.patch("deepfellow.server.env_command.set.env_set")
+@mock.patch("deepfellow.server.env_command.set.assert_docker")
+@mock.patch("deepfellow.server.env_command.set.check_server_directory")
+def test_set_writes_env_and_warns_for_local_rabbitmq_credentials(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_env_set: Mock,
+    mock_echo: Mock,
+    mock_stop: Mock,
+    mock_start: Mock,
+    mock_dynamic_field_name: Mock,
+    env_name: str,
+    directory: Path,
+) -> None:
+    (directory / "compose.yaml").write_text("services:\n  rabbitmq:\n    image: rabbitmq\n")
+    mock_echo.confirm.return_value = True
+
+    set(directory=directory, env_name=env_name, env_value="new-value", df_prefix=True, no_restart=False)
+
+    assert mock_env_set.call_count == 1
+    assert mock_echo.error.call_count == 0
+    assert mock_echo.warning.call_count == 1
+    assert "server config set" in mock_echo.warning.call_args[0][0]
+    assert mock_stop.call_count == 1
+    assert mock_start.call_count == 1
+
+
+@mock.patch("deepfellow.server.env_command.set._dynamic_field_name", return_value="rabbitmq")
+@mock.patch("deepfellow.server.env_command.set.echo")
+@mock.patch("deepfellow.server.env_command.set.env_set")
+@mock.patch("deepfellow.server.env_command.set.assert_docker")
+@mock.patch("deepfellow.server.env_command.set.check_server_directory")
+def test_set_blocks_rabbitmq_url_even_with_local_rabbitmq(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_env_set: Mock,
+    mock_echo: Mock,
+    mock_dynamic_field_name: Mock,
+    directory: Path,
+) -> None:
+    (directory / "compose.yaml").write_text("services:\n  rabbitmq:\n    image: rabbitmq\n")
+
+    with pytest.raises(typer.Exit):
+        set(directory=directory, env_name="DF_RABBITMQ_URL", env_value="mq:5672", df_prefix=True, no_restart=False)
+
+    assert mock_env_set.call_count == 0
+    assert mock_echo.error.call_count == 1
