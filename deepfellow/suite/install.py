@@ -24,7 +24,7 @@ from deepfellow.common.defaults import (
 )
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import InstallError, reraise_if_debug
-from deepfellow.common.validation import validate_email, validate_password
+from deepfellow.common.validation import validate_bind_address, validate_email, validate_password
 from deepfellow.infra.utils.templates import BUILTIN_TEMPLATES as INFRA_BUILTIN_TEMPLATES
 from deepfellow.server.utils.templates import BUILTIN_TEMPLATES as SERVER_BUILTIN_TEMPLATES
 from deepfellow.suite.utils.install import install as install_util
@@ -53,12 +53,14 @@ _EXPLICIT_PARAMETER_SOURCE_NAMES = frozenset({"COMMANDLINE", "ENVIRONMENT"})
 _EXPLICITLY_PROVIDED_FIELDS = frozenset(
     {
         "infra_port",
+        "infra_bind_address",
         "infra_image",
         "infra_local_image",
         "infra_directory",
         "infra_docker_config",
         "infra_storage",
         "server_port",
+        "server_bind_address",
         "server_image",
         "server_local_image",
         "server_directory",
@@ -123,6 +125,12 @@ def install(
     infra_port: int = typer.Option(
         DF_INFRA_PORT, envvar="DF_INFRA_PORT", help="Published port to serve the DeepFellow Infra from."
     ),
+    infra_bind_address: str | None = typer.Option(
+        None,
+        envvar="DF_INFRA_BIND_ADDRESS",
+        callback=validate_bind_address,
+        help='Host address to publish the Infra port on, e.g. 127.0.0.1. Default: all interfaces ("").',
+    ),
     infra_image: str = typer.Option(DF_INFRA_IMAGE, envvar="DF_INFRA_IMAGE", help="DeepFellow Infra docker image."),
     infra_local_image: bool = typer.Option(False, help="Use locally build DeepFellow Infra docker image."),
     infra_directory: Path = typer.Option(
@@ -138,6 +146,12 @@ def install(
     ),
     server_port: int = typer.Option(
         DF_SERVER_PORT, envvar="DF_SERVER_PORT", help="Port to use to serve the DeepFellow Server from."
+    ),
+    server_bind_address: str | None = typer.Option(
+        None,
+        envvar="DF_SERVER_BIND_ADDRESS",
+        callback=validate_bind_address,
+        help='Host address to publish the Server port on, e.g. 127.0.0.1. Default: all interfaces ("").',
     ),
     server_image: str = typer.Option(DF_SERVER_IMAGE, envvar="DF_SERVER_IMAGE", help="DeepFellow Server docker image."),
     server_local_image: bool = typer.Option(False, help="Use locally build DeepFellow Server docker image."),
@@ -231,12 +245,14 @@ def install(
             resume=resume,
             template=template,
             infra_port=infra_port,
+            infra_bind_address=infra_bind_address,
             infra_image=infra_image,
             infra_local_image=infra_local_image,
             infra_directory=infra_directory,
             infra_docker_config=infra_docker_config,
             infra_storage=infra_storage,
             server_port=server_port,
+            server_bind_address=server_bind_address,
             server_image=server_image,
             server_local_image=server_local_image,
             server_directory=server_directory,

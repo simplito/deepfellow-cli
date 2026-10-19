@@ -18,7 +18,7 @@ from click.core import ParameterSource
 from typer.models import OptionInfo
 from typer.testing import CliRunner
 
-from deepfellow.common.config import read_env_file, read_env_file_to_dict, save_env_file
+from deepfellow.common.config import EnvDict, read_env_file, read_env_file_to_dict, save_env_file
 from deepfellow.common.defaults import (
     DEFAULT_NIGHTSHIFT_MODE,
     DEFAULT_VECTOR_DATABASE,
@@ -58,11 +58,13 @@ from deepfellow.server.utils.configure import (
 )
 from deepfellow.server.utils.install import (
     _MERGEABLE_FIELDS,
+    ALL_INTERFACES_WARNING,
     InstallConfig,
     InstallContext,
     _get_nested_env_value,
     _is_json_object,
     _merge_template_config,
+    _resolve_bind_address,
     _resolve_port,
     apply,
     build_nightshift_service,
@@ -142,6 +144,7 @@ def install_kwargs(directory: Path) -> dict[str, Any]:
     return {
         "directory": directory,
         "port": 8000,
+        "bind_address": None,
         "image": "deepfellow-server:test",
         "local_image": False,
         "otel_url": None,
@@ -240,6 +243,98 @@ def test_install_writes_log_level_and_plugins_setup_defaults(
     env_vars = read_env_file(tmp_path / ".env")
     assert env_vars["DF_LOG_LEVEL"] == "INFO"
     assert env_vars["DF_PLUGINS_SETUP"] == "{}"
+
+
+@MOCK_SAVE_COMPOSE_FILE
+@MOCK_RUN
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@MOCK_ENSURE_NETWORK
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_install_writes_given_bind_address_to_env(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_ensure_network: Mock,
+    mock_configure_mongo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    mock_run: Mock,
+    mock_save_compose_file: Mock,
+    tmp_path: Path,
+) -> None:
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+
+    install(**{**install_kwargs(tmp_path), "bind_address": "::1"})
+
+    env_vars = read_env_file(tmp_path / ".env")
+    assert env_vars["DF_SERVER_BIND_ADDRESS"] == "[::1]"
+    assert env_vars["DF_SERVER_URL"] == "http://[::1]:8000"
+
+
+@MOCK_SAVE_COMPOSE_FILE
+@MOCK_RUN
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@MOCK_ENSURE_NETWORK
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_install_warns_when_published_on_all_interfaces(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_ensure_network: Mock,
+    mock_configure_mongo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    mock_run: Mock,
+    mock_save_compose_file: Mock,
+    tmp_path: Path,
+) -> None:
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+
+    install(**install_kwargs(tmp_path))
+
+    assert mock.call(ALL_INTERFACES_WARNING) in mock_echo.warning.call_args_list
+
+
+@MOCK_SAVE_COMPOSE_FILE
+@MOCK_RUN
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@MOCK_ENSURE_NETWORK
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_install_does_not_warn_when_bound_to_one_address(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_ensure_network: Mock,
+    mock_configure_mongo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    mock_run: Mock,
+    mock_save_compose_file: Mock,
+    tmp_path: Path,
+) -> None:
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+
+    install(**{**install_kwargs(tmp_path), "bind_address": "127.0.0.1"})
+
+    assert mock.call(ALL_INTERFACES_WARNING) not in mock_echo.warning.call_args_list
 
 
 @MOCK_SAVE_COMPOSE_FILE
@@ -561,7 +656,7 @@ def test_install_template_infra_api_key_wins_over_local_infra_env_fallback(
     }
     mock_env_get.return_value = "infra-env-key"
 
-    install(**{**install_kwargs(tmp_path), "infra_api_key": None, "template": "workspace"})
+    install(**{**install_kwargs(tmp_path), "infra_api_key": None, "template": "workspace", "bind_address": "127.0.0.1"})
 
     assert mock_env_get.call_count == 0
     infra_call = mock_configure_infra.call_args
@@ -1152,6 +1247,36 @@ def test_resolve_port_returns_cli_value_when_no_prior_env():
     assert result == DF_SERVER_PORT
 
 
+@pytest.mark.parametrize(
+    ("bind_address", "prior_env", "expected"),
+    [
+        ("127.0.0.1", {"df_server_bind_address": "10.0.0.5"}, "127.0.0.1"),
+        ("::1", {}, "[::1]"),
+        ("", {"df_server_bind_address": "10.0.0.5"}, ""),
+        (None, {"df_server_bind_address": "10.0.0.5"}, "10.0.0.5"),
+        (None, {"df_server_bind_address": "::1"}, "[::1]"),
+        (None, {"df_server_bind_address": ""}, ""),
+        (None, {}, ""),
+    ],
+)
+def test_resolve_bind_address_prefers_given_then_prior_then_all_interfaces(
+    bind_address: str | None, prior_env: EnvDict, expected: str
+) -> None:
+    result = _resolve_bind_address(bind_address, prior_env)
+
+    assert result == expected
+
+
+def test_resolve_bind_address_raises_on_invalid_prior_value() -> None:
+    with pytest.raises(InstallError, match="DF_SERVER_BIND_ADDRESS"):
+        _resolve_bind_address(None, {"df_server_bind_address": "not-an-ip"})
+
+
+def test_resolve_bind_address_raises_on_invalid_given_value() -> None:
+    with pytest.raises(typer.BadParameter):
+        _resolve_bind_address("not-an-ip", {})
+
+
 def test_merge_template_config_explicit_enum_flag_wins_over_template_vectordb_type():
     """An explicit --vectordb-type flag must still win over the template, even when its value
     equals the template's own vectordb_type value."""
@@ -1320,7 +1445,10 @@ def test_expose_ports_to_host_adds_ports_from_expose_when_missing() -> None:
 
     expose_ports_to_host(services)
 
-    assert services["otel-collector"]["ports"] == ["4317:4317", "4318:4318"]
+    assert services["otel-collector"]["ports"] == [
+        "${DF_INTERNAL_BIND_ADDRESS-127.0.0.1}:4317:4317",
+        "${DF_INTERNAL_BIND_ADDRESS-127.0.0.1}:4318:4318",
+    ]
 
 
 def test_expose_ports_to_host_leaves_existing_ports_unchanged_when_both_present() -> None:
@@ -2024,6 +2152,7 @@ def test_apply_writes_expected_env_values(
     env_file, env_values = mock_save_env.call_args[0]
     assert env_file == install_config.directory / ".env"
     assert env_values["DF_SERVER_PORT"] == install_config.port
+    assert env_values["DF_SERVER_BIND_ADDRESS"] == ""
     assert env_values["DF_SERVER_URL"] == f"http://localhost:{install_config.port}"
     assert env_values["DF_SERVER_IMAGE"] == install_config.image
     assert env_values["DF_INFRA_DOCKER_SUBNET"] == install_config.docker_network
@@ -2034,6 +2163,30 @@ def test_apply_writes_expected_env_values(
     assert env_values["DF_MONGO_USER"] == install_config.mongo_env["DF_MONGO_USER"]
     assert env_values["DF_INFRA__URL"] == install_config.infra_env["DF_INFRA__URL"]
     assert env_values["DF_VECTOR_DATABASE__PROVIDER__ACTIVE"] == "0"
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+def test_apply_points_server_url_at_bind_address(
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    install_config.bind_address = "10.0.0.5"
+
+    apply(install_config)
+
+    env_values = mock_save_env.call_args[0][1]
+    assert env_values["DF_SERVER_BIND_ADDRESS"] == "10.0.0.5"
+    assert env_values["DF_SERVER_URL"] == f"http://10.0.0.5:{install_config.port}"
 
 
 @mock.patch("deepfellow.server.utils.install.run")
@@ -2894,6 +3047,30 @@ def test_apply_adds_default_mongo_service_when_not_custom(
     assert "mongo" in compose_dict["services"]
     assert "mongo" in compose_dict["volumes"]
     assert compose_dict["services"]["server"]["depends_on"]["mongo"] == {"condition": "service_healthy"}
+    assert compose_dict["services"]["mongo"]["ports"] == [
+        "${DF_INTERNAL_BIND_ADDRESS-127.0.0.1}:${DF_MONGO_PORT}:27017"
+    ]
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+def test_apply_publishes_server_port_on_server_bind_address(
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    apply(install_config)
+
+    compose_dict = mock_save_compose.call_args[0][0]
+    assert compose_dict["services"]["server"]["ports"] == ["${DF_SERVER_BIND_ADDRESS-}:${DF_SERVER_PORT}:8000"]
 
 
 @mock.patch("deepfellow.server.utils.install.run")
@@ -3890,8 +4067,44 @@ def test_apply_dev_mode_exposes_ports_and_warns(
     apply(install_config)
 
     compose_dict = mock_save_compose.call_args[0][0]
-    assert compose_dict["services"]["qdrant"]["ports"] == ["6333:6333", "6334:6334", "6335:6335"]
+    assert compose_dict["services"]["qdrant"]["ports"] == [
+        "${DF_INTERNAL_BIND_ADDRESS-127.0.0.1}:6333:6333",
+        "${DF_INTERNAL_BIND_ADDRESS-127.0.0.1}:6334:6334",
+        "${DF_INTERNAL_BIND_ADDRESS-127.0.0.1}:6335:6335",
+    ]
     assert mock_echo.warning.call_count == 1
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.add_network_to_service")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+def test_apply_dev_mode_publishes_every_internal_port_on_internal_bind_address(
+    mock_echo: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    install_config.is_vectordb_active = True
+    install_config.is_custom_vector_db_server = False
+    install_config.vectordb_type = "milvus"
+    install_config.falkordb = FalkorDBConfig(envs={}, docker_compose=DOCKER_COMPOSE_FALKORDB)
+    install_config.dev = True
+
+    apply(install_config)
+
+    services = mock_save_compose.call_args[0][0]["services"]
+    internal_ports = {
+        name: service["ports"] for name, service in services.items() if name != "server" and "ports" in service
+    }
+    assert set(internal_ports) == {"etcd", "seaweedfs", "milvus", "mongo", "falkordb", "rabbitmq"}
+    for ports in internal_ports.values():
+        assert all(port.startswith("${DF_INTERNAL_BIND_ADDRESS-127.0.0.1}:") for port in ports)
 
 
 @mock.patch("deepfellow.server.utils.install.run")
@@ -4118,7 +4331,7 @@ def test_install_merges_template_config_when_cli_args_are_still_default(
     }
     mock_resolve_template.return_value = {"config": template_config, "post_start_actions": []}
 
-    install(directory=tmp_path, template="workspace", force_install=True)
+    install(directory=tmp_path, template="workspace", force_install=True, bind_address="127.0.0.1")
 
     network_prompt_kwargs = mock_echo.prompt.call_args_list[0][1]
     assert network_prompt_kwargs["from_args"] == "templated-net"
@@ -4530,7 +4743,7 @@ def test_install_dispatches_post_start_actions_overriding_directory(
     ]
     mock_resolve_template.return_value = {"config": {}, "post_start_actions": actions}
 
-    install(directory=tmp_path, template="workspace", force_install=True)
+    install(directory=tmp_path, template="workspace", force_install=True, bind_address="127.0.0.1")
 
     assert mock_start_server.call_count == 1
     assert mock_start_server.call_args == mock.call(tmp_path)

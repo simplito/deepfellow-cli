@@ -11,6 +11,7 @@ import typer
 from email_validator import EmailNotValidError
 
 from deepfellow.common.validation import (
+    validate_bind_address,
     validate_connection_string,
     validate_df_name,
     validate_distinct_hours,
@@ -193,6 +194,30 @@ def test_validate_port_raises_when_none() -> None:
 def test_validate_port_raises_when_out_of_range(value: str) -> None:
     with pytest.raises(typer.BadParameter):
         validate_port(value)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, None),
+        ("", ""),
+        ("127.0.0.1", "127.0.0.1"),
+        ("0.0.0.0", "0.0.0.0"),
+        ("::1", "[::1]"),
+        ("[::1]", "[::1]"),
+        ("::", "[::]"),
+    ],
+)
+def test_validate_bind_address_returns_normalized_address(value: str | None, expected: str | None) -> None:
+    result = validate_bind_address(value)
+
+    assert result == expected
+
+
+@pytest.mark.parametrize("value", ["localhost", "1.2.3.4:80", "256.0.0.1", "[127.0.0.1"])
+def test_validate_bind_address_raises_when_not_an_ip_address(value: str) -> None:
+    with pytest.raises(typer.BadParameter):
+        validate_bind_address(value)
 
 
 def test_validate_server_none_returns_none() -> None:

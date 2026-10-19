@@ -18,6 +18,12 @@ app = typer.Typer()
 
 ENV_METADATA: dict[str, EnvMetadata] = {
     "DF_SERVER_PORT": EnvMetadata(description="Port exposed by the DeepFellow Server."),
+    "DF_SERVER_BIND_ADDRESS": EnvMetadata(
+        description=(
+            "Host address the Server port is published on, e.g. 127.0.0.1. Empty: all interfaces. "
+            "IPv6 must be in brackets, e.g. [::1]."
+        )
+    ),
     "DF_SERVER_URL": EnvMetadata(description="Public HTTP URL of the DeepFellow Server."),
     "DF_SERVER_IMAGE": EnvMetadata(description="Docker image used to run DeepFellow Server."),
     "DF_INFRA_DOCKER_SUBNET": EnvMetadata(
@@ -32,6 +38,12 @@ ENV_METADATA: dict[str, EnvMetadata] = {
     ),
     "DF_MONGO_URL": EnvMetadata(description="MongoDB connection host and port."),
     "DF_MONGO_PORT": EnvMetadata(description="Host port the local MongoDB instance is published on."),
+    "DF_INTERNAL_BIND_ADDRESS": EnvMetadata(
+        description=(
+            "Host address the local MongoDB and `--dev` ports are published on. Unset: 127.0.0.1; "
+            "empty: all interfaces. IPv6 must be in brackets, e.g. [::1]."
+        )
+    ),
     "DF_MONGO_USER": EnvMetadata(description="MongoDB username."),
     "DF_MONGO_PASSWORD": EnvMetadata(description="MongoDB password.", sensitive=True),
     "DF_MONGO_DB": EnvMetadata(description="MongoDB database name used by the server."),

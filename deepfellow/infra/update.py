@@ -10,8 +10,13 @@ import typer
 from deepfellow.common.config import (
     read_env_file_to_dict,
 )
-from deepfellow.common.defaults import DF_INFRA_IMAGE, DF_INFRA_IMAGE_HUB, DOCKER_COMPOSE_CONFIG_FILENAME
-from deepfellow.common.docker import get_running_service_image, load_compose_file, save_compose_file
+from deepfellow.common.defaults import (
+    DF_INFRA_IMAGE,
+    DF_INFRA_IMAGE_HUB,
+    DOCKER_COMPOSE_CONFIG_FILENAME,
+    INFRA_BIND_ADDRESS,
+)
+from deepfellow.common.docker import bind_port_mappings, get_running_service_image, load_compose_file, save_compose_file
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
 from deepfellow.common.install import assert_docker
@@ -59,7 +64,9 @@ def update(
     compose = load_compose_file(compose_file=compose_file)
     infra_service = compose["services"]["infra"]
 
-    update_compose = False
+    # An install from before bind addresses publishes infra's port with no host part. Adding
+    # DF_INFRA_BIND_ADDRESS keeps it on all interfaces (the variable is unset) but lets it take effect.
+    update_compose = bind_port_mappings(infra_service, INFRA_BIND_ADDRESS)
     if local_image:
         if "pull_policy" not in infra_service:
             infra_service["pull_policy"] = "never"

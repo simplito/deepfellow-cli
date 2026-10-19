@@ -13,12 +13,21 @@ import typer
 from deepfellow.common.env import EnvMetadata, env_get, env_set, get_envs_list, print_env_info
 
 
-def test_render_empty_value_shows_undefined():
+def test_render_missing_value_shows_undefined():
     meta = EnvMetadata(description="desc")
+
+    result = meta.render("DF_FOO", None)
+
+    assert result == "[cyan bold]FOO[/]: [dim]undefined[/dim]"
+
+
+@pytest.mark.parametrize("sensitive", [False, True])
+def test_render_empty_value_shows_empty_quotes(sensitive: bool):
+    meta = EnvMetadata(description="desc", sensitive=sensitive)
 
     result = meta.render("DF_FOO", "")
 
-    assert "undefined" in result
+    assert result == '[cyan bold]FOO[/]: [dim]""[/dim]'
 
 
 def test_render_sensitive_value_hidden_by_default():
@@ -94,13 +103,25 @@ def test_print_env_info_doc_includes_rendered_key_and_description(mock_echo: Moc
 
 
 @mock.patch("deepfellow.common.env.echo")
-def test_print_env_info_doc_missing_env_value_treated_as_empty(mock_echo: Mock):
+def test_print_env_info_doc_missing_env_value_shows_undefined(mock_echo: Mock):
     metadata = {"DF_MISSING": EnvMetadata(description="desc")}
 
     print_env_info("Header", metadata, {}, doc=True)
 
     called_msg = mock_echo.info.call_args[0][0]
-    assert "undefined" in called_msg
+    assert "MISSING[/]: [dim]undefined[/dim]" in called_msg
+
+
+@pytest.mark.parametrize("doc", [True, False])
+@mock.patch("deepfellow.common.env.echo")
+def test_print_env_info_shows_empty_env_value_as_empty_quotes(mock_echo: Mock, doc: bool):
+    metadata = {"DF_EMPTY": EnvMetadata(description="desc")}
+
+    print_env_info("Header", metadata, {"DF_EMPTY": ""}, doc=doc)
+
+    called_msg = mock_echo.info.call_args[0][0]
+    assert 'EMPTY[/]: [dim]""[/dim]' in called_msg
+    assert "undefined" not in called_msg
 
 
 @mock.patch("deepfellow.common.env.echo")

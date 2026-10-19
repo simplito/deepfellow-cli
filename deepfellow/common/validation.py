@@ -3,6 +3,7 @@
 
 """Common validations."""
 
+import ipaddress
 import re
 from typing import Any, cast
 from urllib.parse import urlparse
@@ -193,3 +194,15 @@ def validate_password(value: str | None) -> str | None:
         raise typer.BadParameter(f"Invalid password - {PASSWORD_REQUIREMENTS.removeprefix('Password ')}")
 
     return value
+
+
+def validate_bind_address(value: str | None) -> str | None:
+    """Validate a host bind address; IPv6 is returned in brackets, empty means all interfaces."""
+    if value is None or value == "":
+        return value
+    unbracketed = value[1:-1] if value.startswith("[") and value.endswith("]") else value
+    try:
+        address = ipaddress.ip_address(unbracketed)
+    except ValueError as exc:
+        raise typer.BadParameter("Invalid bind address - must be an IPv4 or IPv6 address.") from exc
+    return f"[{address}]" if address.version == 6 else str(address)

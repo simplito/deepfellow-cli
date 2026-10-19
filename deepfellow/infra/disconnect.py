@@ -7,7 +7,7 @@ from pathlib import Path
 
 import typer
 
-from deepfellow.common.docker import is_service_running
+from deepfellow.common.docker import is_service_running, local_url
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get
 from deepfellow.common.install import assert_docker
@@ -39,7 +39,8 @@ def disconnect(
         echo.error("Could not resolve DF_INFRA_PORT / DF_INFRA_ADMIN_API_KEY from the instance .env file.")
         raise typer.Exit(1)
 
-    local_infra_url = f"http://localhost:{infra_port}"
+    bind_address = env_get(env_file, "DF_INFRA_BIND_ADDRESS", should_raise=False)
+    local_infra_url = local_url(infra_port, bind_address)
     config = infra_admin_request("GET", f"{local_infra_url}/admin/config", local_infra_url, admin_api_key)
     parent_infra_url = next(
         (entry.get("value") for entry in config.get("entries", []) if entry.get("key") == "connect_to_mesh_url"), None

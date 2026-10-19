@@ -56,12 +56,14 @@ def default_install_kwargs() -> dict:
         "resume": False,
         "template": "workspace",
         "infra_port": DF_INFRA_PORT,
+        "infra_bind_address": None,
         "infra_image": DF_INFRA_IMAGE,
         "infra_local_image": False,
         "infra_directory": DF_INFRA_DIRECTORY,
         "infra_docker_config": None,
         "infra_storage": DF_INFRA_STORAGE_DIR,
         "server_port": DF_SERVER_PORT,
+        "server_bind_address": None,
         "server_image": DF_SERVER_IMAGE,
         "server_local_image": False,
         "server_directory": DF_SERVER_DIRECTORY.resolve(),
@@ -304,6 +306,21 @@ def test_install_command_forwards_infra_and_server_options(
     assert call_kwargs["server_image"] == "myrepo/server:dev"
     assert call_kwargs["server_local_image"] is True
     assert call_kwargs["docker_network"] == "my-custom-net"
+
+
+@mock.patch("deepfellow.suite.install.install_util")
+def test_install_command_forwards_bind_addresses(
+    mock_install_util: Mock,
+    default_install_kwargs: dict,
+) -> None:
+    install_command(
+        ctx=dummy_ctx(),
+        **{**default_install_kwargs, "infra_bind_address": "127.0.0.1", "server_bind_address": "[::1]"},
+    )
+
+    call_kwargs = mock_install_util.call_args.kwargs
+    assert call_kwargs["infra_bind_address"] == "127.0.0.1"
+    assert call_kwargs["server_bind_address"] == "[::1]"
 
 
 @mock.patch("deepfellow.suite.install.install_util")

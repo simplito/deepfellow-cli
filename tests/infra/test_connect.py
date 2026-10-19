@@ -48,7 +48,7 @@ def test_connect_calls_check_infra_directory(
     directory: Path,
 ) -> None:
     mock_is_running.return_value = True
-    mock_env_get.side_effect = ["8086", "admin-key"]
+    mock_env_get.side_effect = ["8086", "admin-key", ""]
     mock_verify.return_value = _VerifyResult.CONNECTED
 
     connect(**default_connect_kwargs)
@@ -149,7 +149,7 @@ def test_connect_calls_infra_admin_request_with_connect_config(
     default_connect_kwargs: dict,
 ) -> None:
     mock_is_running.return_value = True
-    mock_env_get.side_effect = ["8086", "admin-key"]
+    mock_env_get.side_effect = ["8086", "admin-key", ""]
     mock_echo.prompt_until_valid.return_value = "test-mesh-key"
     mock_verify.return_value = _VerifyResult.CONNECTED
 
@@ -172,6 +172,40 @@ def test_connect_calls_infra_admin_request_with_connect_config(
 @mock.patch("deepfellow.infra.connect.is_service_running")
 @mock.patch("deepfellow.infra.connect.assert_docker")
 @mock.patch("deepfellow.infra.connect.check_infra_directory")
+def test_connect_calls_infra_admin_request_on_bind_address(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_is_running: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_admin_request: Mock,
+    mock_verify: Mock,
+    default_connect_kwargs: dict,
+) -> None:
+    mock_is_running.return_value = True
+    mock_env_get.side_effect = ["8086", "admin-key", "10.0.0.5"]
+    mock_echo.prompt_until_valid.return_value = "test-mesh-key"
+    mock_verify.return_value = _VerifyResult.CONNECTED
+
+    connect(**default_connect_kwargs)
+
+    assert mock_admin_request.call_args.args[:3] == (
+        "PUT",
+        "http://10.0.0.5:8086/admin/config",
+        "http://10.0.0.5:8086",
+    )
+    assert mock_env_get.call_args_list[2] == mock.call(
+        default_connect_kwargs["directory"] / ".env", "DF_INFRA_BIND_ADDRESS", should_raise=False
+    )
+
+
+@mock.patch("deepfellow.infra.connect._verify_parent_connection")
+@mock.patch("deepfellow.infra.connect.infra_admin_request")
+@mock.patch("deepfellow.infra.connect.env_get")
+@mock.patch("deepfellow.infra.connect.echo")
+@mock.patch("deepfellow.infra.connect.is_service_running")
+@mock.patch("deepfellow.infra.connect.assert_docker")
+@mock.patch("deepfellow.infra.connect.check_infra_directory")
 def test_connect_prompts_for_mesh_key_with_masked_input_when_omitted(
     mock_check: Mock,
     mock_assert_docker: Mock,
@@ -183,7 +217,7 @@ def test_connect_prompts_for_mesh_key_with_masked_input_when_omitted(
     default_connect_kwargs: dict,
 ) -> None:
     mock_is_running.return_value = True
-    mock_env_get.side_effect = ["8086", "admin-key"]
+    mock_env_get.side_effect = ["8086", "admin-key", ""]
     mock_echo.prompt_until_valid.return_value = "prompted-mesh-key"
     mock_verify.return_value = _VerifyResult.CONNECTED
     default_connect_kwargs["mesh_key"] = None
@@ -215,7 +249,7 @@ def test_connect_passes_mesh_key_arg_to_prompt_as_from_args(
     default_connect_kwargs: dict,
 ) -> None:
     mock_is_running.return_value = True
-    mock_env_get.side_effect = ["8086", "admin-key"]
+    mock_env_get.side_effect = ["8086", "admin-key", ""]
     mock_verify.return_value = _VerifyResult.CONNECTED
 
     connect(**default_connect_kwargs)
@@ -242,7 +276,7 @@ def test_connect_calls_echo_success(
     default_connect_kwargs: dict,
 ) -> None:
     mock_is_running.return_value = True
-    mock_env_get.side_effect = ["8086", "admin-key"]
+    mock_env_get.side_effect = ["8086", "admin-key", ""]
     mock_verify.return_value = _VerifyResult.CONNECTED
 
     connect(**default_connect_kwargs)
@@ -394,7 +428,7 @@ def test_connect_warns_on_outdated_verification(
     default_connect_kwargs: dict,
 ) -> None:
     mock_is_running.return_value = True
-    mock_env_get.side_effect = ["8086", "admin-key"]
+    mock_env_get.side_effect = ["8086", "admin-key", ""]
     mock_verify.return_value = _VerifyResult.OUTDATED
 
     connect(**default_connect_kwargs)
@@ -423,7 +457,7 @@ def test_connect_warns_on_legacy_verification_with_logs(
     default_connect_kwargs: dict,
 ) -> None:
     mock_is_running.return_value = True
-    mock_env_get.side_effect = ["8086", "admin-key"]
+    mock_env_get.side_effect = ["8086", "admin-key", ""]
     mock_verify.return_value = _VerifyResult.LEGACY
     mock_logs.return_value = True
 
@@ -453,7 +487,7 @@ def test_connect_raises_exit_on_legacy_verification_without_logs(
     default_connect_kwargs: dict,
 ) -> None:
     mock_is_running.return_value = True
-    mock_env_get.side_effect = ["8086", "admin-key"]
+    mock_env_get.side_effect = ["8086", "admin-key", ""]
     mock_verify.return_value = _VerifyResult.LEGACY
     mock_logs.return_value = False
 
@@ -481,7 +515,7 @@ def test_connect_raises_exit_on_timeout_verification(
     default_connect_kwargs: dict,
 ) -> None:
     mock_is_running.return_value = True
-    mock_env_get.side_effect = ["8086", "admin-key"]
+    mock_env_get.side_effect = ["8086", "admin-key", ""]
     mock_verify.return_value = _VerifyResult.TIMEOUT
 
     with pytest.raises(typer.Exit):
@@ -508,7 +542,7 @@ def test_connect_calls_echo_success_after_connected_verification(
     default_connect_kwargs: dict,
 ) -> None:
     mock_is_running.return_value = True
-    mock_env_get.side_effect = ["8086", "admin-key"]
+    mock_env_get.side_effect = ["8086", "admin-key", ""]
     mock_verify.return_value = _VerifyResult.CONNECTED
 
     connect(**default_connect_kwargs)

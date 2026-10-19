@@ -8,6 +8,7 @@ from pathlib import Path
 import typer
 
 from deepfellow.common.config import read_env_file_to_dict
+from deepfellow.common.docker import local_url
 from deepfellow.common.echo import echo
 from deepfellow.common.install import assert_docker
 from deepfellow.server.utils.docker import reconcile_nightshift_running_state, start_server, stop_server
@@ -33,4 +34,7 @@ def restart(
     # here too, rather than relying on start_server()'s own --scale nightshift=0 side effect,
     # so the worker's schedule compliance is a documented, tested part of `restart`, not incidental.
     reconcile_nightshift_running_state(directory)
-    echo.info(f"DeepFellow Server started on http://localhost:{original_env_content['df_server_port']}")
+    server_url = local_url(
+        str(original_env_content["df_server_port"]), str(original_env_content.get("df_server_bind_address", ""))
+    )
+    echo.info(f"DeepFellow Server started on {server_url}")

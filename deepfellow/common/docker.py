@@ -3,6 +3,7 @@
 
 """Docker helper methods."""
 
+import ipaddress
 import json
 import os
 from json import JSONDecodeError
@@ -276,6 +277,70 @@ def add_network_to_service(service: ServiceConfig | dict[str, Any], network_name
     service["networks"] = service.get("networks", [network_name])
     if network_name not in service["networks"]:
         service["networks"].append(network_name)
+
+
+def is_all_interfaces(bind_address: str) -> bool:
+    """Whether a port published on `bind_address` listens on every host interface.
+
+    Args:
+        bind_address: Host address the port is published on, as validated by `validate_bind_address`.
+    """
+    return not bind_address or ipaddress.ip_address(bind_address.strip("[]")).is_unspecified
+
+
+def local_host(bind_address: str) -> str:
+    """Host the CLI reaches a port published on `bind_address` at.
+
+    Args:
+        bind_address: Host address the port is published on, as validated by `validate_bind_address`.
+
+    Returns:
+        "localhost" when the port is published on all interfaces, otherwise the address itself.
+    """
+    return "localhost" if is_all_interfaces(bind_address) else bind_address
+
+
+def local_url(port: str | int, bind_address: str | None) -> str:
+    """URL the CLI reaches a port published on `bind_address` at.
+
+    Args:
+        port: Published host port.
+        bind_address: Host address the port is published on; `None` (no value in `.env`, e.g. an
+            install from before bind addresses existed) means all interfaces.
+    """
+    return f"http://{local_host(bind_address or '')}:{port}"
+
+
+def _is_unbound_port_mapping(port: object) -> bool:
+    """Whether `port` is a plain `host:container` mapping with no host address.
+
+    A mapping that names a host address, uses the long (mapping) syntax, or isn't a string at all
+    (an unquoted mapping such as `2222:22`, which PyYAML reads as a base-60 int) doesn't count.
+    """
+    return isinstance(port, str) and port.count(":") == 1
+
+
+def has_unbound_port_mappings(service: ServiceConfig | dict[str, Any]) -> bool:
+    """Whether a Docker Compose service publishes a port with no host address (on all interfaces)."""
+    return any(_is_unbound_port_mapping(port) for port in service.get("ports") or [])
+
+
+def bind_port_mappings(service: ServiceConfig | dict[str, Any], bind_address: str) -> bool:
+    """Prefix a Docker Compose service's port mappings that have no host address with `bind_address`.
+
+    Args:
+        service: Docker Compose service definition, updated in place.
+        bind_address: Host address part to prepend, e.g. `INTERNAL_BIND_ADDRESS`.
+
+    Returns:
+        Whether any mapping was changed.
+    """
+    if not has_unbound_port_mappings(service):
+        return False
+    service["ports"] = [
+        f"{bind_address}:{port}" if _is_unbound_port_mapping(port) else port for port in service["ports"]
+    ]
+    return True
 
 
 def is_service_running(service: str, cwd: Path) -> bool:

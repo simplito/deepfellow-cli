@@ -16,6 +16,7 @@ from deepfellow.common.docker import (
     _find_socket,
     _is_rootful_socket,
     add_network_to_service,
+    bind_port_mappings,
     create_network,
     docker_ps,
     docker_stats,
@@ -24,6 +25,8 @@ from deepfellow.common.docker import (
     get_docker_network,
     get_running_service_image,
     get_socket,
+    has_unbound_port_mappings,
+    is_all_interfaces,
     is_docker_compose_installed,
     is_docker_group_available,
     is_docker_installed,
@@ -33,6 +36,8 @@ from deepfellow.common.docker import (
     is_user_in_docker_group,
     list_networks,
     load_compose_file,
+    local_host,
+    local_url,
     parse_docker_compose_ps,
     parse_docker_compose_usage,
     print_docker_status,
@@ -681,6 +686,55 @@ def test_add_network_to_service_appends_when_other_networks_present() -> None:
     assert service == {"networks": ["other-net", "deepfellow-net"]}
 
 
+@pytest.mark.parametrize(
+    ("bind_address", "expected"),
+    [
+        ("", "localhost"),
+        ("0.0.0.0", "localhost"),
+        ("[::]", "localhost"),
+        ("127.0.0.1", "127.0.0.1"),
+        ("10.0.0.5", "10.0.0.5"),
+        ("[::1]", "[::1]"),
+    ],
+)
+def test_local_host_returns_host_reaching_bind_address(bind_address: str, expected: str) -> None:
+    result = local_host(bind_address)
+
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    ("bind_address", "expected"),
+    [
+        ("", True),
+        ("0.0.0.0", True),
+        ("[::]", True),
+        ("127.0.0.1", False),
+        ("10.0.0.5", False),
+        ("[::1]", False),
+    ],
+)
+def test_is_all_interfaces_detects_unspecified_address(bind_address: str, expected: bool) -> None:
+    result = is_all_interfaces(bind_address)
+
+    assert result is expected
+
+
+@pytest.mark.parametrize(
+    ("port", "bind_address", "expected"),
+    [
+        ("8000", None, "http://localhost:8000"),
+        (8000, "", "http://localhost:8000"),
+        ("8000", "127.0.0.1", "http://127.0.0.1:8000"),
+        ("8000", "[::1]", "http://[::1]:8000"),
+    ],
+)
+def test_local_url_builds_url_for_bind_address(port: str | int, bind_address: str | None, expected: str) -> None:
+    result = local_url(port, bind_address)
+
+    assert result == expected
+
+
 @mock.patch("deepfellow.common.docker.run")
 def test_is_service_running_returns_true_when_running(mock_run: Mock, tmp_path: Path) -> None:
     mock_run.return_value = "NAME            IMAGE\ninfra-infra-1   some-image"
@@ -1116,6 +1170,49 @@ def test_print_docker_status_prints_combined_info(
         "\nNET I/O: 1kB / 1kB"
         "\nDisk I/O: 2kB / 2kB"
     )
+
+
+@pytest.mark.parametrize(
+    ("ports", "expected"),
+    [
+        (["${DF_MONGO_PORT}:27017"], True),
+        (["127.0.0.1:6333:6333", "6334:6334"], True),
+        (["127.0.0.1:6333:6333"], False),
+        (["${DF_INTERNAL_BIND_ADDRESS-127.0.0.1}:${DF_MONGO_PORT}:27017"], False),
+        ([{"target": 27017, "published": 27017}], False),
+        ([133342], False),
+        ([], False),
+    ],
+)
+def test_has_unbound_port_mappings_detects_mapping_without_host_address(ports: list, expected: bool) -> None:
+    result = has_unbound_port_mappings({"ports": ports})
+
+    assert result is expected
+
+
+def test_has_unbound_port_mappings_returns_false_without_ports() -> None:
+    result = has_unbound_port_mappings({"expose": ["27017"]})
+
+    assert result is False
+
+
+def test_bind_port_mappings_prefixes_only_unbound_mappings() -> None:
+    long_syntax = {"target": 8080, "published": 8080}
+    service: dict = {"ports": ["6333:6333", "127.0.0.1:6334:6334", long_syntax, 133342]}
+
+    result = bind_port_mappings(service, "${BIND-127.0.0.1}")
+
+    assert result is True
+    assert service["ports"] == ["${BIND-127.0.0.1}:6333:6333", "127.0.0.1:6334:6334", long_syntax, 133342]
+
+
+def test_bind_port_mappings_leaves_service_untouched_when_nothing_to_bind() -> None:
+    service: dict = {"expose": ["27017"]}
+
+    result = bind_port_mappings(service, "${BIND-127.0.0.1}")
+
+    assert result is False
+    assert service == {"expose": ["27017"]}
 
 
 @mock.patch("deepfellow.common.docker.run")

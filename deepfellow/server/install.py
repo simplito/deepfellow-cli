@@ -26,7 +26,7 @@ from deepfellow.common.defaults import (
 )
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import InstallError, reraise_if_debug
-from deepfellow.common.validation import validate_email, validate_password, validate_url
+from deepfellow.common.validation import validate_bind_address, validate_email, validate_password, validate_url
 from deepfellow.server.utils.install import install as install_util
 from deepfellow.server.utils.install import mergeable_field_names
 from deepfellow.server.utils.options import directory_option, set_default_server_directory
@@ -57,6 +57,12 @@ def install(
     ),
     port: int = typer.Option(
         DF_SERVER_PORT, envvar="DF_SERVER_PORT", help="Port to use to serve the DeepFellow Server from."
+    ),
+    bind_address: str | None = typer.Option(
+        None,
+        envvar="DF_SERVER_BIND_ADDRESS",
+        callback=validate_bind_address,
+        help='Host address to publish the Server port on, e.g. 127.0.0.1. Default: all interfaces ("").',
     ),
     image: str = typer.Option(DF_SERVER_IMAGE, envvar="DF_SERVER_IMAGE", help="DeepFellow Server docker image."),
     local_image: bool = typer.Option(False, help="Use locally build DeepFellow Server docker image."),
@@ -121,7 +127,7 @@ def install(
     rabbitmq_username: str = typer.Option("", help="Username for RabbitMQ authentication"),
     rabbitmq_password: str = typer.Option("", help="Password for RabbitMQ authentication"),
     force_install: bool = typer.Option(False, help="Force a reinstall over an already-existing server directory."),
-    dev: bool = typer.Option(False, "--dev", help="Expose internal service ports to host for development."),
+    dev: bool = typer.Option(False, "--dev", help="Publish internal service ports on 127.0.0.1 for development."),
     template: str | None = typer.Option(None, help=_TEMPLATE_HELP),
     admin_name: str | None = typer.Option(
         None, "--admin-name", envvar="DF_SERVER_ADMIN_NAME", help="Admin user's name."
@@ -193,6 +199,7 @@ def install(
             admin_name=admin_name,
             admin_email=admin_email,
             admin_password=admin_password,
+            bind_address=bind_address,
         )
         set_default_server_directory(directory, force=False)
     except (InstallError, OSError) as exc:

@@ -11,7 +11,7 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 import typer
 
-from deepfellow.common.docker import is_service_running
+from deepfellow.common.docker import is_service_running, local_url
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get
 from deepfellow.common.install import assert_docker
@@ -149,7 +149,8 @@ def connect(
         echo.error("Could not resolve DF_INFRA_PORT / DF_INFRA_ADMIN_API_KEY from the instance .env file.")
         raise typer.Exit(1)
 
-    local_infra_url = f"http://localhost:{infra_port}"
+    bind_address = env_get(env_file, "DF_INFRA_BIND_ADDRESS", should_raise=False)
+    local_infra_url = local_url(infra_port, bind_address)
 
     resolved_mesh_key: str = echo.prompt_until_valid(
         "Provide the mesh key of the parent Infra",
