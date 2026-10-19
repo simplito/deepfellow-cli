@@ -222,6 +222,23 @@ def test_dynamic_field_name_returns_field_name_for_editable_entry(
 
 @mock.patch("deepfellow.infra.env_command.set.httpx.get")
 @mock.patch("deepfellow.infra.env_command.set.is_service_running", return_value=True)
+def test_dynamic_field_name_requests_admin_config_on_bind_address(
+    mock_is_service_running: Mock,
+    mock_get: Mock,
+    directory: Path,
+) -> None:
+    (directory / ".env").write_text(
+        "DF_INFRA_PORT=8080\nDF_INFRA_ADMIN_API_KEY=secret\nDF_INFRA_BIND_ADDRESS=10.0.0.5\n"
+    )
+    mock_get.return_value = Mock(json=lambda: {"entries": []})
+
+    _dynamic_field_name(directory, "DF_OTEL_TRACING_ENABLED")
+
+    assert mock_get.call_args.args[0] == "http://10.0.0.5:8080/admin/config"
+
+
+@mock.patch("deepfellow.infra.env_command.set.httpx.get")
+@mock.patch("deepfellow.infra.env_command.set.is_service_running", return_value=True)
 def test_dynamic_field_name_returns_none_for_non_editable_entry(
     mock_is_service_running: Mock,
     mock_get: Mock,
@@ -337,3 +354,127 @@ def test_set_no_warning_when_config_json_missing_and_infra_not_running(
     assert mock_echo.warning.call_count == 0
     assert mock_env_set.call_count == 1
     assert mock_assert_docker.call_count == 1
+
+
+@pytest.mark.parametrize(
+    ("env_name", "env_value", "expected"),
+    [
+        ("DF_INFRA_BIND_ADDRESS", "::1", "[::1]"),
+        ("INFRA_BIND_ADDRESS", "10.0.0.5", "10.0.0.5"),
+        ("INFRA_BIND_ADDRESS", "", ""),
+    ],
+)
+@mock.patch("deepfellow.infra.env_command.set.is_service_running", return_value=False)
+@mock.patch("deepfellow.infra.env_command.set._dynamic_field_name", return_value=None)
+@mock.patch("deepfellow.infra.env_command.set.echo")
+@mock.patch("deepfellow.infra.env_command.set.env_set")
+@mock.patch("deepfellow.infra.env_command.set.assert_docker")
+@mock.patch("deepfellow.infra.env_command.set.check_infra_directory")
+def test_set_writes_normalized_bind_address(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_env_set: Mock,
+    mock_echo: Mock,
+    mock_dynamic_field_name: Mock,
+    mock_is_service_running: Mock,
+    env_name: str,
+    env_value: str,
+    expected: str,
+    directory: Path,
+) -> None:
+    set(directory=directory, env_name=env_name, env_value=env_value, df_prefix=True, no_restart=True)
+
+    assert mock_env_set.call_count == 1
+    assert mock_env_set.call_args == mock.call(directory / ".env", env_name, expected, True)
+
+
+@mock.patch("deepfellow.infra.env_command.set._dynamic_field_name")
+@mock.patch("deepfellow.infra.env_command.set.env_set")
+@mock.patch("deepfellow.infra.env_command.set.assert_docker")
+@mock.patch("deepfellow.infra.env_command.set.check_infra_directory")
+def test_set_rejects_invalid_bind_address_before_writing(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_env_set: Mock,
+    mock_dynamic_field_name: Mock,
+    directory: Path,
+) -> None:
+    with pytest.raises(typer.BadParameter):
+        set(directory=directory, env_name="INFRA_BIND_ADDRESS", env_value="localhost", df_prefix=True, no_restart=True)
+
+    assert mock_dynamic_field_name.call_count == 0
+    assert mock_env_set.call_count == 0
+
+
+@pytest.mark.parametrize(
+    ("stored_url", "new_bind", "expected_url", "expected_warning"),
+    [
+        ("http://localhost:8086", "10.0.0.5", "http://10.0.0.5:8086", False),
+        ("http://10.0.0.5:8086", "", "http://localhost:8086", False),
+        ("http://remote-infra:8086", "10.0.0.5", None, True),
+        ("http://localhost:8086", "0.0.0.0", None, False),
+        (None, "10.0.0.5", None, False),
+    ],
+)
+@mock.patch("deepfellow.infra.env_command.set._config_json_exists", return_value=False)
+@mock.patch("deepfellow.infra.env_command.set.state")
+@mock.patch("deepfellow.infra.env_command.set.is_service_running", return_value=False)
+@mock.patch("deepfellow.infra.env_command.set._dynamic_field_name", return_value=None)
+@mock.patch("deepfellow.infra.env_command.set.echo")
+@mock.patch("deepfellow.infra.env_command.set.env_set")
+@mock.patch("deepfellow.infra.env_command.set.assert_docker")
+@mock.patch("deepfellow.infra.env_command.set.check_infra_directory")
+def test_set_bind_address_retargets_stored_infra_url(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_env_set: Mock,
+    mock_echo: Mock,
+    mock_dynamic_field_name: Mock,
+    mock_is_service_running: Mock,
+    mock_state: Mock,
+    mock_config_json_exists: Mock,
+    stored_url: str | None,
+    new_bind: str,
+    expected_url: str | None,
+    expected_warning: bool,
+    directory: Path,
+) -> None:
+    old_bind = "10.0.0.5" if stored_url == "http://10.0.0.5:8086" else ""
+    (directory / ".env").write_text(f"DF_INFRA_PORT=8086\nDF_INFRA_BIND_ADDRESS={old_bind}\n")
+    mock_state.cli_config = {"df_infra_external_url": stored_url} if stored_url else {}
+
+    set(directory=directory, env_name="INFRA_BIND_ADDRESS", env_value=new_bind, df_prefix=True, no_restart=True)
+
+    config_writes = [c for c in mock_env_set.call_args_list if c.args[0] == mock_state.cli_config_file]
+    if expected_url is None:
+        assert config_writes == []
+    else:
+        assert config_writes == [
+            mock.call(mock_state.cli_config_file, "DF_INFRA_EXTERNAL_URL", expected_url, should_raise=False)
+        ]
+    assert mock_echo.warning.call_count == int(expected_warning)
+
+
+@mock.patch("deepfellow.infra.env_command.set.state")
+@mock.patch("deepfellow.infra.env_command.set.is_service_running", return_value=False)
+@mock.patch("deepfellow.infra.env_command.set._dynamic_field_name", return_value=None)
+@mock.patch("deepfellow.infra.env_command.set.echo")
+@mock.patch("deepfellow.infra.env_command.set.env_set")
+@mock.patch("deepfellow.infra.env_command.set.assert_docker")
+@mock.patch("deepfellow.infra.env_command.set.check_infra_directory")
+def test_set_other_variable_leaves_stored_infra_url_alone(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_env_set: Mock,
+    mock_echo: Mock,
+    mock_dynamic_field_name: Mock,
+    mock_is_service_running: Mock,
+    mock_state: Mock,
+    directory: Path,
+) -> None:
+    (directory / ".env").write_text("DF_INFRA_PORT=8086\n")
+    mock_state.cli_config = {"df_infra_external_url": "http://localhost:8086"}
+
+    set(directory=directory, env_name="SOME_VAR", env_value="x", df_prefix=True, no_restart=True)
+
+    assert mock_env_set.call_count == 1

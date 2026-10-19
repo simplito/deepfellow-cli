@@ -35,7 +35,7 @@ from deepfellow.common.defaults import (
     MILVUS_DATABASE,
     VectorDBTypeChoice,
 )
-from deepfellow.common.docker import get_socket, is_service_running
+from deepfellow.common.docker import get_socket, is_service_running, local_url
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get
 from deepfellow.common.exceptions import DockerNetworkError, InstallError, reraise_if_debug, translate_to_install_error
@@ -196,6 +196,7 @@ def _build_steps(
 _INFRA_CONFIG_FIELDS = frozenset(
     {
         "infra_port",
+        "infra_bind_address",
         "infra_image",
         "infra_local_image",
         "infra_directory",
@@ -207,6 +208,7 @@ _INFRA_CONFIG_FIELDS = frozenset(
 _SERVER_CONFIG_FIELDS = frozenset(
     {
         "server_port",
+        "server_bind_address",
         "server_image",
         "server_local_image",
         "server_directory",
@@ -459,6 +461,7 @@ def _infra_config(
     force_install: bool,
     *,
     port: int,
+    bind_address: str | None = None,
     image: str,
     local_image: bool,
     directory: Path,
@@ -511,6 +514,7 @@ def _infra_config(
         keep_compose_prefix=None,
         keep_storage=None,
         keep_metrics=None,
+        bind_address=bind_address,
         explicitly_provided=explicitly_provided,
     )
 
@@ -542,9 +546,10 @@ def _infra_start(directory: Path) -> None:
 
 
 def _infra_localhost_url(directory: Path) -> str:
-    """The CLI process runs outside Docker, so post-start actions must reach infra via localhost."""
-    port = env_get(directory / ".env", "DF_INFRA_PORT", should_raise=False) or DF_INFRA_PORT
-    return f"http://localhost:{port}"
+    """The CLI process runs outside Docker, so post-start actions must reach infra via the host."""
+    env_file = directory / ".env"
+    port = env_get(env_file, "DF_INFRA_PORT", should_raise=False) or DF_INFRA_PORT
+    return local_url(port, env_get(env_file, "DF_INFRA_BIND_ADDRESS", should_raise=False))
 
 
 def _infra_post_start_action(action: PostStartAction, directory: Path, quiet: bool) -> None:
@@ -578,6 +583,7 @@ def _server_config(
     force_install: bool,
     *,
     port: int,
+    bind_address: str | None = None,
     image: str,
     local_image: bool,
     directory: Path,
@@ -660,6 +666,7 @@ def _server_config(
         rabbitmq_password=rabbitmq_password,
         local_image=local_image,
         dev=False,
+        bind_address=bind_address,
         explicitly_provided=explicitly_provided,
     )
 
@@ -840,12 +847,14 @@ def install(
     resume: bool = False,
     template: str = "workspace",
     infra_port: int = DF_INFRA_PORT,
+    infra_bind_address: str | None = None,
     infra_image: str = DF_INFRA_IMAGE,
     infra_local_image: bool = False,
     infra_directory: Path = DF_INFRA_DIRECTORY,
     infra_docker_config: Path | None = None,
     infra_storage: Path = DF_INFRA_STORAGE_DIR,
     server_port: int = DF_SERVER_PORT,
+    server_bind_address: str | None = None,
     server_image: str = DF_SERVER_IMAGE,
     server_local_image: bool = False,
     server_directory: Path = DF_SERVER_DIRECTORY,
@@ -909,12 +918,16 @@ def install(
             is accepted - see `_validate_template()`. On `--resume` (or a declined discard), a
             template already persisted by the run being continued wins over this argument instead.
         infra_port: Published port to serve the DeepFellow Infra from.
+        infra_bind_address: Host address to publish the Infra port on; `None` keeps a prior install's
+            value, falling back to all interfaces.
         infra_image: DeepFellow Infra docker image.
         infra_local_image: Whether to use a locally built DeepFellow Infra docker image.
         infra_directory: Target directory for the DeepFellow Infra installation.
         infra_docker_config: Path to the docker config used to pull the infra image.
         infra_storage: Storage directory for the DeepFellow Infra services.
         server_port: Port to use to serve the DeepFellow Server from.
+        server_bind_address: Host address to publish the Server port on; `None` keeps a prior install's
+            value, falling back to all interfaces.
         server_image: DeepFellow Server docker image.
         server_local_image: Whether to use a locally built DeepFellow Server docker image.
         server_directory: Target directory for the DeepFellow Server installation.
@@ -1091,6 +1104,7 @@ def install(
         lambda: _infra_config(
             force_install,
             port=infra_port,
+            bind_address=infra_bind_address,
             image=infra_image,
             local_image=infra_local_image,
             directory=infra_directory,
@@ -1114,6 +1128,7 @@ def install(
             password,
             force_install,
             port=server_port,
+            bind_address=server_bind_address,
             image=server_image,
             local_image=server_local_image,
             directory=server_directory,
@@ -1208,12 +1223,13 @@ def install(
     # (deepfellow/server/utils/install.py) silently overrides with a prior install's own DF_SERVER_PORT
     # whenever "port" isn't in server_explicitly_provided, e.g. on a re-run against a directory that
     # already has a different port configured. The CLI process runs outside Docker, so this must be
-    # localhost, not a docker-network hostname. No default= here: server install (which just
-    # succeeded) always writes DF_SERVER_PORT to this .env, so a missing file/key means something
-    # is genuinely broken - env_get's own should_raise=True default is the right behavior, not a
-    # case to silently paper over with the raw --server-port value.
+    # a host address (localhost unless bound to a specific one), not a docker-network hostname. No
+    # default= here: server install (which just succeeded) always writes DF_SERVER_PORT to this .env,
+    # so a missing file/key means something is genuinely broken - env_get's own should_raise=True
+    # default is the right behavior, not a case to silently paper over with the raw --server-port value.
     resolved_server_port = env_get(server_directory / ".env", "DF_SERVER_PORT")
-    server_url = f"http://localhost:{resolved_server_port}"
+    server_bind_address = env_get(server_directory / ".env", "DF_SERVER_BIND_ADDRESS", should_raise=False)
+    server_url = local_url(str(resolved_server_port), server_bind_address)
 
     # Always run: cheap and idempotent, and its result (the token) is needed below - unlike the
     # other steps, skipping it on resume would lose that result rather than merely redo cheap work.

@@ -110,3 +110,11 @@ def test_config_json_missing_does_not_warn(
     info(directory=directory, secret=False, doc=False)
 
     assert mock_echo.warning.call_count == 0
+
+
+@pytest.mark.parametrize("key", ["DF_SERVER_BIND_ADDRESS", "DF_INTERNAL_BIND_ADDRESS"])
+def test_env_metadata_describes_bind_address(key: str) -> None:
+    description = ENV_METADATA[key].description
+
+    assert "all interfaces" in description
+    assert "[::1]" in description

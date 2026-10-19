@@ -179,6 +179,10 @@ def _make_workspace(organization_id: str = "org-1", project_id: str = "project-1
     )
 
 
+def _env_get_no_bind_address(env_file: Path, env_name: str, **kwargs: object) -> object:
+    return None if env_name.endswith("_BIND_ADDRESS") else mock.DEFAULT
+
+
 def _patch_all_steps(func: Callable[..., None]) -> Callable[..., None]:
     """Patch every granular step function plus load/save/delete_state - the default "everything
     succeeds" scaffolding most tests build on.
@@ -195,8 +199,10 @@ def _patch_all_steps(func: Callable[..., None]) -> Callable[..., None]:
     `_to_dict` pair defaults to an empty dict, since round-tripping through them isn't what these
     integration-level tests are checking (see the dedicated `_infra_config_to_dict`/`_from_dict`
     tests for that). `env_get` is appended last purely so every existing signature only needs one
-    new trailing parameter, since install() calls it exactly once itself (to resolve the
-    actually-configured DF_SERVER_PORT) - independent of whichever step functions a test overrides.
+    new trailing parameter, since install() calls it itself (to resolve the actually-configured
+    DF_SERVER_PORT and DF_SERVER_BIND_ADDRESS) - independent of whichever step functions a test
+    overrides. Bind address reads return None (all interfaces, i.e. localhost) via
+    `_env_get_no_bind_address`; every other key falls through to the mock's `return_value`.
     `get_socket` is patched with a fixed `new=` mock returning `DOCKER_SOCKET`, so it injects no
     parameter; a test that checks its calls patches it again with its own outer decorator, which
     takes precedence and is passed as the last parameter.
@@ -232,7 +238,7 @@ def _patch_all_steps(func: Callable[..., None]) -> Callable[..., None]:
     func = mock.patch("deepfellow.suite.utils.install._infra_start")(func)
     func = mock.patch("deepfellow.suite.utils.install._infra_install_apply")(func)
     func = mock.patch("deepfellow.suite.utils.install.echo")(func)
-    return mock.patch("deepfellow.suite.utils.install.env_get")(func)
+    return mock.patch("deepfellow.suite.utils.install.env_get", side_effect=_env_get_no_bind_address)(func)
 
 
 @_patch_all_steps
@@ -273,6 +279,7 @@ def test_install_success_calls_all_steps_in_order(
     assert mock_infra_config.call_args == mock.call(
         False,
         port=DF_INFRA_PORT,
+        bind_address=None,
         image=DF_INFRA_IMAGE,
         local_image=False,
         directory=DF_INFRA_DIRECTORY,
@@ -1303,6 +1310,7 @@ def test_install_resume_with_empty_completed_steps_does_not_force(
     assert mock_infra_config.call_args == mock.call(
         False,
         port=DF_INFRA_PORT,
+        bind_address=None,
         image=DF_INFRA_IMAGE,
         local_image=False,
         directory=DF_INFRA_DIRECTORY,
@@ -2631,6 +2639,49 @@ def test_install_forwards_distinct_infra_and_server_ports_independently(
 
 
 @_patch_all_steps
+def test_install_forwards_bind_addresses_to_infra_and_server_config(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+) -> None:
+    mock_load_state.return_value = None
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = _make_workspace()
+
+    install(
+        admin_name="Admin",
+        admin_email="admin@example.com",
+        admin_password="Sup3r$ecret!",
+        infra_bind_address="127.0.0.1",
+        server_bind_address="[::1]",
+    )
+
+    assert mock_infra_config.call_args.kwargs["bind_address"] == "127.0.0.1"
+    assert mock_server_config.call_args.kwargs["bind_address"] == "[::1]"
+
+
+@_patch_all_steps
 def test_install_uses_resolved_server_port_over_cli_value_for_login_url(
     mock_server_config_to_dict: Mock,
     mock_server_config_from_dict: Mock,
@@ -2939,7 +2990,7 @@ def test_install_forwards_custom_infra_and_server_directories(
         True,
     )
     assert mock_set_default_server_directory.call_args == mock.call(custom_server_directory, force=False)
-    assert mock_env_get.call_args == mock.call(custom_server_directory / ".env", "DF_SERVER_PORT")
+    assert mock.call(custom_server_directory / ".env", "DF_SERVER_PORT") in mock_env_get.call_args_list
 
 
 @_patch_all_steps
@@ -3122,6 +3173,50 @@ def test_install_warns_when_infra_config_flags_ignored_because_step_skipped(
 
 
 @_patch_all_steps
+def test_install_warns_when_infra_bind_address_ignored_because_step_skipped(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+) -> None:
+    mock_load_state.return_value = SuiteInstallState(completed_steps=["infra_config", "infra_install"])
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = _make_workspace()
+
+    install(
+        admin_name="Admin",
+        admin_email="admin@example.com",
+        admin_password="Sup3r$ecret!",
+        resume=True,
+        infra_bind_address="127.0.0.1",
+        explicitly_provided={"infra_bind_address"},
+    )
+
+    warning_messages = [call.args[0] for call in mock_echo.warning.call_args_list]
+    assert any("--infra-bind-address" in msg and "infra is already installed" in msg for msg in warning_messages)
+
+
+@_patch_all_steps
 def test_install_warns_when_server_config_flags_ignored_because_step_skipped(
     mock_server_config_to_dict: Mock,
     mock_server_config_from_dict: Mock,
@@ -3275,6 +3370,30 @@ def test_infra_config_forwards_the_given_template(mock_infra_inspect: Mock, mock
 
 @mock.patch("deepfellow.suite.utils.install.infra_resolve")
 @mock.patch("deepfellow.suite.utils.install.infra_inspect")
+def test_infra_config_forwards_bind_address(mock_infra_inspect: Mock, mock_infra_resolve: Mock) -> None:
+    from deepfellow.suite.utils.install import _infra_config
+
+    _infra_config(
+        force_install=False,
+        port=DF_INFRA_PORT,
+        bind_address="127.0.0.1",
+        image=DF_INFRA_IMAGE,
+        local_image=False,
+        directory=DF_INFRA_DIRECTORY,
+        docker_config=None,
+        storage=DF_INFRA_STORAGE_DIR,
+        docker_network=DF_INFRA_DOCKER_NETWORK,
+        template="workspace",
+        explicitly_provided=set(),
+        allow_rootful=False,
+        docker_socket=DOCKER_SOCKET,
+    )
+
+    assert mock_infra_resolve.call_args.kwargs["bind_address"] == "127.0.0.1"
+
+
+@mock.patch("deepfellow.suite.utils.install.infra_resolve")
+@mock.patch("deepfellow.suite.utils.install.infra_inspect")
 def test_infra_config_returns_resolve_result(mock_infra_inspect: Mock, mock_infra_resolve: Mock) -> None:
     from deepfellow.suite.utils.install import _infra_config
 
@@ -3404,7 +3523,7 @@ def test_infra_post_start_action_dispatches_a_service_install_action_with_localh
 ) -> None:
     from deepfellow.suite.utils.install import _infra_post_start_action
 
-    mock_env_get.return_value = "9999"
+    mock_env_get.side_effect = ["9999", ""]
     service_action = _WORKSPACE_POST_START_ACTIONS[0]
 
     _infra_post_start_action(service_action, DF_INFRA_DIRECTORY, quiet=True)
@@ -3412,6 +3531,19 @@ def test_infra_post_start_action_dispatches_a_service_install_action_with_localh
     dispatched = mock_dispatch.call_args.args[0]
     assert dispatched["function"] == service_action["function"] == "infra.service.install"
     assert dispatched["kwargs"] == {**service_action["kwargs"], "server": "http://localhost:9999", "quiet": True}
+
+
+@mock.patch("deepfellow.suite.utils.install.env_get")
+@mock.patch("deepfellow.suite.utils.install.infra_dispatch_post_start_action")
+def test_infra_post_start_action_dispatches_with_bind_address_url(mock_dispatch: Mock, mock_env_get: Mock) -> None:
+    from deepfellow.suite.utils.install import _infra_post_start_action
+
+    mock_env_get.side_effect = ["9999", "10.0.0.5"]
+    service_action = _WORKSPACE_POST_START_ACTIONS[0]
+
+    _infra_post_start_action(service_action, DF_INFRA_DIRECTORY, quiet=True)
+
+    assert mock_dispatch.call_args.args[0]["kwargs"]["server"] == "http://10.0.0.5:9999"
 
 
 @mock.patch("deepfellow.suite.utils.install.env_get")
@@ -3486,6 +3618,23 @@ def test_server_config_forwards_the_given_template_and_infra_api_key(
     # own "infra_api_key", unlike port/docker_network, whose explicit status genuinely depends on
     # what the user passed.
     assert "infra_api_key" in mock_server_resolve.call_args.kwargs["explicitly_provided"]
+
+
+@mock.patch("deepfellow.suite.utils.install.server_resolve")
+@mock.patch("deepfellow.suite.utils.install.server_inspect")
+def test_server_config_forwards_bind_address(mock_server_inspect: Mock, mock_server_resolve: Mock) -> None:
+    from deepfellow.suite.utils.install import _server_config
+
+    _server_config(
+        _make_infra_config(),
+        "Admin",
+        "admin@example.com",
+        "Sup3r$ecret!",
+        False,
+        **_server_config_kwargs(bind_address="[::1]"),
+    )
+
+    assert mock_server_resolve.call_args.kwargs["bind_address"] == "[::1]"
 
 
 @mock.patch("deepfellow.suite.utils.install.server_resolve")

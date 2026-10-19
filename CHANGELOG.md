@@ -6,9 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- `--bind-address` in `server install`/`infra install` and `--server-bind-address`/`--infra-bind-address` in `suite install` publish the API port on one address only. The default stays all interfaces, with a warning.
+
 ### Changed
+- CLI commands reach the local Server and Infra at their bind address instead of `localhost`.
 - The global `--yes` option is now applied by every yes/no question in one place instead of command by command, so destructive commands such as `server project archive`, `server tool delete`, `server toolbox delete`, and `server organization delete` no longer ignore it. Questions that choose a feature or opt in to a destructive or risky action are never answered by `--yes` and still need an explicit answer or a dedicated option: removing all data in `cli uninstall` (`--prune`), removing Docker images in `infra uninstall` (`--remove-images`), continuing with rootful Docker (`--allow-rootful`), reinstalling over an existing installation (`--force-install`), printing API keys, setting a new default server, and choosing optional components (vector database, FalkorDB, local RabbitMQ or MongoDB, OpenTelemetry).
 - MR templates (`feature`, `bug`) follow the team-approved version (DFMAIN-56)
+
+### Fixed
+- `server install` publishes MongoDB and `--dev` ports only on 127.0.0.1 instead of all interfaces. To restore the old behavior: `deepfellow server env set INTERNAL_BIND_ADDRESS ""`. Existing installs: `deepfellow update` asks to apply this, effective after a restart.
 
 ## [0.35.0] - 2026-10-15
 

@@ -17,6 +17,7 @@ from deepfellow.common.defaults import (
 )
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import InstallError, reraise_if_debug
+from deepfellow.common.validation import validate_bind_address
 from deepfellow.infra.utils.install import install as install_util
 from deepfellow.infra.utils.install import mergeable_field_names
 from deepfellow.infra.utils.options import directory_option
@@ -41,6 +42,12 @@ def install(
     directory: Path = directory_option("Target directory for the DeepFellow Infra installation."),
     port: int = typer.Option(
         DF_INFRA_PORT, envvar="DF_INFRA_PORT", help="Published port to serve the DeepFellow Infra from."
+    ),
+    bind_address: str | None = typer.Option(
+        None,
+        envvar="DF_INFRA_BIND_ADDRESS",
+        callback=validate_bind_address,
+        help='Host address to publish the Infra port on, e.g. 127.0.0.1. Default: all interfaces ("").',
     ),
     image: str = typer.Option(DF_INFRA_IMAGE, envvar="DF_INFRA_IMAGE", help="DeepFellow Infra docker image."),
     local_image: bool = typer.Option(False, help="Use locally build DeepFellow Infra docker image."),
@@ -111,6 +118,7 @@ def install(
             keep_compose_prefix=keep_compose_prefix,
             keep_storage=keep_storage,
             keep_metrics=keep_metrics,
+            bind_address=bind_address,
         )
     except InstallError as exc:
         echo.error(str(exc))

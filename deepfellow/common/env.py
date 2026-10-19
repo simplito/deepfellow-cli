@@ -21,18 +21,21 @@ class EnvMetadata:
     description: str = ""
     sensitive: bool = False
 
-    def render(self, key: str, value: str, show_secret: bool = False, show_prefix: bool = False) -> str:
+    def render(self, key: str, value: str | None, show_secret: bool = False, show_prefix: bool = False) -> str:
         """Return styled env name and value.
 
         Args:
             key: Environment variable name (with ``DF_`` prefix).
-            value: Environment variable value.
+            value: Environment variable value, or ``None`` when the variable isn't set. An empty value
+                is shown as ``""``, since for some variables it means something other than no value.
             show_secret: Whether to reveal sensitive values.
             show_prefix: Whether to keep the ``DF_`` prefix on the key. When
                 ``False`` the prefix is stripped (runtime configuration view).
         """
-        if not value:
+        if value is None:
             display = "[dim]undefined[/dim]"
+        elif not value:
+            display = '[dim]""[/dim]'
         elif self.sensitive and not show_secret:
             display = "[dim]*****[/dim]"
         else:
@@ -113,8 +116,7 @@ def print_env_info(
     if doc:
         lines = ["Environment variables documentation:"]
         for key, meta in env_metadata.items():
-            value = env_values.get(key, "")
-            lines.append(meta.render(key, value, show_secret=show_secret, show_prefix=show_prefix))
+            lines.append(meta.render(key, env_values.get(key), show_secret=show_secret, show_prefix=show_prefix))
             lines.append(f"[italic][grey50]{meta.description}[/grey50][/italic]")
     else:
         lines = [header]

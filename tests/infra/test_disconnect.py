@@ -32,7 +32,7 @@ def test_disconnect_calls_check_infra_directory(
     directory: Path,
 ) -> None:
     mock_is_running.return_value = True
-    mock_env_get.side_effect = ["8086", "admin-key"]
+    mock_env_get.side_effect = ["8086", "admin-key", ""]
     mock_admin_request.return_value = _config_with_parent("http://parent-infra:8086")
     mock_echo.confirm.return_value = False
 
@@ -107,7 +107,7 @@ def test_disconnect_calls_infra_admin_request_to_read_config(
     directory: Path,
 ) -> None:
     mock_is_running.return_value = True
-    mock_env_get.side_effect = ["8086", "admin-key"]
+    mock_env_get.side_effect = ["8086", "admin-key", ""]
     mock_admin_request.return_value = _config_with_parent(None)
 
     disconnect(directory=directory)
@@ -134,7 +134,7 @@ def test_disconnect_calls_echo_error_when_not_connected(
     directory: Path,
 ) -> None:
     mock_is_running.return_value = True
-    mock_env_get.side_effect = ["8086", "admin-key"]
+    mock_env_get.side_effect = ["8086", "admin-key", ""]
     mock_admin_request.return_value = _config_with_parent(None)
 
     disconnect(directory=directory)
@@ -160,7 +160,7 @@ def test_disconnect_does_not_put_config_when_not_connected(
     directory: Path,
 ) -> None:
     mock_is_running.return_value = True
-    mock_env_get.side_effect = ["8086", "admin-key"]
+    mock_env_get.side_effect = ["8086", "admin-key", ""]
     mock_admin_request.return_value = _config_with_parent(None)
 
     disconnect(directory=directory)
@@ -185,7 +185,7 @@ def test_disconnect_calls_echo_success_when_not_confirmed(
     directory: Path,
 ) -> None:
     mock_is_running.return_value = True
-    mock_env_get.side_effect = ["8086", "admin-key"]
+    mock_env_get.side_effect = ["8086", "admin-key", ""]
     mock_admin_request.return_value = _config_with_parent("http://parent-infra:8086")
     mock_echo.confirm.return_value = False
 
@@ -212,7 +212,7 @@ def test_disconnect_does_not_put_config_when_not_confirmed(
     directory: Path,
 ) -> None:
     mock_is_running.return_value = True
-    mock_env_get.side_effect = ["8086", "admin-key"]
+    mock_env_get.side_effect = ["8086", "admin-key", ""]
     mock_admin_request.return_value = _config_with_parent("http://parent-infra:8086")
     mock_echo.confirm.return_value = False
 
@@ -238,7 +238,7 @@ def test_disconnect_calls_infra_admin_request_to_clear_config_when_confirmed(
     directory: Path,
 ) -> None:
     mock_is_running.return_value = True
-    mock_env_get.side_effect = ["8086", "admin-key"]
+    mock_env_get.side_effect = ["8086", "admin-key", ""]
     mock_admin_request.return_value = _config_with_parent("http://parent-infra:8086")
     mock_echo.confirm.return_value = True
 
@@ -270,7 +270,7 @@ def test_disconnect_calls_echo_success_when_confirmed(
     directory: Path,
 ) -> None:
     mock_is_running.return_value = True
-    mock_env_get.side_effect = ["8086", "admin-key"]
+    mock_env_get.side_effect = ["8086", "admin-key", ""]
     mock_admin_request.return_value = _config_with_parent("http://parent-infra:8086")
     mock_echo.confirm.return_value = True
 

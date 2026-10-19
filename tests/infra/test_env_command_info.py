@@ -165,3 +165,10 @@ def test_config_json_exists_checks_storage_dir_from_env(tmp_path: Path) -> None:
 
 def test_config_json_exists_returns_false_when_missing(tmp_path: Path) -> None:
     assert _config_json_exists({"DF_INFRA_STORAGE_DIR": str(tmp_path)}) is False
+
+
+def test_env_metadata_describes_bind_address() -> None:
+    description = ENV_METADATA["DF_INFRA_BIND_ADDRESS"].description
+
+    assert "all interfaces" in description
+    assert "[::1]" in description

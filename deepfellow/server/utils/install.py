@@ -32,6 +32,7 @@ from deepfellow.common.defaults import (
     DF_MONGO_PORT,
     DF_MONGO_URL,
     DF_RABBITMQ_URL,
+    DF_SERVER_BIND_ADDRESS,
     DF_SERVER_DIRECTORY,
     DF_SERVER_IMAGE,
     DF_SERVER_IMAGE_HUB,
@@ -48,6 +49,7 @@ from deepfellow.common.defaults import (
     DOCKER_COMPOSE_SERVER_RABBITMQ_ENVS,
     DOCKER_COMPOSE_SERVER_VECTOR_DB_ENVS,
     DOCKER_COMPOSE_SERVER_VECTOR_DB_MILVUS_ENVS,
+    INTERNAL_BIND_ADDRESS,
     MILVUS_DATABASE,
     MONGO_DB_INIT_SH,
     SEAWEEDFS_S3_CONFIG,
@@ -57,6 +59,8 @@ from deepfellow.common.docker import (
     DockerError,
     add_network_to_service,
     ensure_network,
+    is_all_interfaces,
+    local_url,
     save_compose_file,
 )
 from deepfellow.common.echo import echo
@@ -73,6 +77,7 @@ from deepfellow.common.registry import get_newest_image_tag
 from deepfellow.common.state import state
 from deepfellow.common.system import run
 from deepfellow.common.templates import InstallTemplate, PostStartAction
+from deepfellow.common.validation import validate_bind_address
 from deepfellow.server.utils.configure import (
     FalkorDBConfig,
     NightshiftConfig,
@@ -102,6 +107,11 @@ from deepfellow.server.utils.templates import dispatch_post_start_action, resolv
 from deepfellow.server.utils.users import apply_admin, resolve_admin_creds
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
+ALL_INTERFACES_WARNING = (
+    "DeepFellow Server port is published on all network interfaces, and Docker bypasses host firewalls "
+    "such as ufw. Set a bind address (e.g. 127.0.0.1) to restrict it."
+)
 
 # (template config key, path of keys to a prior install's value in original_env_content). Server's
 # .env is read back as a *nested* dict (env_to_dict splits keys on "__"), unlike infra's flat one -
@@ -138,10 +148,10 @@ def _is_json_object(value: str) -> bool:
 
 
 def expose_ports_to_host(services: dict[str, Any]) -> None:
-    """Add host port mappings for services that only have 'expose' (no 'ports')."""
+    """Publish the 'expose' ports of services without 'ports' on the host's internal bind address."""
     for service in services.values():
         if "expose" in service and "ports" not in service:
-            service["ports"] = [f"{port}:{port}" for port in service["expose"]]
+            service["ports"] = [f"{INTERNAL_BIND_ADDRESS}:{port}:{port}" for port in service["expose"]]
 
 
 @dataclass
@@ -339,6 +349,27 @@ def _resolve_port(port: int, original_env_content: EnvDict, explicitly_provided:
         ) from None
 
 
+def _resolve_bind_address(bind_address: str | None, original_env_content: EnvDict) -> str:
+    """Restore a prior install's bind address unless one was given (`None` means not given).
+
+    Raises:
+        typer.BadParameter: If the given bind address is invalid.
+        InstallError: If a prior install's .env has an invalid DF_SERVER_BIND_ADDRESS value.
+    """
+    if bind_address is not None:
+        return validate_bind_address(bind_address) or ""
+    prior_value = _get_nested_env_value(original_env_content, ("df_server_bind_address",))
+    if prior_value is None:
+        return DF_SERVER_BIND_ADDRESS
+    try:
+        return validate_bind_address(str(prior_value)) or ""
+    except typer.BadParameter:
+        raise InstallError(
+            f"Existing .env has an invalid DF_SERVER_BIND_ADDRESS value ({prior_value!r}); "
+            "fix or remove it before retrying."
+        ) from None
+
+
 def _merge_template_config(
     template_config: dict[str, Any],
     original_env_content: EnvDict,
@@ -442,6 +473,8 @@ class InstallConfig:
     # "keep" decision to the non-sticky default just because the resume happened to run
     # non-interactively. See `MIGRATION_SKIPPED_LABEL_CONFIRMED`.
     legacy_minio_keep_confirmed: bool = False
+    # Defaulted so a suite install state file persisted before this field existed still loads.
+    bind_address: str = DF_SERVER_BIND_ADDRESS
 
 
 def _resolve_legacy_minio_decision(
@@ -551,6 +584,7 @@ def resolve(
     rabbitmq_password: str,
     local_image: bool,
     dev: bool,
+    bind_address: str | None = None,
     explicitly_provided: Collection[str] = frozenset(),
 ) -> InstallConfig:
     """Prompt the user for / apply CLI overrides to the remaining install values.
@@ -608,6 +642,8 @@ def resolve(
         rabbitmq_password: Requested RabbitMQ password.
         local_image: Whether a locally built docker image is used.
         dev: Whether to expose internal service ports to the host.
+        bind_address: Host address to publish the Server port on; `None` restores a prior install's
+            value via `_resolve_bind_address()`, falling back to all interfaces.
         explicitly_provided: The subset of `_MERGEABLE_FIELDS` keys actually passed on the command
             line or via envvar for this invocation - see `_merge_template_config()`. Defaults to
             empty for callers outside a Typer invocation (e.g. tests), which means every field is
@@ -620,6 +656,9 @@ def resolve(
     original_env_content = context.original_env_content
     template_config = context.resolved_template["config"] if context.resolved_template else {}
     port = _resolve_port(port, original_env_content, explicitly_provided)
+    bind_address = _resolve_bind_address(bind_address, original_env_content)
+    if is_all_interfaces(bind_address):
+        echo.warning(ALL_INTERFACES_WARNING)
 
     merged, from_template, blocked_by_prior_value = _merge_template_config(
         template_config,
@@ -808,6 +847,7 @@ def resolve(
         legacy_minio_service=legacy_minio_service,
         keep_legacy_minio=keep_legacy_minio,
         legacy_minio_keep_confirmed=legacy_minio_keep_confirmed,
+        bind_address=bind_address,
     )
 
 
@@ -867,7 +907,8 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
         config.directory / ".env",
         {
             "DF_SERVER_PORT": config.port,
-            "DF_SERVER_URL": f"http://localhost:{config.port}",
+            "DF_SERVER_BIND_ADDRESS": config.bind_address,
+            "DF_SERVER_URL": local_url(config.port, config.bind_address),
             "DF_SERVER_IMAGE": config.image,
             "DF_INFRA_DOCKER_SUBNET": config.docker_network,
             "DF_METRICS_USERNAME": config.metrics_username,
@@ -1268,6 +1309,7 @@ def _run_post_start_actions(
 def install(
     directory: Path = DF_SERVER_DIRECTORY,
     port: int = DF_SERVER_PORT,
+    bind_address: str | None = None,
     image: str = DF_SERVER_IMAGE,
     local_image: bool = False,
     otel_url: str | None = None,
@@ -1360,6 +1402,7 @@ def install(
         rabbitmq_password=rabbitmq_password,
         local_image=local_image,
         dev=dev,
+        bind_address=bind_address,
         explicitly_provided=explicitly_provided,
     )
 

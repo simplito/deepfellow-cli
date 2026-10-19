@@ -28,6 +28,7 @@ from deepfellow.server.utils.nightshift_migration import (
     warn_nightshift_declined,
 )
 from deepfellow.server.utils.options import directory_option
+from deepfellow.server.utils.port_migration import migrate_port_bindings
 from deepfellow.server.utils.validation import check_server_directory
 
 app = typer.Typer()
@@ -97,6 +98,19 @@ def _sync_pull_policy(directory: Path, local_image: bool) -> None:
         save_compose_file(compose, compose_file)
 
 
+def _warn_migrations_pending_restart(*, mongo_migrated: bool, ports_restricted: bool) -> None:
+    """Warn about every migration `update` applied that only takes effect once the server restarts."""
+    if mongo_migrated:
+        echo.warning(
+            "DeepFellow Server keeps using MongoDB's root account until it is restarted (`deepfellow server restart`)."
+        )
+    if ports_restricted:
+        echo.warning(
+            "MongoDB and other internal services stay published on all network interfaces until the "
+            "server is restarted (`deepfellow server restart`)."
+        )
+
+
 @app.command()
 def update(
     directory: Path = directory_option(exists=True),
@@ -140,6 +154,7 @@ def update(
     values = read_env_file_to_dict(env_file)
 
     _sync_pull_policy(directory, local_image)
+    ports_restricted = migrate_port_bindings(directory)
 
     track_registry = bool(tag) or image == DF_SERVER_IMAGE
     current = str(values["df_server_image"])
@@ -149,6 +164,7 @@ def update(
         track_registry
         and not local_image
         and nightshift_config is None
+        and not ports_restricted
         and _report_if_up_to_date(directory, image, current, had_nightshift)
     ):
         return
@@ -185,11 +201,7 @@ def update(
         if nightshift_config is not None:
             added = "Nightshift and the local RabbitMQ were" if nightshift_config.docker_compose else "Nightshift was"
             echo.warning(f"{added} added but won't run until `deepfellow server start`.")
-        if mongo_migrated:
-            echo.warning(
-                "DeepFellow Server keeps using MongoDB's root account until it is restarted "
-                "(`deepfellow server restart`)."
-            )
+        _warn_migrations_pending_restart(mongo_migrated=mongo_migrated, ports_restricted=ports_restricted)
 
     if not has_nightshift:
         warn_nightshift_declined()

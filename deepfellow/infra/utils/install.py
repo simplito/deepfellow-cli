@@ -23,6 +23,7 @@ from deepfellow.common.config import (
     save_env_file,
 )
 from deepfellow.common.defaults import (
+    DF_INFRA_BIND_ADDRESS,
     DF_INFRA_DIRECTORY,
     DF_INFRA_DOCKER_NETWORK,
     DF_INFRA_IMAGE,
@@ -39,6 +40,8 @@ from deepfellow.common.docker import (
     add_network_to_service,
     ensure_network,
     get_socket,
+    is_all_interfaces,
+    local_url,
     save_compose_file,
 )
 from deepfellow.common.echo import echo
@@ -50,7 +53,7 @@ from deepfellow.common.registry import get_newest_image_tag
 from deepfellow.common.state import state
 from deepfellow.common.system import run
 from deepfellow.common.templates import InstallTemplate, PostStartAction
-from deepfellow.common.validation import validate_df_name, validate_url
+from deepfellow.common.validation import validate_bind_address, validate_df_name, validate_url
 from deepfellow.infra.utils.docker import start_infra
 from deepfellow.infra.utils.fields import parse_spec_json
 from deepfellow.infra.utils.model_install import apply_install as apply_model_install
@@ -58,6 +61,11 @@ from deepfellow.infra.utils.model_install import resolve_connection as resolve_m
 from deepfellow.infra.utils.service_install import apply_spec as apply_service_spec
 from deepfellow.infra.utils.service_install import build_spec as build_service_spec
 from deepfellow.infra.utils.templates import dispatch_post_start_action, resolve_template
+
+ALL_INTERFACES_WARNING = (
+    "DeepFellow Infra port is published on all network interfaces, and Docker bypasses host firewalls "
+    "such as ufw. Set a bind address (e.g. 127.0.0.1) to restrict it."
+)
 
 
 @dataclass
@@ -178,6 +186,8 @@ class InstallConfig:
     print_keys: bool
     df_connect_to_mesh_url: str | None
     df_connect_to_mesh_key: str | None
+    # Defaulted so a suite install state file persisted before this field existed still loads.
+    infra_bind_address: str = DF_INFRA_BIND_ADDRESS
 
 
 # (template config key, matching key in a prior install's .env)
@@ -209,6 +219,27 @@ def _resolve_port(port: int, original_env_content: EnvDict, explicitly_provided:
     except ValueError:
         raise InstallError(
             f"Existing .env has an invalid DF_INFRA_PORT value ({prior_value!r}); fix or remove it before retrying."
+        ) from None
+
+
+def _resolve_bind_address(bind_address: str | None, original_env_content: EnvDict) -> str:
+    """Restore a prior install's bind address unless one was given (`None` means not given).
+
+    Raises:
+        typer.BadParameter: If the given bind address is invalid.
+        InstallError: If a prior install's .env has an invalid DF_INFRA_BIND_ADDRESS value.
+    """
+    if bind_address is not None:
+        return validate_bind_address(bind_address) or ""
+    prior_value = original_env_content.get("df_infra_bind_address")
+    if prior_value is None:
+        return DF_INFRA_BIND_ADDRESS
+    try:
+        return validate_bind_address(str(prior_value)) or ""
+    except typer.BadParameter:
+        raise InstallError(
+            f"Existing .env has an invalid DF_INFRA_BIND_ADDRESS value ({prior_value!r}); "
+            "fix or remove it before retrying."
         ) from None
 
 
@@ -297,6 +328,7 @@ def resolve(
     keep_compose_prefix: bool | None,
     keep_storage: bool | None,
     keep_metrics: bool | None,
+    bind_address: str | None = None,
     explicitly_provided: Collection[str] = frozenset(),
 ) -> InstallConfig:
     """Prompt the user for / apply CLI overrides to the remaining install values.
@@ -326,6 +358,8 @@ def resolve(
         keep_compose_prefix: Whether to keep a previously configured compose prefix.
         keep_storage: Whether to keep a previously configured storage dir.
         keep_metrics: Whether to keep previously configured metrics credentials.
+        bind_address: Host address to publish the Infra port on; `None` restores a prior install's
+            value via `_resolve_bind_address()`, falling back to all interfaces.
         explicitly_provided: The subset of `_MERGEABLE_FIELDS` keys actually passed on the command
             line or via envvar for this invocation - see `_merge_template_config()`. Defaults to
             empty for callers outside a Typer invocation (e.g. tests), which means every field is
@@ -335,10 +369,14 @@ def resolve(
         InstallConfig: The fully-resolved installation configuration.
 
     Raises:
-        InstallError: If a prior install's .env has a non-numeric port value (via `_resolve_port()`).
+        InstallError: If a prior install's .env has a non-numeric port value (via `_resolve_port()`)
+            or an invalid bind address (via `_resolve_bind_address()`).
     """
     original_env_content = context.original_env_content
     port = _resolve_port(port, original_env_content, explicitly_provided)
+    bind_address = _resolve_bind_address(bind_address, original_env_content)
+    if is_all_interfaces(bind_address):
+        echo.warning(ALL_INTERFACES_WARNING)
 
     template_config = context.resolved_template["config"] if context.resolved_template else {}
     merged, from_template, blocked_by_prior_value = _merge_template_config(
@@ -495,6 +533,7 @@ def resolve(
         print_keys=flag_print_keys,
         df_connect_to_mesh_url=None,
         df_connect_to_mesh_key=None,
+        infra_bind_address=bind_address,
     )
 
 
@@ -529,6 +568,7 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:
         "DF_NAME": config.df_name,
         "DF_INFRA_URL": config.infra_url,
         "DF_INFRA_PORT": config.infra_port,
+        "DF_INFRA_BIND_ADDRESS": config.infra_bind_address,
         "DF_INFRA_IMAGE": config.df_infra_image,
         "DF_MESH_KEY": config.mesh_key,
         "DF_INFRA_API_KEY": config.api_key,
@@ -548,7 +588,8 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:
         infra_values["DF_CIVITAI_TOKEN"] = config.civitai_token
 
     save_env_file(config.directory / ".env", infra_values)
-    env_set(config_file, "DF_INFRA_EXTERNAL_URL", f"http://localhost:{config.infra_port}", should_raise=False)
+    infra_local_url = local_url(config.infra_port, config.infra_bind_address)
+    env_set(config_file, "DF_INFRA_EXTERNAL_URL", infra_local_url, should_raise=False)
     env_set(secrets_file, "DF_INFRA_ADMIN_API_KEY", config.admin_api_key, should_raise=False)
 
     # Save the docker compose config
@@ -625,7 +666,9 @@ def _prepare_post_start_action(action: PostStartAction) -> Callable[[], None]:
     return translate_to_install_error(apply_phase)
 
 
-def _run_post_start_actions(post_start_actions: list[PostStartAction], infra_port: int) -> None:
+def _run_post_start_actions(
+    post_start_actions: list[PostStartAction], infra_port: int, infra_bind_address: str
+) -> None:
     """Run a template's post-start actions: every action's ask phase first, then every apply phase.
 
     Args:
@@ -633,11 +676,12 @@ def _run_post_start_actions(post_start_actions: list[PostStartAction], infra_por
             kwargs are finalized in place (see the "server" injection below).
         infra_port: The port infra was actually installed on, used to build the localhost URL every
             action is pointed at.
+        infra_bind_address: The host address that port is published on - see `local_url()`.
 
     Raises:
         typer.Exit: If any action's build or apply phase fails.
     """
-    infra_localhost_url = f"http://localhost:{infra_port}"
+    infra_localhost_url = local_url(infra_port, infra_bind_address)
     total = len(post_start_actions)
 
     # Ask-phase pass: this loop itself only finalizes each action's kwargs (no prompting) and then
@@ -701,6 +745,7 @@ def _run_post_start_actions(post_start_actions: list[PostStartAction], infra_por
 def install(
     directory: Path = DF_INFRA_DIRECTORY,
     port: int = DF_INFRA_PORT,
+    bind_address: str | None = None,
     image: str = DF_INFRA_IMAGE,
     local_image: bool = False,
     docker_config: Path | None = None,
@@ -750,6 +795,7 @@ def install(
         keep_compose_prefix=keep_compose_prefix,
         keep_storage=keep_storage,
         keep_metrics=keep_metrics,
+        bind_address=bind_address,
         explicitly_provided=explicitly_provided,
     )
 
@@ -767,4 +813,4 @@ def install(
         # The CLI process runs outside Docker, so post-start actions must reach infra via
         # localhost on the port actually resolved above - never a template-supplied "server",
         # which could only ever guess at that port.
-        _run_post_start_actions(post_start_actions, config.infra_port)
+        _run_post_start_actions(post_start_actions, config.infra_port, config.infra_bind_address)

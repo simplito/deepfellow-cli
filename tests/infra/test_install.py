@@ -15,6 +15,7 @@ import typer
 from click.core import ParameterSource
 from typer.models import OptionInfo
 
+from deepfellow.common.config import EnvDict
 from deepfellow.common.defaults import (
     DF_INFRA_DOCKER_NETWORK,
     DF_INFRA_IMAGE,
@@ -29,9 +30,11 @@ from deepfellow.common.exceptions import DockerNetworkError, InstallError
 from deepfellow.common.state import state
 from deepfellow.infra.install import install as install_command
 from deepfellow.infra.utils.install import (
+    ALL_INTERFACES_WARNING,
     InstallConfig,
     InstallContext,
     _prepare_post_start_action,
+    _resolve_bind_address,
     apply,
     install,
     mergeable_field_names,
@@ -87,6 +90,7 @@ def default_install_kwargs(directory: Path, docker_config: Mock) -> dict:
     return {
         "directory": directory,
         "port": DF_INFRA_PORT,
+        "bind_address": None,
         "image": DF_INFRA_IMAGE,
         "local_image": False,
         "docker_config": docker_config,
@@ -2733,7 +2737,7 @@ def test_install_starts_infra_and_dispatches_post_start_actions_in_order(
     ]
     assert actions[0]["kwargs"]["server"] == f"http://localhost:{DF_INFRA_PORT}"
     assert actions[1]["kwargs"]["server"] == f"http://localhost:{DF_INFRA_PORT}"
-    assert install_mocks.echo.warning.call_count == 0
+    assert install_mocks.echo.warning.call_args_list == [mock.call(ALL_INTERFACES_WARNING)]
 
 
 def test_prepare_post_start_action_falls_back_to_dispatch_for_an_unhoisted_action(
@@ -2878,6 +2882,92 @@ def test_install_injects_server_from_a_template_sourced_port(install_mocks: Inst
     infra_values = install_mocks.save_env_file.call_args[0][1]
     assert infra_values["DF_INFRA_PORT"] == 9500
     assert action["kwargs"]["server"] == "http://localhost:9500"
+
+
+@pytest.mark.parametrize(
+    ("bind_address", "prior_env", "expected"),
+    [
+        ("127.0.0.1", {"df_infra_bind_address": "10.0.0.5"}, "127.0.0.1"),
+        ("::1", {}, "[::1]"),
+        ("", {"df_infra_bind_address": "10.0.0.5"}, ""),
+        (None, {"df_infra_bind_address": "10.0.0.5"}, "10.0.0.5"),
+        (None, {"df_infra_bind_address": "::1"}, "[::1]"),
+        (None, {"df_infra_bind_address": ""}, ""),
+        (None, {}, ""),
+    ],
+)
+def test_resolve_bind_address_prefers_given_then_prior_then_all_interfaces(
+    bind_address: str | None, prior_env: EnvDict, expected: str
+) -> None:
+    result = _resolve_bind_address(bind_address, prior_env)
+
+    assert result == expected
+
+
+def test_resolve_bind_address_raises_on_invalid_prior_value() -> None:
+    with pytest.raises(InstallError, match="DF_INFRA_BIND_ADDRESS"):
+        _resolve_bind_address(None, {"df_infra_bind_address": "not-an-ip"})
+
+
+def test_resolve_bind_address_raises_on_invalid_given_value() -> None:
+    with pytest.raises(typer.BadParameter):
+        _resolve_bind_address("not-an-ip", {})
+
+
+def test_install_writes_all_interfaces_bind_address_by_default(install_mocks: InstallMocks, tmp_path: Path) -> None:
+    _setup_echo(install_mocks.echo)
+    install_mocks.read_env_file_to_dict.return_value = {}
+
+    install(directory=tmp_path)
+
+    infra_values = install_mocks.save_env_file.call_args[0][1]
+    assert infra_values["DF_INFRA_BIND_ADDRESS"] == ""
+
+
+def test_install_restores_prior_bind_address_when_not_given(install_mocks: InstallMocks, tmp_path: Path) -> None:
+    _setup_echo(install_mocks.echo)
+    install_mocks.read_env_file_to_dict.return_value = {"df_infra_bind_address": "127.0.0.1"}
+
+    install(directory=tmp_path)
+
+    infra_values = install_mocks.save_env_file.call_args[0][1]
+    assert infra_values["DF_INFRA_BIND_ADDRESS"] == "127.0.0.1"
+
+
+def test_install_warns_when_published_on_all_interfaces(install_mocks: InstallMocks, tmp_path: Path) -> None:
+    _setup_echo(install_mocks.echo)
+    install_mocks.read_env_file_to_dict.return_value = {}
+
+    install(directory=tmp_path)
+
+    assert mock.call(ALL_INTERFACES_WARNING) in install_mocks.echo.warning.call_args_list
+
+
+def test_install_does_not_warn_when_bound_to_one_address(install_mocks: InstallMocks, tmp_path: Path) -> None:
+    _setup_echo(install_mocks.echo)
+    install_mocks.read_env_file_to_dict.return_value = {}
+
+    install(directory=tmp_path, bind_address="127.0.0.1")
+
+    assert mock.call(ALL_INTERFACES_WARNING) not in install_mocks.echo.warning.call_args_list
+
+
+def test_install_points_local_urls_at_given_bind_address(install_mocks: InstallMocks, tmp_path: Path) -> None:
+    _setup_echo(install_mocks.echo)
+    install_mocks.read_env_file_to_dict.return_value = {}
+    action: dict[str, Any] = {"function": "infra.service.install", "kwargs": {"name": "ollama"}}
+    install_mocks.resolve_template.return_value = {"config": {}, "post_start_actions": [action]}
+
+    install(directory=tmp_path, template="workspace", bind_address="10.0.0.5")
+
+    infra_values = install_mocks.save_env_file.call_args[0][1]
+    assert infra_values["DF_INFRA_BIND_ADDRESS"] == "10.0.0.5"
+    infra_local_url = f"http://10.0.0.5:{DF_INFRA_PORT}"
+    assert (
+        mock.call(state.cli_config_file, "DF_INFRA_EXTERNAL_URL", infra_local_url, should_raise=False)
+        in install_mocks.env_set.call_args_list
+    )
+    assert action["kwargs"]["server"] == infra_local_url
 
 
 def test_install_skips_start_infra_when_template_has_no_post_start_actions(
@@ -3375,6 +3465,29 @@ def test_apply_does_not_set_pull_policy_when_not_local_image(
 
     compose_dict = mock_save_compose.call_args[0][0]
     assert "pull_policy" not in compose_dict["services"]["infra"]
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.add_network_to_service")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_apply_publishes_infra_port_on_infra_bind_address(
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    mock_save_env: Mock,
+    mock_ensure_network: Mock,
+    mock_add_network: Mock,
+    mock_save_compose: Mock,
+    mock_run: Mock,
+    install_config: InstallConfig,
+) -> None:
+    apply(install_config)
+
+    compose_dict = mock_save_compose.call_args[0][0]
+    assert compose_dict["services"]["infra"]["ports"] == ["${DF_INFRA_BIND_ADDRESS-}:${DF_INFRA_PORT}:8086"]
 
 
 @mock.patch("deepfellow.infra.utils.install.run")

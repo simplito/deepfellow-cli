@@ -1759,3 +1759,115 @@ def test_update_local_image_does_not_pull_image_directly(
     assert mock_run.call_args_list == [
         mock.call(["docker", "compose", "pull", "server", "nightshift"], cwd=default_update_kwargs["directory"])
     ]
+
+
+@pytest.mark.parametrize(
+    ("ports_restricted", "expected_warnings"),
+    [
+        (True, 1),
+        (False, 0),
+    ],
+)
+@mock.patch("deepfellow.server.update.migrate_port_bindings")
+@mock.patch("deepfellow.server.update.is_legacy_mongo_install", return_value=False)
+@mock.patch("deepfellow.server.update.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition", return_value=None)
+@mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
+@mock.patch("deepfellow.server.update.start_server")
+@mock.patch("deepfellow.server.update.stop_server")
+@mock.patch("deepfellow.server.update.run")
+@mock.patch("deepfellow.server.update.env_set")
+@mock.patch("deepfellow.server.update.save_compose_file")
+@mock.patch("deepfellow.server.update.load_compose_file")
+@mock.patch("deepfellow.server.update.echo")
+@mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
+@mock.patch("deepfellow.server.update.check_server_directory")
+def test_update_warns_port_restriction_needs_restart_when_restart_declined(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_echo: Mock,
+    mock_load: Mock,
+    mock_save: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_stop: Mock,
+    mock_start: Mock,
+    mock_reconcile: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_has_nightshift_service: Mock,
+    mock_is_legacy_mongo_install: Mock,
+    mock_migrate_port_bindings: Mock,
+    ports_restricted: bool,
+    expected_warnings: int,
+    server_values: dict,
+    compose_data: dict,
+    default_update_kwargs: dict,
+) -> None:
+    mock_read.return_value = server_values
+    mock_load.return_value = compose_data
+    mock_echo.confirm.return_value = False
+    mock_migrate_port_bindings.return_value = ports_restricted
+
+    update(**{**default_update_kwargs, "tag": "0.15.0"})
+
+    assert mock_migrate_port_bindings.call_count == 1
+    assert mock_migrate_port_bindings.call_args == mock.call(default_update_kwargs["directory"])
+    assert mock_stop.call_count == 0
+    assert mock_echo.warning.call_count == expected_warnings
+    if expected_warnings:
+        assert "all network interfaces" in mock_echo.warning.call_args.args[0]
+
+
+@mock.patch("deepfellow.server.update.migrate_port_bindings")
+@mock.patch("deepfellow.server.update.is_legacy_mongo_install", return_value=False)
+@mock.patch("deepfellow.server.update.get_running_service_image")
+@mock.patch("deepfellow.server.update.get_newest_image_tag")
+@mock.patch("deepfellow.server.update.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition", return_value=None)
+@mock.patch("deepfellow.server.update.reconcile_nightshift_running_state")
+@mock.patch("deepfellow.server.update.start_server")
+@mock.patch("deepfellow.server.update.stop_server")
+@mock.patch("deepfellow.server.update.run")
+@mock.patch("deepfellow.server.update.env_set")
+@mock.patch("deepfellow.server.update.save_compose_file")
+@mock.patch("deepfellow.server.update.load_compose_file")
+@mock.patch("deepfellow.server.update.echo")
+@mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
+@mock.patch("deepfellow.server.update.check_server_directory")
+def test_update_does_not_skip_when_ports_restricted(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_echo: Mock,
+    mock_load: Mock,
+    mock_save: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_stop: Mock,
+    mock_start: Mock,
+    mock_reconcile: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_has_nightshift_service: Mock,
+    mock_newest: Mock,
+    mock_running_image: Mock,
+    mock_is_legacy_mongo_install: Mock,
+    mock_migrate_port_bindings: Mock,
+    compose_data: dict,
+    default_update_kwargs: dict,
+) -> None:
+    newest = f"{DF_SERVER_IMAGE_HUB}:v1.2.4"
+    mock_read.return_value = {"df_server_image": newest}
+    mock_load.return_value = compose_data
+    mock_echo.confirm.return_value = False
+    mock_newest.return_value = newest
+    mock_running_image.return_value = newest
+    mock_migrate_port_bindings.return_value = True
+
+    update(**default_update_kwargs)
+
+    assert mock_echo.confirm.call_count == 1
+    assert mock_echo.warning.call_count == 1
+    assert "all network interfaces" in mock_echo.warning.call_args.args[0]

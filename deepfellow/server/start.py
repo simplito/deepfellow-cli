@@ -8,6 +8,7 @@ from pathlib import Path
 import typer
 
 from deepfellow.common.config import read_env_file_to_dict
+from deepfellow.common.docker import local_url
 from deepfellow.common.echo import echo
 from deepfellow.common.install import assert_docker
 from deepfellow.server.utils.docker import start_server
@@ -28,4 +29,7 @@ def start(
     original_env_content = read_env_file_to_dict(env_file)
     echo.info("Starting DeepFellow Server")
     start_server(directory)
-    echo.info(f"DeepFellow Server started on http://localhost:{original_env_content['df_server_port']}")
+    server_url = local_url(
+        str(original_env_content["df_server_port"]), str(original_env_content.get("df_server_bind_address", ""))
+    )
+    echo.info(f"DeepFellow Server started on {server_url}")

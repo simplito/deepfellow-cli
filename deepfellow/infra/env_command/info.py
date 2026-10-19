@@ -21,6 +21,12 @@ ENV_METADATA: dict[str, EnvMetadata] = {
     "DF_INFRA_URL": EnvMetadata(description="Base HTTP URL of the DeepFellow Infra service."),
     "DF_INFRA_MESH_URL": EnvMetadata(description="WebSocket URL used for mesh communication."),
     "DF_INFRA_PORT": EnvMetadata(description="Port exposed by the Infra service."),
+    "DF_INFRA_BIND_ADDRESS": EnvMetadata(
+        description=(
+            "Host address the Infra port is published on, e.g. 127.0.0.1. Empty: all interfaces. "
+            "IPv6 must be in brackets, e.g. [::1]."
+        )
+    ),
     "DF_INFRA_IMAGE": EnvMetadata(description="Docker image used to run DeepFellow Infra."),
     "DF_MESH_KEY": EnvMetadata(
         description="Authentication key used for mesh communication.",

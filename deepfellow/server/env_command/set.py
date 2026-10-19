@@ -10,12 +10,12 @@ import typer
 
 from deepfellow.common.config import dict_to_env, read_env_file, read_env_file_to_dict
 from deepfellow.common.defaults import NightshiftModeChoice
-from deepfellow.common.docker import is_service_running
+from deepfellow.common.docker import is_service_running, local_url
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get, env_set
 from deepfellow.common.install import assert_docker
 from deepfellow.common.state import state
-from deepfellow.common.validation import validate_hhmm
+from deepfellow.common.validation import validate_bind_address, validate_hhmm
 from deepfellow.server.utils.docker import start_server, stop_server
 from deepfellow.server.utils.nightshift import apply_nightshift_schedule
 from deepfellow.server.utils.options import directory_option
@@ -26,6 +26,38 @@ app = typer.Typer()
 
 # The systemd timers are derived from these - changing any of them has to regenerate the timers too.
 _NIGHTSHIFT_SCHEDULE_KEYS = frozenset({"DF_NIGHTSHIFT_MODE", "DF_NIGHTSHIFT_START", "DF_NIGHTSHIFT_STOP"})
+# Docker Compose rejects a host name here and the CLI builds its URLs from these, so they are validated
+# (and IPv6 bracketed) like `--bind-address` at install, instead of failing at the next restart.
+_BIND_ADDRESS_KEYS = frozenset({"DF_SERVER_BIND_ADDRESS", "DF_INTERNAL_BIND_ADDRESS"})
+
+
+def _retarget_stored_server_url(directory: Path, old_bind_address: str | None, new_bind_address: str) -> None:
+    """Point the CLI's stored Server URL at a new bind address, unless the user set it to something else.
+
+    `server login` and `suite install` store `DF_SERVER_URL` as the URL derived from the bind address, and
+    every command that calls the Server API reads it back, so a bind address changed later would leave
+    them calling the old one.
+
+    Args:
+        directory: Server install directory.
+        old_bind_address: Bind address in `.env` before the change; `None` if it was unset.
+        new_bind_address: Validated bind address being written.
+    """
+    port = env_get(directory / ".env", "DF_SERVER_PORT", should_raise=False)
+    if not port:
+        return
+    old_url = local_url(port, old_bind_address)
+    new_url = local_url(port, new_bind_address)
+    stored_url = state.cli_config.get("df_server_url")
+    if old_url == new_url or not stored_url:
+        return
+    if stored_url == old_url:
+        env_set(state.cli_config_file, "DF_SERVER_URL", new_url, should_raise=False, docker_note=False)
+    else:
+        echo.warning(
+            f"The stored Server URL ({stored_url}) differs from the one derived from the previous bind address "
+            f"({old_url}), so I left it alone. Set it to {new_url} if it should follow the new bind address."
+        )
 
 
 def _resolved_env_name(env_name: str, df_prefix: bool) -> str:
@@ -88,9 +120,10 @@ def _dynamic_field_name(directory: Path, env_name: str) -> str | None:
     if not token:
         return None
 
+    bind_address = env_get(directory / ".env", "DF_SERVER_BIND_ADDRESS", should_raise=False)
     try:
         response = httpx.get(
-            f"http://localhost:{port}/admin/config",
+            f"{local_url(port, bind_address)}/admin/config",
             headers={"Authorization": f"Bearer {token}"},
             timeout=5.0,
         )
@@ -119,6 +152,8 @@ def set(
     assert_docker()
 
     resolved_name = _resolved_env_name(env_name, df_prefix)
+    if resolved_name in _BIND_ADDRESS_KEYS:
+        env_value = validate_bind_address(env_value) or ""
     if resolved_name in _NIGHTSHIFT_SCHEDULE_KEYS:
         _set_nightshift_schedule_key(directory, resolved_name, env_value)
         return
@@ -141,7 +176,10 @@ def set(
             "`deepfellow server config set` if unsure."
         )
 
+    old_bind_address = env_get(directory / ".env", "DF_SERVER_BIND_ADDRESS", should_raise=False)
     env_set(directory / ".env", env_name, env_value, df_prefix)
+    if resolved_name == "DF_SERVER_BIND_ADDRESS":
+        _retarget_stored_server_url(directory, old_bind_address, env_value)
     if not no_restart and echo.confirm("Restart the server now to apply the change?", default=True):
         echo.info("Restarting the server...")
         stop_server(directory)

@@ -105,3 +105,26 @@ def test_echo_prints_port(
         f"DeepFellow Server started on http://localhost:{env_content['df_server_port']}"
     )
     assert mock_assert_docker.call_count == 1
+
+
+@mock.patch("deepfellow.server.start.start_server")
+@mock.patch("deepfellow.server.start.echo.info")
+@mock.patch("deepfellow.server.start.read_env_file_to_dict")
+@mock.patch("deepfellow.server.start.assert_docker")
+@mock.patch("deepfellow.server.start.check_server_directory")
+def test_echo_prints_bind_address_url(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_echo: Mock,
+    mock_start_server: Mock,
+    directory: Path,
+    env_content: dict,
+) -> None:
+    mock_read.return_value = {**env_content, "df_server_bind_address": "127.0.0.1"}
+
+    start(directory=directory)
+
+    assert mock_echo.call_args_list[1] == mock.call(
+        f"DeepFellow Server started on http://127.0.0.1:{env_content['df_server_port']}"
+    )

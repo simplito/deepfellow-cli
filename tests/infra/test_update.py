@@ -8,7 +8,12 @@ from unittest.mock import Mock
 import pytest
 import typer
 
-from deepfellow.common.defaults import DF_INFRA_IMAGE, DF_INFRA_IMAGE_HUB, DOCKER_COMPOSE_CONFIG_FILENAME
+from deepfellow.common.defaults import (
+    DF_INFRA_IMAGE,
+    DF_INFRA_IMAGE_HUB,
+    DOCKER_COMPOSE_CONFIG_FILENAME,
+    INFRA_BIND_ADDRESS,
+)
 from deepfellow.infra.update import _resolve_image, update
 
 
@@ -730,3 +735,38 @@ def test_update_local_image_does_not_pull(
 
     assert mock_run.call_count == 0
     assert mock_newest.call_count == 0
+
+
+@mock.patch("deepfellow.infra.update.start_infra")
+@mock.patch("deepfellow.infra.update.stop_infra")
+@mock.patch("deepfellow.infra.update.run")
+@mock.patch("deepfellow.infra.update.env_set")
+@mock.patch("deepfellow.infra.update.save_compose_file")
+@mock.patch("deepfellow.infra.update.load_compose_file")
+@mock.patch("deepfellow.infra.update.echo")
+@mock.patch("deepfellow.infra.update.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.update.assert_docker")
+@mock.patch("deepfellow.infra.update.check_infra_directory")
+def test_update_binds_infra_port_of_install_from_before_bind_addresses(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_echo: Mock,
+    mock_load: Mock,
+    mock_save: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_stop: Mock,
+    mock_start: Mock,
+    infra_values: dict,
+    default_update_kwargs: dict,
+) -> None:
+    compose_data = {"services": {"infra": {"ports": ["${DF_INFRA_PORT}:8086"]}}}
+    mock_read.return_value = infra_values
+    mock_load.return_value = compose_data
+    mock_echo.confirm.return_value = False
+
+    update(**default_update_kwargs)
+
+    assert compose_data["services"]["infra"]["ports"] == [f"{INFRA_BIND_ADDRESS}:${{DF_INFRA_PORT}}:8086"]
+    assert mock_save.call_count == 1

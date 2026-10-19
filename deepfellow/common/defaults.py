@@ -18,6 +18,9 @@ DF_INFRA_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / "infra"
 DF_INFRA_IMAGE_HUB = "hub.simplito.com/deepfellow/deepfellow-infra"
 DF_INFRA_IMAGE = f"{DF_INFRA_IMAGE_HUB}:latest"
 DF_INFRA_PORT = 8086
+# Host address the Infra API port is published on; empty means all interfaces (IPv4 and IPv6).
+DF_INFRA_BIND_ADDRESS = ""
+INFRA_BIND_ADDRESS = f"${{DF_INFRA_BIND_ADDRESS-{DF_INFRA_BIND_ADDRESS}}}"
 DF_INFRA_URL = f"http://infra:{DF_INFRA_PORT}"
 DF_INFRA_DOCKER_NETWORK = "deepfellow-infra-net"
 DF_INFRA_STORAGE_DIR = DF_INFRA_DIRECTORY / "storage"
@@ -27,12 +30,19 @@ DF_SERVER_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / "server"
 DF_SERVER_IMAGE_HUB = "hub.simplito.com/deepfellow/deepfellow-server"
 DF_SERVER_IMAGE = f"{DF_SERVER_IMAGE_HUB}:latest"
 DF_SERVER_PORT = 8000
+# Host address the Server API port is published on; empty means all interfaces (IPv4 and IPv6).
+DF_SERVER_BIND_ADDRESS = ""
+SERVER_BIND_ADDRESS = f"${{DF_SERVER_BIND_ADDRESS-{DF_SERVER_BIND_ADDRESS}}}"
 # NOTE: uploaded files, used by vector stores
 DF_SERVER_STORAGE_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / DF_SERVER_DIRECTORY / "storage"
 
 DF_MONGO_URL = "mongo:27017"
 DF_MONGO_PORT = 27017
 DF_MONGO_DB = "deepfellow"
+
+# Host address for ports of server-only services; `-` keeps an empty value (all interfaces).
+DF_INTERNAL_BIND_ADDRESS = "127.0.0.1"
+INTERNAL_BIND_ADDRESS = f"${{DF_INTERNAL_BIND_ADDRESS-{DF_INTERNAL_BIND_ADDRESS}}}"
 
 DOCKER_COMPOSE_CONFIG_FILENAME = "compose.yaml"
 
@@ -104,7 +114,7 @@ class ServiceConfig(_ServiceConfigOptional):
 DOCKER_COMPOSE_INFRA: dict[str, ServiceConfig] = {
     DF_INFRA_NAME: {
         "image": "${DF_INFRA_IMAGE}",
-        "ports": ["${DF_INFRA_PORT}:8086"],
+        "ports": [f"{INFRA_BIND_ADDRESS}:${{DF_INFRA_PORT}}:8086"],
         "environment": [
             "DF_NAME=${DF_NAME}",
             "DF_INFRA_ADMIN_API_KEY=${DF_INFRA_ADMIN_API_KEY}",
@@ -159,7 +169,7 @@ DOCKER_COMPOSE_SERVER: dict[str, ServiceConfig] = {
     "server": {
         "container_name": "server",
         "image": "${DF_SERVER_IMAGE}",
-        "ports": ["${DF_SERVER_PORT}:8000"],
+        "ports": [f"{SERVER_BIND_ADDRESS}:${{DF_SERVER_PORT}}:8000"],
         "restart": "unless-stopped",
         "healthcheck": {
             "test": ["CMD", "/app/scripts/healthcheck.py"],
@@ -337,7 +347,7 @@ DOCKER_COMPOSE_MONGO_DB = {
         "container_name": "mongo",
         "image": "mongo:8.2.7@sha256:7abfba0d07c9330373f8173981ea4d09cd8a82cdf0e86ccaf7008848d1d24f62",
         "restart": "always",
-        "ports": ["${DF_MONGO_PORT}:27017"],
+        "ports": [f"{INTERNAL_BIND_ADDRESS}:${{DF_MONGO_PORT}}:27017"],
         "volumes": [
             "mongo:/data/db",
             "./init-mongo.sh:/docker-entrypoint-initdb.d/init-mongo.sh:ro",

@@ -8,6 +8,7 @@ from pathlib import Path
 import typer
 
 from deepfellow.common.config import read_env_file_to_dict
+from deepfellow.common.docker import local_url
 from deepfellow.common.echo import echo
 from deepfellow.common.install import assert_docker
 from deepfellow.infra.utils.docker import start_infra, stop_infra
@@ -29,4 +30,7 @@ def restart(
     echo.info("Restarting DeepFellow Infra")
     stop_infra(directory)
     start_infra(directory)
-    echo.info(f"DeepFellow Infra started on http://localhost:{original_env_content['df_infra_port']}")
+    infra_url = local_url(
+        str(original_env_content["df_infra_port"]), str(original_env_content.get("df_infra_bind_address", ""))
+    )
+    echo.info(f"DeepFellow Infra started on {infra_url}")

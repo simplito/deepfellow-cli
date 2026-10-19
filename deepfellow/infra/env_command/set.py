@@ -10,15 +10,45 @@ import httpx
 import typer
 
 from deepfellow.common.defaults import DF_INFRA_STORAGE_DIR
-from deepfellow.common.docker import is_service_running
+from deepfellow.common.docker import is_service_running, local_url
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get, env_set
 from deepfellow.common.install import assert_docker
+from deepfellow.common.state import state
+from deepfellow.common.validation import validate_bind_address
 from deepfellow.infra.utils.docker import start_infra, stop_infra
 from deepfellow.infra.utils.options import directory_option
 from deepfellow.infra.utils.validation import check_infra_directory
 
 app = typer.Typer()
+
+
+def _retarget_stored_infra_url(directory: Path, old_bind_address: str | None, new_bind_address: str) -> None:
+    """Point the CLI's stored Infra URL at a new bind address, unless the user set it to something else.
+
+    `infra install` stores `DF_INFRA_EXTERNAL_URL` as the URL derived from the bind address, and admin
+    commands read it back, so a bind address changed later would leave them calling the old one.
+
+    Args:
+        directory: Infra install directory.
+        old_bind_address: Bind address in `.env` before the change; `None` if it was unset.
+        new_bind_address: Validated bind address being written.
+    """
+    port = env_get(directory / ".env", "DF_INFRA_PORT", should_raise=False)
+    if not port:
+        return
+    old_url = local_url(port, old_bind_address)
+    new_url = local_url(port, new_bind_address)
+    stored_url = state.cli_config.get("df_infra_external_url")
+    if old_url == new_url or not stored_url:
+        return
+    if stored_url == old_url:
+        env_set(state.cli_config_file, "DF_INFRA_EXTERNAL_URL", new_url, should_raise=False)
+    else:
+        echo.warning(
+            f"The stored Infra URL ({stored_url}) differs from the one derived from the previous bind address "
+            f"({old_url}), so I left it alone. Set it to {new_url} if it should follow the new bind address."
+        )
 
 
 def _resolved_env_name(env_name: str, df_prefix: bool) -> str:
@@ -62,9 +92,10 @@ def _dynamic_field_name(directory: Path, env_name: str) -> str | None:
     if not infra_port or not admin_api_key:
         return None
 
+    bind_address = env_get(env_file, "DF_INFRA_BIND_ADDRESS", should_raise=False)
     try:
         response = httpx.get(
-            f"http://localhost:{infra_port}/admin/config",
+            f"{local_url(infra_port, bind_address)}/admin/config",
             headers={"Authorization": f"Bearer {admin_api_key}"},
             timeout=5.0,
         )
@@ -94,6 +125,11 @@ def set(
     assert_docker()
 
     resolved_name = _resolved_env_name(env_name, df_prefix)
+    old_bind_address = env_get(directory / ".env", "DF_INFRA_BIND_ADDRESS", should_raise=False)
+    # Docker Compose rejects a host name here and the CLI builds its URLs from it, so it is validated
+    # (and IPv6 bracketed) like `--bind-address` at install, instead of failing at the next restart.
+    if resolved_name == "DF_INFRA_BIND_ADDRESS":
+        env_value = validate_bind_address(env_value) or ""
     field_name = _dynamic_field_name(directory, resolved_name)
     if field_name:
         echo.error(
@@ -110,6 +146,8 @@ def set(
         )
 
     env_set(directory / ".env", env_name, env_value, df_prefix)
+    if resolved_name == "DF_INFRA_BIND_ADDRESS":
+        _retarget_stored_infra_url(directory, old_bind_address, env_value)
     if not no_restart and echo.confirm("Restart the infra now to apply the change?", default=True):
         echo.info("Restarting the infra...")
         stop_infra(directory)

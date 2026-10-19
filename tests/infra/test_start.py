@@ -105,3 +105,26 @@ def test_echo_prints_port(
         f"DeepFellow Infra started on http://localhost:{env_content['df_infra_port']}"
     )
     assert mock_assert_docker.call_count == 1
+
+
+@mock.patch("deepfellow.infra.start.start_infra")
+@mock.patch("deepfellow.infra.start.echo.info")
+@mock.patch("deepfellow.infra.start.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.start.assert_docker")
+@mock.patch("deepfellow.infra.start.check_infra_directory")
+def test_echo_prints_bind_address_url(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_echo: Mock,
+    mock_start_infra: Mock,
+    directory: Path,
+    env_content: dict,
+) -> None:
+    mock_read.return_value = {**env_content, "df_infra_bind_address": "127.0.0.1"}
+
+    start(directory=directory)
+
+    assert mock_echo.call_args_list[1] == mock.call(
+        f"DeepFellow Infra started on http://127.0.0.1:{env_content['df_infra_port']}"
+    )
