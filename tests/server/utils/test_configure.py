@@ -1613,10 +1613,76 @@ def test_external_rabbitmq_envs_prompts_for_missing_values(mock_echo: mock.Magic
     )
 
 
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_external_rabbitmq_envs_defaults_come_from_config_json_section_over_env(mock_echo: mock.MagicMock):
+    mock_echo.prompt_until_valid.side_effect = ["mq.new:5673", "new-user", "new-password"]
+    original_env = {
+        "df_rabbitmq_url": "old.example:5672",
+        "df_rabbitmq_user": "old-user",
+        "df_rabbitmq_password": "old-password",
+        "df_rabbitmq": {"host": "mq.new", "port": 5673, "username": "new-user", "password": "new-password"},
+    }
+
+    external_rabbitmq_envs("rabbitmq:5672", "", "", original_env)
+
+    defaults = [call.kwargs["default"] for call in mock_echo.prompt_until_valid.call_args_list]
+    assert defaults == ["mq.new:5673", "new-user", "new-password"]
+
+
 @mock.patch.object(state, "non_interactive", True)
 def test_external_rabbitmq_envs_fails_in_non_interactive_mode_without_username():
     with pytest.raises(typer.BadParameter):
         external_rabbitmq_envs("mq.example:5672", "", "")
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_external_rabbitmq_envs_warns_when_values_differ_from_config_json_section(mock_echo: mock.MagicMock):
+    mock_echo.prompt_until_valid.side_effect = ["mq.new:5673", "same-user", "new-password"]
+    original_env = {"df_rabbitmq": {"host": "mq.old", "port": 5672, "username": "same-user", "password": "old"}}
+
+    external_rabbitmq_envs("rabbitmq:5672", "", "", original_env)
+
+    assert mock_echo.warning.call_count == 1
+    message = mock_echo.warning.call_args[0][0]
+    assert "server config set" in message
+    assert '"host": "mq.new"' in message
+    assert '"password": "<password>"' in message
+    assert "new-password" not in message
+    assert "username" not in message
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_external_rabbitmq_envs_does_not_warn_when_values_match_config_json_section(mock_echo: mock.MagicMock):
+    mock_echo.prompt_until_valid.side_effect = ["mq.example:5672", "user", "password"]
+    original_env = {"df_rabbitmq": {"host": "mq.example", "port": 5672, "username": "user", "password": "password"}}
+
+    external_rabbitmq_envs("rabbitmq:5672", "", "", original_env)
+
+    assert mock_echo.warning.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_local_rabbitmq_envs_warns_when_values_differ_from_config_json_section(mock_echo: mock.MagicMock):
+    original_env = {"df_rabbitmq": {"host": "mq.old", "port": 5672, "username": "old-user", "password": "old"}}
+
+    local_rabbitmq_envs("new-user", "new-password", original_env)
+
+    assert mock_echo.warning.call_count == 1
+    message = mock_echo.warning.call_args[0][0]
+    assert "server config set" in message
+    assert "new-password" not in message
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_external_rabbitmq_envs_warning_omits_password_when_it_is_unchanged(mock_echo: mock.MagicMock):
+    mock_echo.prompt_until_valid.side_effect = ["mq.new:5672", "user", "password"]
+    original_env = {"df_rabbitmq": {"host": "mq.old", "port": 5672, "username": "user", "password": "password"}}
+
+    external_rabbitmq_envs("rabbitmq:5672", "", "", original_env)
+
+    assert mock_echo.warning.call_count == 1
+    assert '"host": "mq.new"' in mock_echo.warning.call_args[0][0]
+    assert '"password"' not in mock_echo.warning.call_args[0][0]
 
 
 @mock.patch("deepfellow.server.utils.configure.load_compose_file", return_value={})

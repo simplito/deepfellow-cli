@@ -9,8 +9,8 @@ import httpx
 import typer
 
 from deepfellow.common.config import dict_to_env, read_env_file, read_env_file_to_dict
-from deepfellow.common.defaults import NightshiftModeChoice
-from deepfellow.common.docker import is_service_running, local_url
+from deepfellow.common.defaults import DOCKER_COMPOSE_CONFIG_FILENAME, NightshiftModeChoice
+from deepfellow.common.docker import is_service_running, load_compose_file, local_url
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get, env_set
 from deepfellow.common.install import assert_docker
@@ -58,6 +58,19 @@ def _retarget_stored_server_url(directory: Path, old_bind_address: str | None, n
             f"The stored Server URL ({stored_url}) differs from the one derived from the previous bind address "
             f"({old_url}), so I left it alone. Set it to {new_url} if it should follow the new bind address."
         )
+
+
+# Broker settings the server keeps in the `rabbitmq` section of config.json once it has started.
+_RABBITMQ_ENV_FIELDS = {
+    "DF_RABBITMQ_URL": "host and port",
+    "DF_RABBITMQ_USER": "username",
+    "DF_RABBITMQ_PASSWORD": "password",
+}
+_RABBITMQ_CONFIG_EXAMPLE = {
+    "DF_RABBITMQ_URL": '\'rabbitmq={"host": "<host>", "port": <port>}\'',
+    "DF_RABBITMQ_USER": '\'rabbitmq={"username": "<user>"}\'',
+    "DF_RABBITMQ_PASSWORD": '\'rabbitmq={"password": "<password>"}\'',
+}
 
 
 def _resolved_env_name(env_name: str, df_prefix: bool) -> str:
@@ -129,14 +142,27 @@ def _dynamic_field_name(directory: Path, env_name: str) -> str | None:
         )
         response.raise_for_status()
         config = response.json()
-    except httpx.HTTPError:
+    except (httpx.HTTPError, ValueError) as exc:
+        echo.warning(
+            f"Could not check /admin/config ({exc}). If {env_name} is dynamic configuration, "
+            "writing it to .env will have no effect."
+        )
         return None
+
+    if env_name in _RABBITMQ_ENV_FIELDS and isinstance(config.get("rabbitmq"), dict):
+        return "rabbitmq"
 
     dynamic_envs = dict_to_env(config)
     if env_name not in dynamic_envs:
         return None
 
     return env_name.removeprefix("DF_").lower()
+
+
+def _has_local_rabbitmq(directory: Path) -> bool:
+    """Check whether the install runs its own RabbitMQ container."""
+    compose = load_compose_file(directory / DOCKER_COMPOSE_CONFIG_FILENAME)
+    return "rabbitmq" in (compose.get("services") or {})
 
 
 @app.command()
@@ -159,6 +185,18 @@ def set(
         return
 
     field_name = _dynamic_field_name(directory, resolved_name)
+    local_broker_credential = False
+    if field_name == "rabbitmq":
+        local_broker_credential = resolved_name != "DF_RABBITMQ_URL" and _has_local_rabbitmq(directory)
+        if not local_broker_credential:
+            echo.error(
+                f"The RabbitMQ {_RABBITMQ_ENV_FIELDS[resolved_name]} is dynamic configuration stored in config.json: "
+                f"{resolved_name} in .env is only the initial value, read on the server's first start, so changing "
+                f"it now has no effect. Use `deepfellow server config set {_RABBITMQ_CONFIG_EXAMPLE[resolved_name]}` "
+                "instead (applied without a restart)."
+            )
+            raise typer.Exit(1)
+        field_name = None
     if field_name:
         echo.error(
             f"{resolved_name} is dynamic configuration stored in config.json. Writing it to .env has no effect "
@@ -178,6 +216,15 @@ def set(
 
     old_bind_address = env_get(directory / ".env", "DF_SERVER_BIND_ADDRESS", should_raise=False)
     env_set(directory / ".env", env_name, env_value, df_prefix)
+    if local_broker_credential:
+        echo.warning(
+            f"{resolved_name} configures the local RabbitMQ container, but the server connects with the "
+            "credentials from config.json, so set the same value there too: "
+            f"`deepfellow server config set {_RABBITMQ_CONFIG_EXAMPLE[resolved_name]}`. Also note that RabbitMQ "
+            "applies these credentials only when it first initialises its data volume, so for an existing "
+            "install the broker keeps its old user and password until you change them in RabbitMQ itself "
+            "(`rabbitmqctl change_password`) or recreate the `rabbitmq_data` volume."
+        )
     if resolved_name == "DF_SERVER_BIND_ADDRESS":
         _retarget_stored_server_url(directory, old_bind_address, env_value)
     if not no_restart and echo.confirm("Restart the server now to apply the change?", default=True):
