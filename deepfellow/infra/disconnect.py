@@ -22,7 +22,7 @@ app = typer.Typer()
 def disconnect(
     directory: Path = directory_option(exists=True),
 ) -> None:
-    """Disconnect infra. This infra is child."""
+    """Disconnect this child Infra from its parent Infra, leaving the Mesh."""
     check_infra_directory(directory)
     assert_docker()
 
@@ -47,8 +47,9 @@ def disconnect(
     )
 
     if parent_infra_url:
-        if echo.confirm(f"Are you sure you want to disconnect from {parent_infra_url}", default=False):
-            echo.info(f"Disconnecting from {parent_infra_url} ...")
+        question = f"Are you sure you want to disconnect from the parent Infra at {parent_infra_url} and leave the Mesh"
+        if echo.confirm(question, default=False):
+            echo.info(f"Disconnecting from the parent Infra at {parent_infra_url} ...")
             infra_admin_request(
                 "PUT",
                 f"{local_infra_url}/admin/config",
@@ -57,7 +58,7 @@ def disconnect(
                 json_body={"connect_to_mesh_url": "", "connect_to_mesh_key": ""},
             )
 
-            echo.success(f"DeepFellow Infra is disconnected from another Deepfellow Infra at {parent_infra_url}")
+            echo.success(f"DeepFellow Infra left the Mesh (disconnected from the parent Infra at {parent_infra_url})")
         else:
             echo.success("Operation ends with no changes.")
     else:
