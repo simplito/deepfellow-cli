@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- `changelog-check` CI job needs an `[Unreleased]` entry (skip: `[skip changelog-check]` in MR title).
 - `--bind-address` (`--server-bind-address`/`--infra-bind-address` in `suite install`) publishes the API port on one address only
 
 ### Changed
