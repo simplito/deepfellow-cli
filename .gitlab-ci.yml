@@ -42,6 +42,29 @@ deptry:
   script:
     - uv run deptry .
 
+# DFMAIN-78: a branch must add its entry under `## [Unreleased]` in CHANGELOG.md. Catches the case where a release
+# lands on main while the branch is open: the rebase merges cleanly, but the entry ends up under the released version.
+# First in the stage on purpose: it is the quickest and cheapest check here.
+changelog-check:
+  stage: analysis
+  image: alpine:3
+  variables:
+    # The merge base with the default branch must be reachable.
+    GIT_DEPTH: 0
+  rules:
+    # Nothing to compare on the default branch.
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: never
+    # A release branch rewrites [Unreleased] into a version itself.
+    - if: '$CI_COMMIT_BRANCH =~ /^release\//'
+      when: never
+    # Branches only, not tags.
+    - if: '$CI_COMMIT_BRANCH'
+  before_script:
+    - apk add --no-cache git curl jq >/dev/null
+  script:
+    - sh scripts/changelog_check.sh
+
 ruff:
   <<: *uv
   stage: analysis

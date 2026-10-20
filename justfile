@@ -24,3 +24,6 @@ deptry *FLAGS:
     uv run deptry . {{FLAGS}}
 
 check: ruff ruff-format mypy pyright license-check deptry
+
+changelog-check:
+    sh scripts/changelog_check.sh
