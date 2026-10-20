@@ -115,11 +115,11 @@ def _logs_show_connection(directory: Path) -> bool:
 def connect(
     directory: Path = directory_option(exists=True),
     parent_infra_url: str = typer.Argument(
-        ..., help="Parent DeepFellow Infra address (DF_INFRA_MESH_URL).", callback=validate_url
+        ..., help="Parent Infra address (DF_INFRA_MESH_URL).", callback=validate_url
     ),
-    mesh_key: str | None = typer.Argument(None, help="DF_MESH_KEY of the Parent DeepFellow Infra."),
+    mesh_key: str | None = typer.Argument(None, help="DF_MESH_KEY of the parent Infra."),
 ) -> None:
-    """Connect two Infras together. This infra is child."""
+    """Connect this Infra to a parent Infra, extending the Mesh. This Infra becomes the child Infra."""
     check_infra_directory(directory)
     assert_docker()
 
@@ -153,7 +153,7 @@ def connect(
     local_infra_url = local_url(infra_port, bind_address)
 
     resolved_mesh_key: str = echo.prompt_until_valid(
-        "Provide the mesh key of the parent Infra",
+        "Provide the Mesh key of the parent Infra",
         validation=validate_truthy,
         from_args=mesh_key,
         original_default=None,
@@ -168,11 +168,11 @@ def connect(
         json_body={"connect_to_mesh_url": parent_infra_url, "connect_to_mesh_key": resolved_mesh_key},
     )
 
-    echo.info("Verifying connection to parent Infra ...")
+    echo.info("Verifying connection to the Mesh through the parent Infra ...")
     result = _verify_parent_connection(local_infra_url, admin_api_key)
     if result == _VerifyResult.OUTDATED:
         echo.warning(
-            "This Infra image is outdated and does not support mesh topology verification. "
+            "This Infra image is outdated and does not support Mesh topology verification. "
             "Run `deepfellow infra update` to update. "
             "The connection may still be active — check with `deepfellow infra logs`."
         )
@@ -180,22 +180,22 @@ def connect(
         if _logs_show_connection(directory):
             echo.warning(
                 f"The parent Infra at {parent_infra_url} uses a legacy API that does not return "
-                "ancestor information. Topology will not show the parent node. "
-                "Update the parent Infra to get full mesh visibility."
+                "ancestor information. The Mesh topology will not show the parent node. "
+                "Update the parent Infra to get full Mesh visibility."
             )
         else:
             echo.error(
                 f"Could not verify connection to {parent_infra_url}. "
-                "Check the mesh_key and that both Infras can reach each other over the network. "
+                "Check the Mesh key and that both Infras can reach each other over the network. "
                 "Run `deepfellow infra logs` for details."
             )
             raise typer.Exit(1)
     elif result == _VerifyResult.TIMEOUT:
         echo.error(
             f"Could not verify connection to {parent_infra_url}. "
-            "Check the mesh_key and that both Infras can reach each other over the network. "
+            "Check the Mesh key and that both Infras can reach each other over the network. "
             "Run `deepfellow infra logs` for details."
         )
         raise typer.Exit(1)
 
-    echo.success(f"DeepFellow Infra is connected to another Infra at {parent_infra_url}")
+    echo.success(f"DeepFellow Infra joined the Mesh as a child Infra of the parent Infra at {parent_infra_url}")
