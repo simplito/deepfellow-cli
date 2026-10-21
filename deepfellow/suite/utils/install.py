@@ -76,6 +76,7 @@ from deepfellow.suite.utils.state import SuiteInstallState
 from deepfellow.suite.utils.state import delete as delete_state
 from deepfellow.suite.utils.state import load as load_state
 from deepfellow.suite.utils.state import save as save_state
+from deepfellow.suite.utils.vram import print_vram_estimate
 
 WORKSPACE_ORGANIZATION_NAME = "Workspace"
 WORKSPACE_PROJECT_NAME = "Default"
@@ -1041,6 +1042,8 @@ def install(
     server_post_start_actions = server_resolve_template(template)["post_start_actions"]
     steps = _build_steps(infra_post_start_actions, server_post_start_actions)
     total_steps = len(steps)
+
+    print_vram_estimate(infra_post_start_actions)
 
     # A prior run's persisted admin (if any) is the fallback source, same shape --admin-*/env vars
     # override: this is what lets `--resume` skip re-prompting for name/email/password it already

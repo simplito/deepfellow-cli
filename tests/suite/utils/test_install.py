@@ -4176,3 +4176,147 @@ def test_install_resume_ignores_leftover_old_post_start_action_step_ids(
     install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", resume=True)
 
     assert mock_infra_post_start_action.call_count == len(_WORKSPACE_POST_START_ACTIONS)
+
+
+@mock.patch("deepfellow.suite.utils.install.print_vram_estimate")
+@_patch_all_steps
+def test_install_prints_vram_estimate_of_template_actions_before_admin_prompts(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_print_vram_estimate: Mock,
+) -> None:
+    _mock_manager = Mock()
+    _mock_manager.attach_mock(mock_print_vram_estimate, "print_vram_estimate")
+    _mock_manager.attach_mock(mock_echo.prompt_until_valid, "prompt_until_valid")
+    mock_echo.prompt_until_valid.return_value = "value"
+    mock_load_state.return_value = None
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = _make_workspace()
+
+    install(admin_name=None, admin_email=None, admin_password=None)
+
+    assert mock_print_vram_estimate.call_count == 1
+    assert mock_print_vram_estimate.call_args == mock.call(_WORKSPACE_POST_START_ACTIONS)
+    assert [name for name, _, _ in _mock_manager.mock_calls[:2]] == ["print_vram_estimate", "prompt_until_valid"]
+
+
+@mock.patch("deepfellow.suite.utils.install.print_vram_estimate")
+@mock.patch("deepfellow.suite.utils.install.server_resolve_template")
+@mock.patch("deepfellow.suite.utils.install.infra_resolve_template")
+@mock.patch("deepfellow.suite.utils.install._SUITE_BUILTIN_TEMPLATES", frozenset({"workspace", "other"}))
+@_patch_all_steps
+def test_install_resume_prints_vram_estimate_of_persisted_template_not_passed_one(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_infra_resolve_template: Mock,
+    mock_server_resolve_template: Mock,
+    mock_print_vram_estimate: Mock,
+) -> None:
+    mock_infra_resolve_template.side_effect = lambda name: (
+        INFRA_BUILTIN_TEMPLATES["workspace"] if name == "workspace" else _FAKE_TWO_ACTION_TEMPLATE
+    )
+    mock_server_resolve_template.side_effect = lambda name: (
+        SERVER_BUILTIN_TEMPLATES["workspace"] if name == "workspace" else _FAKE_TWO_ACTION_TEMPLATE
+    )
+    mock_load_state.return_value = SuiteInstallState(
+        completed_steps=["infra_config", "server_config"], template="workspace"
+    )
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = _make_workspace()
+
+    install(
+        admin_name="Admin",
+        admin_email="admin@example.com",
+        admin_password="Sup3r$ecret!",
+        resume=True,
+        template="other",
+    )
+
+    assert mock_print_vram_estimate.call_count == 1
+    assert mock_print_vram_estimate.call_args == mock.call(_WORKSPACE_POST_START_ACTIONS)
+
+
+@mock.patch("deepfellow.suite.utils.vram.echo")
+@_patch_all_steps
+def test_install_non_interactive_prints_vram_estimate_without_extra_prompt(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_vram_echo: Mock,
+) -> None:
+    mock_load_state.return_value = None
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = _make_workspace()
+    state.non_interactive = True
+
+    install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
+
+    assert mock_vram_echo.info.call_count == 1
+    assert mock_echo.confirm.call_count == 0
+    assert mock_echo.prompt_until_valid.call_count == 0
+    assert mock_delete_state.call_count == 1

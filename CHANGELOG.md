@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 - `changelog-check` CI job needs an `[Unreleased]` entry (skip: `[skip changelog-check]` in MR title).
 - `--bind-address` (`--server-bind-address`/`--infra-bind-address` in `suite install`) publishes the API port on one address only
+- `deepfellow suite install` now prints the estimated VRAM of the models its template installs before it asks for anything, so you can stop before a long install on a GPU that is too small. The figures cover model weights only; the context window and runtime overhead come on top.
 
 ### Changed
 - `infra connect`/`disconnect` help now calls the network a Mesh
