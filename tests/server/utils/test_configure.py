@@ -569,6 +569,88 @@ def test_configure_vector_db_managed_qdrant_generates_credentials(mock_echo, moc
     assert env["DF_VECTOR_DATABASE__EMBEDDING__MODEL"] == SPARSE_EMBEDDING_MODEL
 
 
+@mock.patch("deepfellow.server.utils.configure.is_custom_vectordb", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.should_use_vector_db", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_vector_db_managed_qdrant_warns_about_large_data_volumes(
+    mock_echo, mock_should_use_vector_db, mock_is_custom
+):
+    mock_echo.choice.return_value = "qdrant"
+    mock_echo.prompt_until_valid.return_value = "http://qdrant:6333"
+
+    configure_vector_db(
+        "http://infra:8086",
+        {},
+        1,
+        "qdrant",
+        "http://qdrant:6333",
+        "",
+        "",
+        "",
+        "",
+        "",
+        True,
+        "qdrant",
+    )
+
+    assert mock_echo.warning.call_count == 1
+    assert "not suited for large data volumes" in mock_echo.warning.call_args[0][0]
+
+
+@mock.patch("deepfellow.server.utils.configure.is_custom_vectordb", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.should_use_vector_db", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_vector_db_custom_qdrant_does_not_warn_about_large_data_volumes(
+    mock_echo, mock_should_use_vector_db, mock_is_custom
+):
+    mock_echo.choice.return_value = "qdrant"
+    mock_echo.prompt_until_valid.return_value = "http://custom-qdrant:6333"
+
+    configure_vector_db(
+        "http://infra:8086",
+        {},
+        1,
+        "qdrant",
+        "http://custom-qdrant:6333",
+        "",
+        "",
+        "",
+        "",
+        "",
+        True,
+        "qdrant",
+    )
+
+    assert mock_echo.warning.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.is_custom_vectordb", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.should_use_vector_db", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_vector_db_managed_milvus_does_not_warn_about_large_data_volumes(
+    mock_echo, mock_should_use_vector_db, mock_is_custom
+):
+    mock_echo.choice.return_value = "milvus"
+    mock_echo.prompt_until_valid.return_value = "http://milvus:19530"
+
+    configure_vector_db(
+        "http://infra:8086",
+        {},
+        1,
+        "milvus",
+        "http://milvus:19530",
+        "",
+        "",
+        "",
+        "",
+        "",
+        True,
+        "milvus",
+    )
+
+    assert mock_echo.warning.call_count == 0
+
+
 @mock.patch("deepfellow.server.utils.configure.is_custom_vectordb", return_value=True)
 @mock.patch("deepfellow.server.utils.configure.should_use_vector_db", return_value=True)
 @mock.patch("deepfellow.server.utils.configure.echo")
