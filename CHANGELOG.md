@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `changelog-check` CI job needs an `[Unreleased]` entry (skip: `[skip changelog-check]` in MR title).
 - `--bind-address` (`--server-bind-address`/`--infra-bind-address` in `suite install`) publishes the API port on one address only
 - `deepfellow suite install` now prints the estimated VRAM of the models its template installs before it asks for anything, so you can stop before a long install on a GPU that is too small. The figures cover model weights only; the context window and runtime overhead come on top.
+- `deepfellow server install` now warns when it sets up a local Qdrant: Qdrant keeps its index in memory and can stop responding once the data grows past about 5 GB, so it is not suited for large data volumes. The warning suggests Milvus (`--vectordb-type milvus`) instead.
 
 ### Changed
 - `infra connect`/`disconnect` help now calls the network a Mesh

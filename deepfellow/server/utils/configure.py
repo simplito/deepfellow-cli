@@ -334,6 +334,11 @@ def configure_vector_db(
         vectordb_database_name,
     ):
         echo.info(f"DeepFellow will manage a {vectordb_type.capitalize()} instance.")
+        if vectordb_type == "qdrant":
+            echo.warning(
+                "Qdrant keeps its index in RAM and can stop responding once the data grows past ~5 GB. "
+                "It is not suited for large data volumes - choose Milvus (--vectordb-type milvus) for those."
+            )
         vector_database = deepcopy(VECTOR_DATABASES[vectordb_type])
         vector_database["embedding"] = _build_embedding_config(
             embedding_type,
