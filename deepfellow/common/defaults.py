@@ -385,7 +385,7 @@ DOCKER_COMPOSE_SERVER_FALKORDB_ENVS = [
 DOCKER_COMPOSE_FALKORDB = {
     "falkordb": {
         "container_name": "falkordb",
-        "image": "falkordb/falkordb:v4.12.4",
+        "image": "falkordb/falkordb:v4.22.2@sha256:03f53c46223ac2c0aab05ede7c6a8d9299255b7fd228909424f2c453f7a8cfcd",
         "restart": "always",
         "expose": ["6379", "3000"],
         "volumes": ["falkordb_data:/var/lib/falkordb/data"],
@@ -436,7 +436,7 @@ DOCKER_COMPOSE_SERVER_RABBITMQ_ENVS = [
 DOCKER_COMPOSE_RABBITMQ: dict[str, Any] = {
     "rabbitmq": {
         "container_name": "rabbitmq",
-        "image": "rabbitmq:4.3.6-management",
+        "image": "rabbitmq:4.3.6-management@sha256:54cb013d76cd1fd6c0a0708f34062ad61c452bb6f016b434c6c33f1a765d2b58",
         "hostname": "rabbitmq",
         "restart": "always",
         "expose": [str(DF_RABBITMQ_PORT), str(DF_RABBITMQ_MANAGEMENT_PORT)],
@@ -499,7 +499,10 @@ DEFAULT_OTEL_URL = "http://otel-collector:4317"
 DOCKER_COMPOSE_OTEL_COLLECTOR = {
     "otel-collector": {
         "container_name": "otel-collector",
-        "image": "otel/opentelemetry-collector-contrib:0.133.0",
+        "image": (
+            "otel/opentelemetry-collector-contrib:0.133.0"
+            "@sha256:98274b756324abdb2473fa0c898247a246091e861e61d1548f9be483198eecea"
+        ),
         "volumes": ["./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml"],
         "expose": [
             "4317",  # OTLP gRPC receiver
