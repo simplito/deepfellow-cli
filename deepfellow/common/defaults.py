@@ -199,7 +199,7 @@ DOCKER_COMPOSE_SERVER_VECTOR_DB_MILVUS_ENVS = [
 DOCKER_COMPOSE_QDRANT = {
     "qdrant": {
         "container_name": "qdrant",
-        "image": "qdrant/qdrant:v1.15",
+        "image": "qdrant/qdrant:v1.19.2@sha256:b7b0444c4c351c970b98e90a6f89c2ee4287c65b44e52b4cb503fa5b2aa927ad",
         "restart": "always",
         "expose": [6333, 6334, 6335],
         "volumes": ["qdrant_data:/qdrant/storage"],
@@ -223,7 +223,7 @@ DOCKER_COMPOSE_QDRANT = {
 DOCKER_COMPOSE_MILVUS = {
     "etcd": {
         "container_name": "etcd",
-        "image": "quay.io/coreos/etcd:v3.5.18",
+        "image": "quay.io/coreos/etcd:v3.5.34@sha256:2c029095680c13c2b36116cc3935e1b0cddc0f5af78004457fd863616d8d072b",
         "environment": [
             "ETCD_AUTO_COMPACTION_MODE=revision",
             "ETCD_AUTO_COMPACTION_RETENTION=1000",
@@ -238,6 +238,7 @@ DOCKER_COMPOSE_MILVUS = {
         "healthcheck": {
             "test": ["CMD", "etcdctl", "endpoint", "health"],
             "interval": "60s",
+            "start_period": "30s",
             "timeout": "30s",
             "retries": 3,
         },
@@ -246,7 +247,7 @@ DOCKER_COMPOSE_MILVUS = {
         "container_name": "seaweedfs",
         # minio/minio has removed most historical release tags from Docker Hub, so we use
         # SeaweedFS's S3 gateway as an S3-compatible drop-in replacement for Milvus' object storage.
-        "image": "chrislusf/seaweedfs:3.97",
+        "image": "chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d",
         "volumes": [
             "seaweedfs:/data",
             "./seaweedfs_s3_config.json:/etc/seaweedfs/s3_config.json",
@@ -280,7 +281,7 @@ DOCKER_COMPOSE_MILVUS = {
     },
     "milvus": {
         "container_name": "milvus",
-        "image": "milvusdb/milvus:v2.6.2",
+        "image": "milvusdb/milvus:v2.6.25@sha256:29f7668e64df1c6d5cdadbfbee99f38c72e4001054f149a298725acae57230ad",
         "command": "milvus run standalone",
         "security_opt": ["seccomp:unconfined"],
         "environment": [
@@ -345,7 +346,7 @@ EOF
 DOCKER_COMPOSE_MONGO_DB = {
     "mongo": {
         "container_name": "mongo",
-        "image": "mongo:8.2.7@sha256:7abfba0d07c9330373f8173981ea4d09cd8a82cdf0e86ccaf7008848d1d24f62",
+        "image": "mongo:8.2.12@sha256:e0ce8c35124d4a9f9785532d1f268f39e9728ffa1cb38f46fa482436424c4bd3",
         "restart": "always",
         "ports": [f"{INTERNAL_BIND_ADDRESS}:${{DF_MONGO_PORT}}:27017"],
         "volumes": [

@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Changed
+- `server install` sets up Milvus 2.6.25, etcd 3.5.34, SeaweedFS 4.48, Qdrant 1.19.2 and MongoDB 8.2.12; existing installs keep their versions unless reinstalled
+
+### Fixed
+- Milvus installs start up to a minute faster
+
 ## [0.36.0] - 2026-10-21
 
 ### Added
