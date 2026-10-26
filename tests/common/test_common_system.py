@@ -28,6 +28,35 @@ def test_run_returns_stdout_on_success(mock_subprocess_run: Mock, directory: Pat
     assert result == "output"
 
 
+@mock.patch("deepfellow.common.system.subprocess.run")
+def test_run_extra_env_is_merged_into_subprocess_env(mock_subprocess_run: Mock, directory: Path) -> None:
+    mock_subprocess_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="")
+
+    run(["echo", "hi"], cwd=directory, extra_env={"DF_TEST_SECRET": "hunter2"})
+
+    env = mock_subprocess_run.call_args.kwargs["env"]
+    assert env["DF_TEST_SECRET"] == "hunter2"
+    assert "PATH" in env
+
+
+@mock.patch("deepfellow.common.system.echo")
+@mock.patch("deepfellow.common.system.subprocess.run")
+def test_run_extra_env_values_are_not_logged_on_failure(
+    mock_subprocess_run: Mock, mock_echo: Mock, directory: Path
+) -> None:
+    mock_subprocess_run.side_effect = subprocess.CalledProcessError(1, ["docker"], stderr="boom")
+
+    with pytest.raises(_CustomError):
+        run(
+            ["docker", "-e", "DF_TEST_SECRET"],
+            cwd=directory,
+            raises=_CustomError,
+            extra_env={"DF_TEST_SECRET": "hunter2"},
+        )
+
+    assert "hunter2" not in str(mock_echo.debug.call_args)
+
+
 @mock.patch("deepfellow.common.system.echo")
 @mock.patch("deepfellow.common.system.subprocess.run")
 def test_run_called_process_error_raises_custom_exception(

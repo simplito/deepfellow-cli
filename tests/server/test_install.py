@@ -2496,13 +2496,13 @@ def test_apply_exits_when_minio_migration_fails(
     install_config.vectordb_type = "milvus"
     install_config.legacy_minio_service = _OLD_MINIO_SERVICE
     install_config.keep_legacy_minio = False
-    mock_migrate.side_effect = DockerError("mc mirror failed")
+    mock_migrate.side_effect = DockerError("rclone copy failed")
 
     with pytest.raises(typer.Exit):
         apply(install_config)
 
     assert mock_echo.error.call_count == 1
-    assert mock_echo.error.call_args == mock.call("Failed to migrate MinIO data to SeaweedFS: mc mirror failed")
+    assert mock_echo.error.call_args == mock.call("Failed to migrate MinIO data to SeaweedFS: rclone copy failed")
     assert mock_save_compose.call_count == 0
 
 

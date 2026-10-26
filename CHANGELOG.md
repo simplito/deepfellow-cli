@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 - Milvus installs start up to a minute faster
 - FalkorDB no longer crashes on restart once the knowledge graph holds embeddings: `server install` sets up FalkorDB 4.22.2 (existing installs: reinstall)
+- `server install` can migrate legacy MinIO-backed Milvus data to SeaweedFS again
 
 ## [0.36.0] - 2026-10-21
 

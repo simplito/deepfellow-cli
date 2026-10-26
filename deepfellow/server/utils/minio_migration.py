@@ -45,7 +45,7 @@ MIGRATION_SKIPPED_LABEL = "deepfellow.migration-skipped=minio-seaweedfs"
 # chose to keep MinIO forever - see `should_keep_existing_minio()`.
 MIGRATION_SKIPPED_LABEL_CONFIRMED = "deepfellow.migration-skip-confirmed=minio-seaweedfs"
 
-# Written the moment `mc mirror` verifiably succeeds - before any of apply()'s later, unrelated
+# Written the moment `rclone copy` verifiably succeeds - before any of apply()'s later, unrelated
 # fallible steps (init-mongo.sh write, directory mkdir()s, the final save_compose_file()) get a
 # chance to fail. compose.yaml itself isn't updated until apply() finishes building and writes the
 # whole thing, so without this marker a retry after one of those later failures would still find
@@ -53,7 +53,8 @@ MIGRATION_SKIPPED_LABEL_CONFIRMED = "deepfellow.migration-skip-confirmed=minio-s
 # that's already in SeaweedFS's format.
 _MIGRATION_MARKER_FILENAME = ".seaweedfs_migration_complete"
 
-_MC_IMAGE = "quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z"
+_RCLONE_IMAGE = "rclone/rclone:1.75.2@sha256:2687085f718d3c628f7fdfb77c52a1d344332aed543110bb88088f2c70d43eb5"
+_RCLONE_PROVIDERS = {"SRC": "Minio", "DST": "Other"}
 _HEALTH_POLL_ATTEMPTS = 30
 _HEALTH_POLL_INTERVAL_SECONDS = 2
 _STOP_TIMEOUT_SECONDS = 30
@@ -273,7 +274,7 @@ def _old_minio_mount_path(old_service: dict[str, Any]) -> str:
     always gives this service's data volume - rather than just taking the first volume entry with
     any target. Picking the first entry regardless of source would misidentify the mount path on a
     compose.yaml with an extra bind mount ahead of the data volume (e.g. a hand-added TLS cert
-    mount): the migration container would then be launched against an empty path, `mc mirror` would
+    mount): the migration container would then be launched against an empty path, `rclone copy` would
     report success after copying nothing, and the real backup - the only surviving copy once the
     real volume is wiped - would be deleted believing the migration succeeded.
 
@@ -338,7 +339,7 @@ def _wait_until_running(container: str) -> None:
     These containers are started with a plain `docker run`, not through Compose, so they never get
     a container-level `HEALTHCHECK` - only `.State.Running` is meaningful here. Actual S3 readiness
     (the process being up doesn't mean its listener is accepting connections yet) is checked
-    separately, via retrying the real `mc` call once both containers are running.
+    separately, via retrying the real `rclone` call once both containers are running.
     """
     for _ in range(_HEALTH_POLL_ATTEMPTS):
         try:
@@ -357,85 +358,126 @@ def _wait_until_running(container: str) -> None:
     raise DockerError(f"Container '{container}' never started while migrating MinIO data.")
 
 
-def _run_mc_mirror_with_retry(
+def _rclone_command(
+    docker_network: str, remotes: dict[str, tuple[str, str, str]], *args: str
+) -> tuple[list[str], dict[str, str]]:
+    """Build a `docker run` of the rclone image, with the given remotes configured via env vars.
+
+    `remotes` maps a remote name (`SRC` or `DST`) to its `(container, access_key, secret_key)` endpoint.
+
+    Defining the remotes through `RCLONE_CONFIG_<REMOTE>_*` variables means no config
+    file or alias-setup step is needed, and the credentials never pass through a shell, so there is
+    nothing to quote.
+
+    Returns the argv and the environment to run it with. The secret keys are passed to docker by
+    name only (`-e NAME`) and their values live solely in that environment, so they show up neither
+    in the host process list nor in `run()`'s debug log.
+    """
+    command = ["docker", "run", "--rm", "--network", docker_network]
+    env: dict[str, str] = {}
+    for remote, (container, access_key, secret_key) in remotes.items():
+        provider = _RCLONE_PROVIDERS[remote]
+        prefix = f"RCLONE_CONFIG_{remote}_"
+        command += [
+            "-e", f"{prefix}TYPE=s3",
+            "-e", f"{prefix}PROVIDER={provider}",
+            "-e", f"{prefix}ENDPOINT=http://{container}:9000",
+            "-e", f"{prefix}ACCESS_KEY_ID={access_key}",
+            "-e", f"{prefix}SECRET_ACCESS_KEY",
+        ]  # fmt: skip
+        env[f"{prefix}SECRET_ACCESS_KEY"] = secret_key
+    return [*command, _RCLONE_IMAGE, *args], env
+
+
+def _run_rclone_copy_with_retry(
     docker_network: str, src_user: str, src_password: str, src_container: str, dst_container: str
 ) -> None:
-    """Mirror every object from the source to the destination, retrying until both S3 APIs answer.
+    """Copy every object from the source to the destination, retrying until both S3 APIs answer.
 
     Both servers reporting as running doesn't mean their S3 listener is already accepting
-    connections - retrying the real `mc` call is a more reliable readiness signal than polling
+    connections - retrying the real `rclone` call is a more reliable readiness signal than polling
     Docker container state for something neither container actually reports.
 
-    The `dst` alias always authenticates with `SEAWEEDFS_S3_ACCESS_KEY`/`SEAWEEDFS_S3_SECRET_KEY`,
+    `rclone copy` never deletes anything on the destination, and creates the destination's buckets
+    as it goes (`--create-empty-src-dirs` also recreates empty ones, as `mc mirror` did).
+
+    rclone's own retries are limited to one attempt (and a 5s connect timeout) so this loop is the
+    only readiness retry; with rclone's defaults a single attempt against a closed port can block
+    for minutes.
+
+    The `DST` remote always authenticates with `SEAWEEDFS_S3_ACCESS_KEY`/`SEAWEEDFS_S3_SECRET_KEY`,
     never `src_user`/`src_password` - the destination is a temporary SeaweedFS container loaded with
     `SEAWEEDFS_S3_CONFIG`'s identity (see `_launch_migration_containers()`), which only ever
-    recognizes those fixed credentials. Using the *old* MinIO's real credentials for `dst` as well
+    recognizes those fixed credentials. Using the *old* MinIO's real credentials for `DST` as well
     would authenticate against the wrong identity on any install with non-default MinIO credentials,
     making every such migration fail.
     """
-    mc_script = (
-        f"mc alias set src http://{src_container}:9000 {shlex.quote(src_user)} {shlex.quote(src_password)} && "
-        f"mc alias set dst http://{dst_container}:9000 "
-        f"{shlex.quote(SEAWEEDFS_S3_ACCESS_KEY)} {shlex.quote(SEAWEEDFS_S3_SECRET_KEY)} && "
-        "mc mirror --overwrite src/ dst/"
+    command, env = _rclone_command(
+        docker_network,
+        {
+            "SRC": (src_container, src_user, src_password),
+            "DST": (dst_container, SEAWEEDFS_S3_ACCESS_KEY, SEAWEEDFS_S3_SECRET_KEY),
+        },
+        "copy",
+        "--create-empty-src-dirs",
+        "--retries",
+        "1",
+        "--low-level-retries",
+        "1",
+        "--contimeout",
+        "5s",
+        "SRC:",
+        "DST:",
     )
-    command = ["docker", "run", "--rm", "--network", docker_network, "--entrypoint", "sh", _MC_IMAGE, "-c", mc_script]
 
     for attempt in range(1, _HEALTH_POLL_ATTEMPTS):
         try:
-            run(command, capture_output=True, raises=DockerError)
+            run(command, capture_output=True, raises=DockerError, extra_env=env)
         except DockerError as exc:
-            echo.debug(f"mc mirror attempt {attempt}/{_HEALTH_POLL_ATTEMPTS - 1} not ready yet: {exc}")
+            echo.debug(f"rclone copy attempt {attempt}/{_HEALTH_POLL_ATTEMPTS - 1} not ready yet: {exc}")
             time.sleep(_HEALTH_POLL_INTERVAL_SECONDS)
         else:
             return
 
     # Final attempt: let a failure here raise on its own, instead of retrying forever.
-    run(command, capture_output=True, raises=DockerError)
+    run(command, capture_output=True, raises=DockerError, extra_env=env)
 
 
-def _mc_object_count(docker_network: str, alias: str, user: str, password: str, container: str) -> int:
-    """Return the total object count `mc du --json <alias>` reports across however many buckets exist.
+def _rclone_object_count(docker_network: str, remote: str, user: str, password: str, container: str) -> int:
+    """Return the total object count `rclone size --json <remote>:` reports across every bucket.
 
-    `mc du --json` prints one JSON line per bucket, not a single summary line - a fresh/empty
-    install has zero buckets (zero output lines), and a real Milvus layout can have several. Summing
-    every line's `objects` field, rather than assuming exactly one, keeps this correct for any bucket
-    count. One `docker run` per side (instead of both `mc du` calls concatenated into a single
-    output) is what makes that safe: with a shared alias-setup script and a variable number of lines
-    per side, there would be no reliable way to tell where the source's bucket lines end and the
-    destination's begin.
+    `rclone size` totals the whole remote in a single JSON object, so a fresh/empty install (zero
+    buckets) is simply a count of 0 and any number of buckets is already summed. One `docker run`
+    per side keeps each count tied to its own credentials: only the queried `remote` is configured.
     """
-    script = (
-        f"mc alias set {alias} http://{container}:9000 {shlex.quote(user)} {shlex.quote(password)} && "
-        f"mc du --json {alias}"
+    command, env = _rclone_command(
+        docker_network, {remote: (container, user, password)}, "size", "--json", f"{remote}:"
     )
-    command = ["docker", "run", "--rm", "--network", docker_network, "--entrypoint", "sh", _MC_IMAGE, "-c", script]
-    output = run(command, capture_output=True, raises=DockerError) or ""
-    lines = [line for line in output.splitlines() if line.strip()]
+    output = run(command, capture_output=True, raises=DockerError, extra_env=env) or ""
 
     try:
-        return sum(int(json.loads(line).get("objects", 0)) for line in lines)
-    except (json.JSONDecodeError, TypeError, ValueError) as exc:
-        raise DockerError(f"Could not parse `mc du` output while verifying the migration: {output!r}") from exc
+        return int(json.loads(output)["count"])
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        raise DockerError(f"Could not parse `rclone size` output while verifying the migration: {output!r}") from exc
 
 
 def _mirror_object_counts(
     docker_network: str, src_user: str, src_password: str, src_container: str, dst_container: str
 ) -> tuple[int, int]:
-    """Return (source, destination) object counts, to verify a "successful" `mc mirror` actually moved data.
+    """Return (source, destination) object counts, to verify a "successful" `rclone copy` actually moved data.
 
-    `mc mirror` exits 0 both when it genuinely mirrors everything and when its source is empty for
+    `rclone copy` exits 0 both when it genuinely copies everything and when its source is empty for
     any other reason (e.g. the source container was launched against the wrong mount path - see
     `_old_minio_mount_path()` - or a credential mismatch hides every bucket). Between the real
     volume being wiped and the temp volume being removed, the temp volume is the only surviving
     copy of the original data, so a mismatch here must be caught before that removal happens.
 
-    The `dst` side is always counted with `SEAWEEDFS_S3_ACCESS_KEY`/`SEAWEEDFS_S3_SECRET_KEY` - see
-    `_run_mc_mirror_with_retry()` for why the destination never uses the old MinIO's own credentials.
+    The destination is always counted with `SEAWEEDFS_S3_ACCESS_KEY`/`SEAWEEDFS_S3_SECRET_KEY` - see
+    `_run_rclone_copy_with_retry()` for why the destination never uses the old MinIO's own credentials.
     """
-    src_objects = _mc_object_count(docker_network, "src", src_user, src_password, src_container)
-    dst_objects = _mc_object_count(
-        docker_network, "dst", SEAWEEDFS_S3_ACCESS_KEY, SEAWEEDFS_S3_SECRET_KEY, dst_container
+    src_objects = _rclone_object_count(docker_network, "SRC", src_user, src_password, src_container)
+    dst_objects = _rclone_object_count(
+        docker_network, "DST", SEAWEEDFS_S3_ACCESS_KEY, SEAWEEDFS_S3_SECRET_KEY, dst_container
     )
     return src_objects, dst_objects
 
@@ -445,7 +487,7 @@ def _verify_mirror_completed(
 ) -> None:
     """Raise `DockerError` if the destination ended up with fewer objects than the source.
 
-    See `_mirror_object_counts()` for why this check exists: a `mc mirror` that exits 0 is not on
+    See `_mirror_object_counts()` for why this check exists: an `rclone copy` that exits 0 is not on
     its own proof that anything was actually copied.
     """
     src_objects, dst_objects = _mirror_object_counts(
@@ -453,7 +495,7 @@ def _verify_mirror_completed(
     )
     if dst_objects < src_objects:
         raise DockerError(
-            f"mc mirror reported success, but the destination only has {dst_objects} objects "
+            f"rclone copy reported success, but the destination only has {dst_objects} objects "
             f"versus {src_objects} on the source - refusing to treat this as a completed migration."
         )
 
@@ -462,7 +504,7 @@ def _cleanup_migration_containers(src_container: str, dst_container: str) -> Non
     """Best-effort teardown of the two migration containers, one failure at a time.
 
     Only the containers - never the temp volume, which may still hold the sole surviving copy of
-    the user's data if the migration failed before `mc mirror` finished. Removing the temp volume
+    the user's data if the migration failed before `rclone copy` finished. Removing the temp volume
     is the caller's responsibility, done only once the migration has verifiably succeeded.
     """
     for container in (src_container, dst_container):
@@ -637,8 +679,8 @@ def migrate_minio_data_to_seaweedfs(directory: Path, docker_network: str, old_se
 
     Otherwise: copies the old `minio` volume's raw bytes (read-only, never written to) into a
     disposable staging volume, runs the old MinIO image against that staging copy and a brand-new
-    `seaweedfs` volume side by side, mirrors every object across via `mc mirror`, and confirms the
-    destination's object count is at least the source's before trusting that result (`mc mirror`
+    `seaweedfs` volume side by side, mirrors every object across via `rclone copy`, and confirms the
+    destination's object count is at least the source's before trusting that result (`rclone copy`
     exits 0 even when it mirrored nothing). On success, the new `seaweedfs` volume holds the
     migrated data, the now-superseded `minio` volume and the staging volume are both removed, and
     the migration containers are cleaned up.
@@ -716,9 +758,9 @@ def migrate_minio_data_to_seaweedfs(directory: Path, docker_network: str, old_se
 
         _wait_until_running(src_container)
         _wait_until_running(dst_container)
-        _run_mc_mirror_with_retry(docker_network, user, password, src_container, dst_container)
+        _run_rclone_copy_with_retry(docker_network, user, password, src_container, dst_container)
 
-        # `mc mirror` exits 0 both when it genuinely mirrored everything and when its source was
+        # `rclone copy` exits 0 both when it genuinely copied everything and when its source was
         # empty for an unrelated reason (wrong mount path, credential mismatch) - verify object
         # counts actually match before the old MinIO volume (still intact at this point) is removed
         # below. See `_old_minio_mount_path()` for the concrete scenario this catches.

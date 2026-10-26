@@ -308,9 +308,9 @@ DOCKER_COMPOSE_MILVUS = {
 # Milvus' own bundled config always authenticates against its object storage with these defaults,
 # so every fresh (non-legacy) SeaweedFS install must keep matching identities here - Milvus' config
 # is not customized per-install. `minio_migration.py` also relies on these two constants: the
-# migration's own temporary destination container is loaded with this exact identity file, so `mc
-# mirror`'s destination alias must authenticate with these credentials, not the old MinIO's real
-# ones (which the source alias uses instead).
+# migration's own temporary destination container is loaded with this exact identity file, so the
+# migration's rclone DST remote must authenticate with these credentials, not the old MinIO's real
+# ones (which the SRC remote uses instead).
 SEAWEEDFS_S3_ACCESS_KEY = "minioadmin"
 SEAWEEDFS_S3_SECRET_KEY = "minioadmin"
 

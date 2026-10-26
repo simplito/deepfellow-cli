@@ -13,18 +13,20 @@ from deepfellow.common.docker import DockerError
 from deepfellow.common.state import state
 from deepfellow.server.utils.minio_migration import (
     _HEALTH_POLL_ATTEMPTS,
+    _RCLONE_IMAGE,
     MIGRATION_SKIPPED_LABEL,
     MIGRATION_SKIPPED_LABEL_CONFIRMED,
     _cleanup_migration_containers,
     _command_argv,
     _is_image_cached_locally,
-    _mc_object_count,
     _migration_resource_names,
     _minio_credentials,
     _mirror_object_counts,
     _old_minio_mount_path,
+    _rclone_command,
+    _rclone_object_count,
     _remove_volume,
-    _run_mc_mirror_with_retry,
+    _run_rclone_copy_with_retry,
     _wait_until_running,
     clear_migration_marker,
     ensure_legacy_minio_not_running,
@@ -32,6 +34,9 @@ from deepfellow.server.utils.minio_migration import (
     migrate_minio_data_to_seaweedfs,
     should_keep_existing_minio,
 )
+
+_COPY_FLAGS = ["--create-empty-src-dirs", "--retries", "1", "--low-level-retries", "1", "--contimeout", "5s"]
+_COPY_ARGV = [_RCLONE_IMAGE, "copy", *_COPY_FLAGS, "SRC:", "DST:"]
 
 _OLD_MINIO_SERVICE = {
     "container_name": "minio",
@@ -496,51 +501,103 @@ def test_wait_until_running_retries_past_a_transient_inspect_failure(
 
 @mock.patch("deepfellow.server.utils.minio_migration.time.sleep")
 @mock.patch("deepfellow.server.utils.minio_migration.run", side_effect=DockerError("connection refused"))
-def test_run_mc_mirror_with_retry_raises_last_error_after_exhausting_attempts(
+def test_run_rclone_copy_with_retry_raises_last_error_after_exhausting_attempts(
     mock_run: mock.MagicMock, mock_sleep: mock.MagicMock
 ) -> None:
     with pytest.raises(DockerError, match="connection refused"):
-        _run_mc_mirror_with_retry("df-network", "minioadmin", "minioadmin", "src-container", "dst-container")
+        _run_rclone_copy_with_retry("df-network", "minioadmin", "minioadmin", "src-container", "dst-container")
 
     assert mock_run.call_count == _HEALTH_POLL_ATTEMPTS
 
 
 @mock.patch("deepfellow.server.utils.minio_migration.time.sleep")
 @mock.patch("deepfellow.server.utils.minio_migration.run")
-def test_run_mc_mirror_with_retry_succeeds_once_ready(mock_run: mock.MagicMock, mock_sleep: mock.MagicMock) -> None:
+def test_run_rclone_copy_with_retry_succeeds_once_ready(mock_run: mock.MagicMock, mock_sleep: mock.MagicMock) -> None:
     mock_run.side_effect = [DockerError("connection refused"), "mirrored\n"]
 
-    _run_mc_mirror_with_retry("df-network", "minioadmin", "minioadmin", "src-container", "dst-container")
+    _run_rclone_copy_with_retry("df-network", "minioadmin", "minioadmin", "src-container", "dst-container")
 
     assert mock_run.call_count == 2
     assert mock_sleep.call_count == 1
 
 
+def test_rclone_command_builds_full_docker_run_argv() -> None:
+    command, env = _rclone_command(
+        "df-network",
+        {"SRC": ("src-container", "src-key", "src-secret"), "DST": ("dst-container", "dst-key", "dst-secret")},
+        "copy",
+        "SRC:",
+        "DST:",
+    )
+
+    assert command == [
+        "docker", "run", "--rm", "--network", "df-network",
+        "-e", "RCLONE_CONFIG_SRC_TYPE=s3",
+        "-e", "RCLONE_CONFIG_SRC_PROVIDER=Minio",
+        "-e", "RCLONE_CONFIG_SRC_ENDPOINT=http://src-container:9000",
+        "-e", "RCLONE_CONFIG_SRC_ACCESS_KEY_ID=src-key",
+        "-e", "RCLONE_CONFIG_SRC_SECRET_ACCESS_KEY",
+        "-e", "RCLONE_CONFIG_DST_TYPE=s3",
+        "-e", "RCLONE_CONFIG_DST_PROVIDER=Other",
+        "-e", "RCLONE_CONFIG_DST_ENDPOINT=http://dst-container:9000",
+        "-e", "RCLONE_CONFIG_DST_ACCESS_KEY_ID=dst-key",
+        "-e", "RCLONE_CONFIG_DST_SECRET_ACCESS_KEY",
+        _RCLONE_IMAGE, "copy", "SRC:", "DST:",
+    ]  # fmt: skip
+    assert env == {
+        "RCLONE_CONFIG_SRC_SECRET_ACCESS_KEY": "src-secret",
+        "RCLONE_CONFIG_DST_SECRET_ACCESS_KEY": "dst-secret",
+    }
+
+
 @mock.patch("deepfellow.server.utils.minio_migration.run")
-def test_run_mc_mirror_with_retry_quotes_credentials_with_shell_metacharacters(mock_run: mock.MagicMock) -> None:
-    """A password containing shell metacharacters must not break out of the `sh -c` script."""
-    _run_mc_mirror_with_retry(
+def test_run_rclone_copy_with_retry_passes_credentials_verbatim_without_a_shell(mock_run: mock.MagicMock) -> None:
+    """A password containing shell metacharacters must reach rclone untouched: there is no `sh -c`."""
+    _run_rclone_copy_with_retry(
         "df-network", "user`whoami`", "pass$(rm -rf /) with spaces", "src-container", "dst-container"
     )
 
-    script = mock_run.call_args[0][0][-1]
-    assert "'user`whoami`'" in script
-    assert "'pass$(rm -rf /) with spaces'" in script
+    command = mock_run.call_args[0][0]
+    expected_command, expected_env = _rclone_command(
+        "df-network",
+        {
+            "SRC": ("src-container", "user`whoami`", "pass$(rm -rf /) with spaces"),
+            "DST": ("dst-container", SEAWEEDFS_S3_ACCESS_KEY, SEAWEEDFS_S3_SECRET_KEY),
+        },
+        "copy",
+        *_COPY_FLAGS,
+        "SRC:",
+        "DST:",
+    )
+    assert command == expected_command
+    assert mock_run.call_args.kwargs["extra_env"] == expected_env
+    assert "RCLONE_CONFIG_SRC_ACCESS_KEY_ID=user`whoami`" in command
+    assert expected_env["RCLONE_CONFIG_SRC_SECRET_ACCESS_KEY"] == "pass$(rm -rf /) with spaces"
+    assert "pass$(rm -rf /) with spaces" not in " ".join(command)
 
 
 @mock.patch("deepfellow.server.utils.minio_migration.run")
-def test_run_mc_mirror_with_retry_always_authenticates_dst_with_seaweedfs_defaults(
+def test_run_rclone_copy_with_retry_always_authenticates_dst_with_seaweedfs_defaults(
     mock_run: mock.MagicMock,
 ) -> None:
     """The destination is a fresh SeaweedFS container whose identity file only ever recognizes the
     fixed `SEAWEEDFS_S3_ACCESS_KEY`/`SEAWEEDFS_S3_SECRET_KEY` - using the old MinIO's own,
-    potentially different, credentials for the `dst` alias too would make every migration off a
+    potentially different, credentials for the `DST` remote too would make every migration off a
     non-default MinIO install fail."""
-    _run_mc_mirror_with_retry("df-network", "real-minio-user", "real-minio-password", "src-container", "dst-container")
+    _run_rclone_copy_with_retry(
+        "df-network", "real-minio-user", "real-minio-password", "src-container", "dst-container"
+    )
 
-    script = mock_run.call_args[0][0][-1]
-    assert "mc alias set src http://src-container:9000 real-minio-user real-minio-password" in script
-    assert f"mc alias set dst http://dst-container:9000 {SEAWEEDFS_S3_ACCESS_KEY} {SEAWEEDFS_S3_SECRET_KEY}" in script
+    command = mock_run.call_args[0][0]
+    assert command[-len(_COPY_ARGV) :] == _COPY_ARGV
+    assert "RCLONE_CONFIG_SRC_ENDPOINT=http://src-container:9000" in command
+    assert "RCLONE_CONFIG_SRC_ACCESS_KEY_ID=real-minio-user" in command
+    assert "RCLONE_CONFIG_DST_ENDPOINT=http://dst-container:9000" in command
+    assert f"RCLONE_CONFIG_DST_ACCESS_KEY_ID={SEAWEEDFS_S3_ACCESS_KEY}" in command
+    assert mock_run.call_args.kwargs["extra_env"] == {
+        "RCLONE_CONFIG_SRC_SECRET_ACCESS_KEY": "real-minio-password",
+        "RCLONE_CONFIG_DST_SECRET_ACCESS_KEY": SEAWEEDFS_S3_SECRET_KEY,
+    }
 
 
 @mock.patch("deepfellow.server.utils.minio_migration.echo")
@@ -565,46 +622,59 @@ def test_remove_volume_warns_on_failure(mock_run: mock.MagicMock, mock_echo: moc
 
 
 @mock.patch("deepfellow.server.utils.minio_migration.run")
-def test_mc_object_count_sums_multiple_bucket_lines(mock_run: mock.MagicMock) -> None:
-    """`mc du --json <alias>` prints one JSON line per bucket, not a single summary line."""
-    mock_run.return_value = '{"objects": 5}\n{"objects": 7}\n'
+def test_rclone_object_count_reads_count_from_size_json(mock_run: mock.MagicMock) -> None:
+    mock_run.return_value = '{"count":12,"bytes":4096,"sizeless":0}\n'
 
-    assert _mc_object_count("df-network", "src", "minioadmin", "minioadmin", "src-container") == 12
+    assert _rclone_object_count("df-network", "SRC", "minioadmin", "minioadmin", "src-container") == 12
+    assert mock_run.call_args[0][0][-4:] == [_RCLONE_IMAGE, "size", "--json", "SRC:"]
 
 
-@mock.patch("deepfellow.server.utils.minio_migration.run", return_value="")
-def test_mc_object_count_is_zero_for_a_bucket_less_install(mock_run: mock.MagicMock) -> None:
-    """A fresh/empty MinIO install has zero buckets - zero `mc du` lines must count as 0, not an error."""
-    assert _mc_object_count("df-network", "src", "minioadmin", "minioadmin", "src-container") == 0
+@mock.patch("deepfellow.server.utils.minio_migration.run", return_value='{"count":0,"bytes":0,"sizeless":0}\n')
+def test_rclone_object_count_is_zero_for_a_bucket_less_install(mock_run: mock.MagicMock) -> None:
+    """A fresh/empty MinIO install has zero buckets - `rclone size` reports a count of 0, not an error."""
+    assert _rclone_object_count("df-network", "SRC", "minioadmin", "minioadmin", "src-container") == 0
 
 
 @mock.patch("deepfellow.server.utils.minio_migration.run", return_value="not json\n")
-def test_mc_object_count_raises_on_unparseable_output(mock_run: mock.MagicMock) -> None:
+def test_rclone_object_count_raises_on_unparseable_output(mock_run: mock.MagicMock) -> None:
     with pytest.raises(DockerError, match="Could not parse"):
-        _mc_object_count("df-network", "src", "minioadmin", "minioadmin", "src-container")
+        _rclone_object_count("df-network", "SRC", "minioadmin", "minioadmin", "src-container")
+
+
+@mock.patch("deepfellow.server.utils.minio_migration.run", return_value="{}\n")
+def test_rclone_object_count_raises_when_count_is_missing(mock_run: mock.MagicMock) -> None:
+    with pytest.raises(DockerError, match="Could not parse"):
+        _rclone_object_count("df-network", "SRC", "minioadmin", "minioadmin", "src-container")
 
 
 @mock.patch("deepfellow.server.utils.minio_migration.run")
 def test_mirror_object_counts_queries_each_side_separately_with_its_own_credentials(
     mock_run: mock.MagicMock,
 ) -> None:
-    """The two sides can have any, independent number of buckets (including zero), so each is
-    queried with its own `mc du` invocation rather than one shared, line-count-sensitive call - and
-    the destination always authenticates with the fixed SeaweedFS defaults, never the source's real
-    (potentially different) credentials. See `_mc_object_count()` and `_run_mc_mirror_with_retry()`.
+    """Each side is counted with its own `rclone size` invocation, and the destination always
+    authenticates with the fixed SeaweedFS defaults, never the source's real (potentially
+    different) credentials. See `_rclone_object_count()` and `_run_rclone_copy_with_retry()`.
     """
-    mock_run.side_effect = ['{"objects": 3}\n{"objects": 2}\n', '{"objects": 5}\n']
+    mock_run.side_effect = ['{"count":5,"bytes":1}\n', '{"count":5,"bytes":1}\n']
 
     counts = _mirror_object_counts(
         "df-network", "real-minio-user", "real-minio-password", "src-container", "dst-container"
     )
 
     assert counts == (5, 5)
-    src_script = mock_run.call_args_list[0].args[0][-1]
-    dst_script = mock_run.call_args_list[1].args[0][-1]
-    assert "mc alias set src http://src-container:9000 real-minio-user real-minio-password" in src_script
-    assert (
-        f"mc alias set dst http://dst-container:9000 {SEAWEEDFS_S3_ACCESS_KEY} {SEAWEEDFS_S3_SECRET_KEY}" in dst_script
+    src_command = mock_run.call_args_list[0].args[0]
+    dst_command = mock_run.call_args_list[1].args[0]
+    assert src_command[-1] == "SRC:"
+    assert "RCLONE_CONFIG_SRC_ENDPOINT=http://src-container:9000" in src_command
+    assert "RCLONE_CONFIG_SRC_ACCESS_KEY_ID=real-minio-user" in src_command
+    assert mock_run.call_args_list[0].kwargs["extra_env"]["RCLONE_CONFIG_SRC_SECRET_ACCESS_KEY"] == (
+        "real-minio-password"
+    )
+    assert dst_command[-1] == "DST:"
+    assert "RCLONE_CONFIG_DST_ENDPOINT=http://dst-container:9000" in dst_command
+    assert f"RCLONE_CONFIG_DST_ACCESS_KEY_ID={SEAWEEDFS_S3_ACCESS_KEY}" in dst_command
+    assert mock_run.call_args_list[1].kwargs["extra_env"]["RCLONE_CONFIG_DST_SECRET_ACCESS_KEY"] == (
+        SEAWEEDFS_S3_SECRET_KEY
     )
 
 
@@ -763,7 +833,7 @@ def test_migrate_raises_when_seaweedfs_s3_config_write_fails(
 
 def _fake_run_factory(src_objects: int = 3, dst_objects: int | None = None) -> Any:
     """A `run()` stand-in that answers health-poll inspects as immediately healthy/running, and the
-    post-mirror `mc du` verification with a matching object count on both sides by default.
+    post-copy `rclone size` verification with a matching object count on both sides by default.
     """
     if dst_objects is None:
         dst_objects = src_objects
@@ -771,11 +841,10 @@ def _fake_run_factory(src_objects: int = 3, dst_objects: int | None = None) -> A
     def fake_run(command: Sequence[str], **_kwargs: Any) -> str | None:
         if command[:2] == ["docker", "inspect"]:
             return "true\n"
-        joined = " ".join(str(part) for part in command)
-        if "mc du --json src" in joined:
-            return f'{{"objects": {src_objects}}}\n'
-        if "mc du --json dst" in joined:
-            return f'{{"objects": {dst_objects}}}\n'
+        if "size" in command and command[-1] == "SRC:":
+            return f'{{"count":{src_objects},"bytes":0,"sizeless":0}}\n'
+        if "size" in command and command[-1] == "DST:":
+            return f'{{"count":{dst_objects},"bytes":0,"sizeless":0}}\n'
         return None
 
     return fake_run
@@ -818,7 +887,7 @@ def test_migrate_runs_full_pipeline_and_cleans_up_on_success(
     assert f"{_NEW_VOLUME_NAME}:/data" in dst_run
     assert "--hostname" in dst_run
     assert dst_run[dst_run.index("--hostname") + 1] == "seaweedfs"
-    assert any("mc mirror --overwrite src/ dst/" in " ".join(cmd) for cmd in commands)
+    assert any(cmd[-len(_COPY_ARGV) :] == _COPY_ARGV for cmd in commands)
     # Cleanup on success: stop+rm both containers, remove the staging volume, and finally drop the
     # now-superseded legacy MinIO volume.
     assert ["docker", "stop", "-t", "30", _SRC_CONTAINER] in commands
@@ -874,7 +943,7 @@ def test_migrate_raises_when_marker_file_write_fails_after_successful_mirror(
     side_effect=_resolve_volume_name_side_effect,
 )
 @mock.patch("deepfellow.server.utils.minio_migration.find_legacy_minio_service", return_value=_OLD_MINIO_SERVICE)
-def test_migrate_cleans_up_but_leaves_original_minio_volume_untouched_when_mc_mirror_fails(
+def test_migrate_cleans_up_but_leaves_original_minio_volume_untouched_when_rclone_copy_fails(
     mock_find_legacy: mock.MagicMock,
     mock_resolve_volume: mock.MagicMock,
     mock_volume_exists: mock.MagicMock,
@@ -888,8 +957,8 @@ def test_migrate_cleans_up_but_leaves_original_minio_volume_untouched_when_mc_mi
     fake_run = _fake_run_factory()
 
     def failing_run(command: Sequence[str], **kwargs: Any) -> str | None:
-        if any("mc mirror" in str(part) for part in command):
-            raise DockerError("mc mirror failed")
+        if "copy" in command and _RCLONE_IMAGE in command:
+            raise DockerError("rclone copy failed")
         return fake_run(command, **kwargs)
 
     mock_run.side_effect = failing_run
@@ -924,7 +993,7 @@ def test_migrate_raises_and_leaves_minio_volume_when_object_counts_dont_match(
     mock_echo: mock.MagicMock,
     tmp_path: Path,
 ) -> None:
-    """A successful-looking `mc mirror` that actually moved nothing must not be trusted or drop the original."""
+    """A successful-looking `rclone copy` that actually moved nothing must not be trusted or drop the original."""
     mock_run.side_effect = _fake_run_factory(src_objects=5, dst_objects=0)
 
     with pytest.raises(DockerError, match=_VOLUME_NAME):

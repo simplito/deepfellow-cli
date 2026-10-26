@@ -6,6 +6,7 @@
 import os
 import shutil
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ def run(
     quiet: bool = False,
     shell: bool = False,
     check: bool = True,
+    extra_env: Mapping[str, str] | None = None,
     **kwargs: Any,
 ) -> str | None:
     """Run subbrocess command.
@@ -55,6 +57,8 @@ def run(
         quiet: mute stdout and stderr
         shell: should subrocess run as shell command
         check: should subprocess raise an issue if failed
+        extra_env: additional environment variables for the subprocess only; unlike values placed
+            in `command`, they appear neither in the process list nor in the debug log
         kwargs: pass additional kwargs to subrocess.run
 
     Returns:
@@ -67,6 +71,7 @@ def run(
     cmd = command
     clean_env = os.environ.copy()
     clean_env.pop("VIRTUAL_ENV", None)
+    clean_env.update(extra_env or {})
 
     if quiet and kwargs.get("capture_output"):
         raise SystemError("ERROR: If quiet then not capture_output")
