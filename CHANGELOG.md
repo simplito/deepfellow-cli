@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 - `server install` sets up Milvus 2.6.25, etcd 3.5.34, SeaweedFS 4.48, Qdrant 1.19.2 and MongoDB 8.2.12; existing installs keep their versions unless reinstalled
+- README quickstart installs the same models as `suite install` (`gemma4:e4b`, `mxbai-embed-large`) and lists `gemma3:1b` as a lightweight option
 
 ### Removed
 - Outdated `docs/INSTALL.md`; installation is documented in `README.md`

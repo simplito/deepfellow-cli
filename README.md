@@ -56,8 +56,11 @@ deepfellow infra start
 
 ```bash
 deepfellow infra service install ollama
-deepfellow infra model install ollama gemma3:1b
+deepfellow infra model install ollama gemma4:e4b
+deepfellow infra model install ollama mxbai-embed-large
 ```
+
+These are the models `deepfellow suite install` sets up: `gemma4:e4b` for chat and `mxbai-embed-large` for embeddings. On weaker hardware, install `gemma3:1b` instead of `gemma4:e4b` as a lightweight variant.
 
 Pick a model that fits your VRAM — see our [model recommendations](https://docs.deepfellow.ai/docs/installation#install-first-model) and [Supported Models](https://docs.deepfellow.ai/docs/supported-models) for guidance.
 
