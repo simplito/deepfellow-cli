@@ -990,7 +990,7 @@ def test_configure_vector_db_custom_force_provided_embedding_reaches_prompt(
 @mock.patch("deepfellow.server.utils.configure.echo")
 def test_configure_infra_url_uses_prompt_until_valid_with_validate_url(mock_echo):
     """Retrying on an invalid URL is echo.prompt_until_valid's own responsibility (see
-    tests/common/test_common_echo.py) - configure_infra only needs to wire validate_url and a
+    tests/unit/common/test_common_echo.py) - configure_infra only needs to wire validate_url and a
     custom error_message into it, not implement retry itself."""
     mock_echo.prompt_until_valid.side_effect = ["http://infra:8086", "secret-key"]
 
@@ -1040,7 +1040,7 @@ def test_configure_mongo_default_generates_missing_credentials(mock_echo, mock_r
     assert result["DF_MONGO_INITDB_ROOT_USERNAME"]
     assert result["DF_MONGO_INITDB_ROOT_PASSWORD"]
     assert result["DF_MONGO_PORT"] == "27017"
-    # init-mongo.sh is written by apply(), not here - see tests/server/test_install.py - so that
+    # init-mongo.sh is written by apply(), not here - see tests/unit/server/test_install.py - so that
     # resolving config has no filesystem side effect a self-healing repair could silently lose.
     assert not (tmp_directory / "init-mongo.sh").exists()
     assert mock_echo.info.call_count == 1

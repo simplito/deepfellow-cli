@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- Tests are split into `unit`, `integration`, `smoke` and `e2e` folders, with matching `just test-*` commands
 - `server install` sets up Milvus 2.6.25, etcd 3.5.34, SeaweedFS 4.48, Qdrant 1.19.2 and MongoDB 8.2.12; existing installs keep their versions unless reinstalled
 
 ### Removed

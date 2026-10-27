@@ -137,7 +137,7 @@ pytest:
   <<: *uv
   stage: test
   script:
-    - uv run pytest --showlocals --tb=auto -ra --cov deepfellow --cov-branch --cov-report=term-missing --cov-report xml:coverage_cli.xml --no-cov-on-fail tests/
+    - uv run pytest --showlocals --tb=auto -ra --cov deepfellow --cov-branch --cov-report=term-missing --cov-report xml:coverage_cli.xml --no-cov-on-fail tests/unit
   coverage: '/(?i)total.*? (100(?:\.0)?\%|[1-9]?\d(?:\.\d+)?\%)$/'
   artifacts:
     expire_in: 1 week

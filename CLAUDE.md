@@ -8,8 +8,9 @@ All commands use `just` (task runner):
 
 - `just check` — run all checks (ruff lint, ruff format, mypy, pyright, license headers, deptry)
 - `just test` — run all tests with coverage
-- `just test tests/infra/test_service.py` — single test file
-- `just test tests/infra/test_service.py::test_function_name` — single test
+- `just test-unit` / `just test-integration` / `just test-smoke` / `just test-e2e` — run one test type
+- `just test tests/unit/infra/test_service.py` — single test file
+- `just test tests/unit/infra/test_service.py::test_function_name` — single test
 - `just ruff` — lint
 - `just ruff-format` — format
 - `just mypy` — type check (part of `check`)
@@ -28,8 +29,9 @@ All commands use `just` (task runner):
 ## Testing Conventions
 
 - Use plain pytest functions — no TestClass
-- Test file names: `test_<module>.py` (e.g., `tests/infra/test_service.py`)
-- Directory structure mirrors source: `tests/common/`, `tests/infra/`, `tests/server/`
+- Test file names: `test_<module>.py` (e.g., `tests/unit/infra/test_service.py`)
+- Tests are split by type into `tests/unit/`, `tests/integration/`, `tests/smoke/`, `tests/e2e/`
+- Directory structure mirrors source inside each type: `tests/unit/common/`, `tests/unit/infra/`, `tests/unit/server/`
 - Test names include function name + reason: `test_echoblock_run_success`, `test_list_workflows_returns_empty_list`
 - Use **Arrange, Act, Assert** (AAA) pattern in function body
 - Use `@mock.patch` decorators, not `with mock.patch` context managers

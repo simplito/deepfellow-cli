@@ -7,8 +7,9 @@ This file provides guidelines for agentic coding agents operating in this reposi
 All commands should be run using `just` (makefile-like tool):
 
 - Run all tests: `just test`
-- Run a single test file: `just test tests/infra/test_service.py`
-- Run a specific test: `just test tests/infra/test_service.py::test_function_name`
+- Run one test type: `just test-unit`, `just test-integration`, `just test-smoke`, `just test-e2e`
+- Run a single test file: `just test tests/unit/infra/test_service.py`
+- Run a specific test: `just test tests/unit/infra/test_service.py::test_function_name`
 - Lint code: `just ruff`
 - Format code: `just ruff-format`
 - Type check: `just mypy`
@@ -101,7 +102,7 @@ The following common modules are used across both modules:
 
 ## Testing
 - Write tests using pytest framework
-- Tests should be in `tests/` directory following the module structure
+- Tests live in `tests/unit/`, `tests/integration/`, `tests/smoke/` or `tests/e2e/`, following the module structure inside each
 - Each test file should be named `test_<module>.py`
 - Use fixtures for test setup/teardown
 - Tests should be isolated and not depend on each other
