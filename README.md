@@ -40,7 +40,14 @@ Verify with `deepfellow --help`.
 To uninstall:
 
 ```bash
+deepfellow cli uninstall
+```
+
+Or manually, depending on how the installer set it up:
+
+```bash
 uv tool uninstall deepfellow-cli    # or pipx / pip3 uninstall
+rm -rf ~/.deepfellow/cli-venv ~/.local/bin/deepfellow    # dedicated venv (externally managed Python, e.g. Homebrew)
 ```
 
 ## Quickstart
