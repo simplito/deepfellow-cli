@@ -9,15 +9,19 @@ import os
 from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import typer
 import yaml
 
 from deepfellow.common.config import env_to_dict, read_env_file
-from deepfellow.common.defaults import DOCKER_COMPOSE_CONFIG_FILENAME, ServiceConfig
+from deepfellow.common.defaults import DOCKER_COMPOSE_CONFIG_FILENAME, UVICORN_SSL_ENVS, ServiceConfig
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import DockerNetworkError, DockerSocketNotFoundError
 from deepfellow.common.system import run
+
+# Files `ssl-on` keeps in a service's `/ssl`, with their host permissions: the key is owner-only
+SSL_FILE_MODES = {"key.pem": 0o600, "cert.pem": 0o644}
 
 
 class DockerError(Exception):
@@ -114,6 +118,30 @@ def load_compose_file(compose_file: Path = Path(DOCKER_COMPOSE_CONFIG_FILENAME))
         return {"services": {}}
 
     return yaml.safe_load(compose_file.read_text())
+
+
+def load_install_compose_file(directory: Path, service: str, product: str) -> dict[str, Any]:
+    """Load an install's Docker Compose file, exiting when it has no `service`.
+
+    `load_compose_file` returns an empty file for a missing one, so without this check a command
+    would only fail later, on the missing service, after it already asked questions or changed files.
+
+    Args:
+        directory: Directory of the install.
+        service: Docker Compose service the install must have (e.g. `infra`, `server`).
+        product: Name shown to the user (e.g. `Infra`, `Server`).
+
+    Raises:
+        typer.Exit: If the Docker Compose file is missing or has no `service`.
+    """
+    compose_file = directory / DOCKER_COMPOSE_CONFIG_FILENAME
+    compose = load_compose_file(compose_file)
+    if service not in (compose.get("services") or {}):
+        echo.error(f"No DeepFellow {product} installation in {directory}: {compose_file.name} is missing or incomplete")
+        echo.info(f"Call `deepfellow {service} install`")
+        raise typer.Exit(1)
+
+    return compose
 
 
 def _is_rootful_socket(socket_path: str) -> bool:
@@ -311,6 +339,37 @@ def local_url(port: str | int, bind_address: str | None) -> str:
     return f"http://{local_host(bind_address or '')}:{port}"
 
 
+def to_https(url: str) -> str:
+    """Return `url` with an `http://` scheme switched to `https://`; any other URL is returned unchanged."""
+    return f"https://{url.removeprefix('http://')}" if url.startswith("http://") else url
+
+
+def self_signed_cert_name_args(url: str, service: str) -> list[str]:
+    """Return the `openssl req` arguments that name a self-signed certificate for a service.
+
+    The certificate is issued for the host of `url` and is also valid for `localhost`, `127.0.0.1` and
+    the service's name in the Docker network, so it verifies under any of the names the service is reached by.
+
+    Args:
+        url: Public URL of the service.
+        service: Docker Compose service name (e.g. `infra`, `server`).
+    """
+    host = urlparse(url).hostname or "localhost"
+    names = dict.fromkeys(["localhost", "127.0.0.1", service, host])
+    alt_names = [f"IP:{name}" if _is_ip_address(name) else f"DNS:{name}" for name in names]
+    return ["-subj", f"/CN={host}", "-addext", f"subjectAltName={','.join(alt_names)}"]
+
+
+def _is_ip_address(value: str) -> bool:
+    """Whether `value` is an IPv4 or IPv6 address rather than a host name."""
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+
+    return True
+
+
 def _is_unbound_port_mapping(port: object) -> bool:
     """Whether `port` is a plain `host:container` mapping with no host address.
 
@@ -341,6 +400,61 @@ def bind_port_mappings(service: ServiceConfig | dict[str, Any], bind_address: st
         f"{bind_address}:{port}" if _is_unbound_port_mapping(port) else port for port in service["ports"]
     ]
     return True
+
+
+def enable_uvicorn_ssl(service: dict[str, Any]) -> None:
+    """Turn TLS on for a uvicorn-based Docker Compose service (Server, Infra) via `UVICORN_SSL_ENVS`.
+
+    The image's CMD is kept, so the service starts with its usual port and flags.
+
+    Args:
+        service: Docker Compose service definition, updated in place.
+    """
+    environment = [env for env in service.get("environment", []) if env.split("=", 1)[0] not in UVICORN_SSL_ENVS]
+    service["environment"] = [*environment, *(f"{key}={value}" for key, value in UVICORN_SSL_ENVS.items())]
+
+
+def copy_ssl_files_from_service(service: str, ssl_dir: Path, cwd: Path) -> None:
+    """Copy `key.pem` and `cert.pem` from a running service's `/ssl` into `ssl_dir` on the host.
+
+    The files are read with `docker compose exec` because `docker compose cp` fails on some Docker
+    versions for a container with a bind-mounted Docker socket (Infra). The key is written owner-only.
+
+    Args:
+        service: Docker Compose service name (e.g. `infra`, `server`).
+        ssl_dir: Host directory to write the files to.
+        cwd: Directory of the Docker Compose project.
+    """
+    for name, mode in SSL_FILE_MODES.items():
+        content = run(["docker", "compose", "exec", "-T", service, "cat", f"/ssl/{name}"], cwd=cwd, capture_output=True)
+        _write_ssl_file(ssl_dir / name, (content or "").encode(), mode)
+
+
+def copy_ssl_files_from_paths(key_path: Path, cert_path: Path, ssl_dir: Path) -> None:
+    """Copy a key and certificate given by the user into `ssl_dir` as `key.pem` and `cert.pem`.
+
+    The key is written owner-only whatever the permissions of the source file.
+
+    Args:
+        key_path: Path to the user's key file.
+        cert_path: Path to the user's certificate file.
+        ssl_dir: Host directory to write the files to.
+
+    Raises:
+        FileNotFoundError: If either source file is missing; nothing is written then.
+    """
+    key, cert = key_path.read_bytes(), cert_path.read_bytes()
+    _write_ssl_file(ssl_dir / "key.pem", key, SSL_FILE_MODES["key.pem"])
+    _write_ssl_file(ssl_dir / "cert.pem", cert, SSL_FILE_MODES["cert.pem"])
+
+
+def _write_ssl_file(path: Path, content: bytes, mode: int) -> None:
+    """Write `content` to `path` with permissions `mode`."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    # os.open applies `mode` only to a new file, so an existing one gets it here, before the write
+    os.fchmod(fd, mode)
+    with os.fdopen(fd, "wb") as file:
+        file.write(content)
 
 
 def is_service_running(service: str, cwd: Path) -> bool:

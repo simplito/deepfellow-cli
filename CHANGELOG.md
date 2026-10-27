@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 - Tests are split into `unit`, `integration`, `smoke` and `e2e` folders, with matching `just test-*` commands
 - `server install` sets up Milvus 2.6.25, etcd 3.5.34, SeaweedFS 4.48, Qdrant 1.19.2 and MongoDB 8.2.12; existing installs keep their versions unless reinstalled
+- `infra ssl-on` and `server ssl-on` ask for the public https URL and issue the self-signed certificate for its host
 - `infra service install --spec` help says the fields depend on the service and shows the `url` example for `ollama-external`; README explains how to connect Ollama running on the host
 - README quickstart installs the same models as `suite install` (`gemma4:e4b`, `mxbai-embed-large`) and lists `gemma3:1b` as a lightweight option
 
@@ -20,6 +21,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Milvus installs start up to a minute faster
 - FalkorDB no longer crashes on restart once the knowledge graph holds embeddings: `server install` sets up FalkorDB 4.22.2 (existing installs: reinstall)
 - `server install` can migrate legacy MinIO-backed Milvus data to SeaweedFS again
+- `ssl-on` keeps Server and Infra on their ports and startup flags, and stores the https URL in `config.json`
+- `infra ssl-on` no longer fails to copy the generated certificate out of the Infra container
+- `ssl-on` reports a missing install instead of saying the service is not running
+- Security: `ssl-on` stores the SSL key readable by its owner only, also when you pass your own key
 
 ## [0.36.0] - 2026-10-21
 
