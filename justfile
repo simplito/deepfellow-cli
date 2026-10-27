@@ -5,6 +5,18 @@ df *FLAGS:
 test *FLAGS:
     uv run pytest --showlocals --tb=auto -ra --cov deepfellow --cov-branch --cov-report=term-missing --no-cov-on-fail {{FLAGS}}
 
+test-unit *FLAGS:
+    uv run pytest --showlocals --tb=auto -ra --cov deepfellow --cov-branch --cov-report=term-missing --no-cov-on-fail tests/unit {{FLAGS}}
+
+test-integration *FLAGS:
+    uv run pytest --showlocals --tb=auto -ra tests/integration {{FLAGS}}
+
+test-smoke *FLAGS:
+    uv run pytest --showlocals --tb=auto -ra tests/smoke {{FLAGS}}
+
+test-e2e *FLAGS:
+    uv run pytest --showlocals --tb=auto -ra tests/e2e {{FLAGS}}
+
 ruff *FLAGS:
     uv run ruff check deepfellow/ tests/ {{FLAGS}}
 

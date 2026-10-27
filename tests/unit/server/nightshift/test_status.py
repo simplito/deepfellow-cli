@@ -19,7 +19,7 @@ def test_status_delegates_to_shared_print_nightshift_status(
     """The actual mode/schedule/container-state rendering lives in print_nightshift_status() -
     shared with `server status`, which shows the same info alongside the server's own status -
     so the two commands never drift into two different renderings. See
-    tests/server/utils/test_docker.py for the rendering behavior itself."""
+    tests/unit/server/utils/test_docker.py for the rendering behavior itself."""
     status(directory=directory)
 
     assert mock_check_server_directory.call_args == mock.call(directory)
