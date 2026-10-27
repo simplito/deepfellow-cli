@@ -64,6 +64,15 @@ These are the models `deepfellow suite install` sets up: `gemma4:e4b` for chat a
 
 Pick a model that fits your VRAM — see our [model recommendations](https://docs.deepfellow.ai/docs/installation#install-first-model) and [Supported Models](https://docs.deepfellow.ai/docs/supported-models) for guidance.
 
+Already running Ollama on the host? Install `ollama-external` instead of `ollama` to connect to it rather than starting a new Ollama container — on macOS only Ollama running on the host can use the GPU (Metal):
+
+```bash
+deepfellow infra service install ollama-external --spec '{"url": "http://host.docker.internal:11434"}'
+deepfellow infra model install ollama-external gemma3:1b
+```
+
+`--spec` fields depend on the service; unknown fields are ignored, so `url` has no effect on `ollama`.
+
 ### 3. Set up Server (API & management layer)
 
 ```bash

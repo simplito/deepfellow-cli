@@ -19,7 +19,9 @@ def install(
     name: str = typer.Argument(..., help="service name (e.g. ollama)"),
     service_api_key: str | None = typer.Option(None, "--api-key", help="API key for remote services (e.g. claude)"),
     spec: str | None = typer.Option(
-        None, help='Service configuration as a JSON object (e.g. \'{"url": "http://host:11434"}\')'
+        None,
+        help="Service configuration as a JSON object; fields depend on the service "
+        '(e.g. for ollama-external: \'{"url": "http://host.docker.internal:11434"}\')',
     ),
     set_args: Annotated[
         list[str] | None, typer.Option("--set", help="Set a service field (e.g. --set hardware=GPU)")
