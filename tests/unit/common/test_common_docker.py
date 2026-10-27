@@ -17,9 +17,12 @@ from deepfellow.common.docker import (
     _is_rootful_socket,
     add_network_to_service,
     bind_port_mappings,
+    copy_ssl_files_from_paths,
+    copy_ssl_files_from_service,
     create_network,
     docker_ps,
     docker_stats,
+    enable_uvicorn_ssl,
     ensure_network,
     get_container_id,
     get_docker_network,
@@ -36,6 +39,7 @@ from deepfellow.common.docker import (
     is_user_in_docker_group,
     list_networks,
     load_compose_file,
+    load_install_compose_file,
     local_host,
     local_url,
     parse_docker_compose_ps,
@@ -44,6 +48,8 @@ from deepfellow.common.docker import (
     remove_volume,
     resolve_compose_volume_name,
     save_compose_file,
+    self_signed_cert_name_args,
+    to_https,
     volume_exists,
     volume_exists_or_raise,
 )
@@ -1259,3 +1265,179 @@ def test_get_socket_raises_exit_when_rootful_and_yes_flag_does_not_confirm(
         get_socket(allow_rootful=False)
 
     assert mock_ask.call_count == 1
+
+
+def test_enable_uvicorn_ssl_adds_ssl_envs_after_existing_ones() -> None:
+    service = {"environment": ["DF_NAME=infra"]}
+
+    enable_uvicorn_ssl(service)
+
+    assert service["environment"] == [
+        "DF_NAME=infra",
+        "UVICORN_SSL_KEYFILE=/ssl/key.pem",
+        "UVICORN_SSL_CERTFILE=/ssl/cert.pem",
+    ]
+
+
+def test_enable_uvicorn_ssl_replaces_existing_ssl_envs_without_duplicates() -> None:
+    service = {"environment": ["UVICORN_SSL_KEYFILE=/old/key.pem", "DF_NAME=infra", "UVICORN_SSL_CERTFILE=/old.pem"]}
+
+    enable_uvicorn_ssl(service)
+
+    assert service["environment"] == [
+        "DF_NAME=infra",
+        "UVICORN_SSL_KEYFILE=/ssl/key.pem",
+        "UVICORN_SSL_CERTFILE=/ssl/cert.pem",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("http://infra:8086", "https://infra:8086"),
+        ("https://infra:8086", "https://infra:8086"),
+        ("http://example.com/http://path", "https://example.com/http://path"),
+        ("ws://infra:8086", "ws://infra:8086"),
+    ],
+)
+def test_to_https_switches_only_http_scheme(url: str, expected: str) -> None:
+    result = to_https(url)
+
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    ("url", "expected_cn", "expected_alt_names"),
+    [
+        (
+            "https://df.example.com:8086",
+            "df.example.com",
+            "DNS:localhost,IP:127.0.0.1,DNS:infra,DNS:df.example.com",
+        ),
+        ("https://10.0.0.5:8086", "10.0.0.5", "DNS:localhost,IP:127.0.0.1,DNS:infra,IP:10.0.0.5"),
+        ("https://[::1]:8086", "::1", "DNS:localhost,IP:127.0.0.1,DNS:infra,IP:::1"),
+        ("https://infra:8086", "infra", "DNS:localhost,IP:127.0.0.1,DNS:infra"),
+        ("https://localhost:8086", "localhost", "DNS:localhost,IP:127.0.0.1,DNS:infra"),
+    ],
+)
+def test_self_signed_cert_name_args_covers_url_host_and_local_names(
+    url: str, expected_cn: str, expected_alt_names: str
+) -> None:
+    result = self_signed_cert_name_args(url, "infra")
+
+    assert result == ["-subj", f"/CN={expected_cn}", "-addext", f"subjectAltName={expected_alt_names}"]
+
+
+def test_self_signed_cert_name_args_falls_back_to_localhost_without_host() -> None:
+    result = self_signed_cert_name_args("not-a-url", "server")
+
+    assert result == ["-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1,DNS:server"]
+
+
+@mock.patch("deepfellow.common.docker.run")
+def test_copy_ssl_files_from_service_reads_files_with_exec(mock_run: Mock, tmp_path: Path) -> None:
+    mock_run.side_effect = ["KEY\n", "CERT\n"]
+
+    copy_ssl_files_from_service("infra", tmp_path, cwd=tmp_path)
+
+    assert mock_run.call_args_list == [
+        mock.call(
+            ["docker", "compose", "exec", "-T", "infra", "cat", "/ssl/key.pem"], cwd=tmp_path, capture_output=True
+        ),
+        mock.call(
+            ["docker", "compose", "exec", "-T", "infra", "cat", "/ssl/cert.pem"], cwd=tmp_path, capture_output=True
+        ),
+    ]
+    assert (tmp_path / "key.pem").read_text() == "KEY\n"
+    assert (tmp_path / "cert.pem").read_text() == "CERT\n"
+
+
+@mock.patch("deepfellow.common.docker.run", side_effect=["KEY\n", "CERT\n"])
+def test_copy_ssl_files_from_service_writes_key_owner_only(mock_run: Mock, tmp_path: Path) -> None:
+    copy_ssl_files_from_service("server", tmp_path, cwd=tmp_path)
+
+    assert (tmp_path / "key.pem").stat().st_mode & 0o777 == 0o600
+    assert (tmp_path / "cert.pem").stat().st_mode & 0o777 == 0o644
+
+
+@mock.patch("deepfellow.common.docker.run", side_effect=["NEW KEY\n", "NEW CERT\n"])
+def test_copy_ssl_files_from_service_overwrites_existing_key_and_restricts_its_mode(
+    mock_run: Mock, tmp_path: Path
+) -> None:
+    key_file = tmp_path / "key.pem"
+    key_file.write_text("OLD KEY WITH A LONGER BODY\n")
+    key_file.chmod(0o644)
+
+    copy_ssl_files_from_service("server", tmp_path, cwd=tmp_path)
+
+    assert key_file.read_text() == "NEW KEY\n"
+    assert key_file.stat().st_mode & 0o777 == 0o600
+
+
+@mock.patch("deepfellow.common.docker.echo")
+def test_load_install_compose_file_returns_compose_with_service(mock_echo: Mock, tmp_path: Path) -> None:
+    (tmp_path / DOCKER_COMPOSE_CONFIG_FILENAME).write_text("services:\n  infra:\n    image: infra\n")
+
+    result = load_install_compose_file(tmp_path, "infra", "Infra")
+
+    assert result == {"services": {"infra": {"image": "infra"}}}
+    assert mock_echo.error.call_count == 0
+
+
+@mock.patch("deepfellow.common.docker.echo")
+def test_load_install_compose_file_exits_when_file_missing(mock_echo: Mock, tmp_path: Path) -> None:
+    with pytest.raises(typer.Exit) as exc_info:
+        load_install_compose_file(tmp_path, "infra", "Infra")
+
+    assert exc_info.value.exit_code == 1
+    assert mock_echo.error.call_args == mock.call(
+        f"No DeepFellow Infra installation in {tmp_path}: compose.yaml is missing or incomplete"
+    )
+    assert mock_echo.info.call_args == mock.call("Call `deepfellow infra install`")
+
+
+@mock.patch("deepfellow.common.docker.echo")
+def test_load_install_compose_file_exits_when_service_missing(mock_echo: Mock, tmp_path: Path) -> None:
+    (tmp_path / DOCKER_COMPOSE_CONFIG_FILENAME).write_text("services:\n  mongo:\n    image: mongo\n")
+
+    with pytest.raises(typer.Exit):
+        load_install_compose_file(tmp_path, "server", "Server")
+
+    assert mock_echo.error.call_count == 1
+
+
+@mock.patch("deepfellow.common.docker.echo")
+def test_load_install_compose_file_exits_when_file_has_no_services(mock_echo: Mock, tmp_path: Path) -> None:
+    (tmp_path / DOCKER_COMPOSE_CONFIG_FILENAME).write_text("services:\n")
+
+    with pytest.raises(typer.Exit):
+        load_install_compose_file(tmp_path, "server", "Server")
+
+    assert mock_echo.error.call_count == 1
+
+
+def test_copy_ssl_files_from_paths_writes_key_owner_only_whatever_the_source_mode(tmp_path: Path) -> None:
+    source_key, source_cert, ssl_dir = tmp_path / "my-key.pem", tmp_path / "my-cert.pem", tmp_path / "ssl"
+    source_key.write_text("KEY\n")
+    source_key.chmod(0o644)
+    source_cert.write_text("CERT\n")
+    ssl_dir.mkdir()
+
+    copy_ssl_files_from_paths(source_key, source_cert, ssl_dir)
+
+    assert (ssl_dir / "key.pem").read_text() == "KEY\n"
+    assert (ssl_dir / "key.pem").stat().st_mode & 0o777 == 0o600
+    assert (ssl_dir / "cert.pem").read_text() == "CERT\n"
+    assert (ssl_dir / "cert.pem").stat().st_mode & 0o777 == 0o644
+
+
+def test_copy_ssl_files_from_paths_writes_nothing_when_a_source_is_missing(tmp_path: Path) -> None:
+    source_key, ssl_dir = tmp_path / "my-key.pem", tmp_path / "ssl"
+    source_key.write_text("KEY\n")
+    ssl_dir.mkdir()
+
+    with pytest.raises(FileNotFoundError) as exc_info:
+        copy_ssl_files_from_paths(source_key, tmp_path / "missing.pem", ssl_dir)
+
+    assert exc_info.value.filename == str(tmp_path / "missing.pem")
+    assert list(ssl_dir.iterdir()) == []
