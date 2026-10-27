@@ -177,6 +177,26 @@ smoke-test-pip:
   <<: *smoke-test
   image: python:$PYTHON_VERSION
 
+# Debian's system Python is externally managed (PEP 668), so pip refuses a --user
+# install and install.sh must fall back to the dedicated venv. Beyond the shared smoke
+# steps, assert the venv was actually used and that `cli uninstall` removes it again.
+smoke-test-pip-venv:
+  <<: *smoke-test
+  image: debian:bookworm-slim
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq python3 python3-pip python3-venv git
+  script:
+    - bash install.sh
+    - export PATH="$HOME/.local/bin:$PATH"
+    - deepfellow version
+    - deepfellow --help
+    - test "$(readlink "$HOME/.local/bin/deepfellow")" = "$HOME/.deepfellow/cli-venv/bin/deepfellow"
+    - grep -qx "DF_UNINSTALL_COMMAND=rm -rf $HOME/.deepfellow/cli-venv $HOME/.local/bin/deepfellow" "$HOME/.deepfellow/config"
+    - grep -qx "DF_UPDATE_COMMAND=$HOME/.deepfellow/cli-venv/bin/pip install --upgrade ." "$HOME/.deepfellow/config"
+    - deepfellow --yes cli uninstall
+    - test ! -e "$HOME/.deepfellow/cli-venv"
+    - test ! -L "$HOME/.local/bin/deepfellow"
+
 push_to_github:
   stage: release
   image:

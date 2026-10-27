@@ -48,8 +48,10 @@ check_python_version() {
 
 # Check for Python 3.10+
 PYTHON_VERSION=""
+PYTHON_CMD=""
 for cmd in python3 python; do
     if PYTHON_VERSION=$(check_python_version "$cmd"); then
+        PYTHON_CMD="$cmd"
         echo "✓ Found Python $PYTHON_VERSION"
         break
     fi
@@ -63,6 +65,70 @@ fi
 
 UNINSTALL_CMD=""
 UPDATE_CMD=""
+
+DEEPFELLOW_DIR="$HOME/.deepfellow"
+VENV_DIR="$DEEPFELLOW_DIR/cli-venv"
+BIN_DIR="$HOME/.local/bin"
+
+# Install into a dedicated venv and link the entry point into $BIN_DIR. Used when pip
+# refuses a --user install on an externally managed Python (PEP 668, e.g. Homebrew).
+install_in_venv() {
+    echo "Your Python is externally managed (PEP 668), installing into a dedicated venv at $VENV_DIR..."
+    # Only clean up a venv created by this run, never a working one from a previous install.
+    local venv_existed=false
+    [ -d "$VENV_DIR" ] && venv_existed=true
+    if ! "$PYTHON_CMD" -m venv "$VENV_DIR"; then
+        [ "$venv_existed" = false ] && rm -rf "$VENV_DIR"
+        echo "Error: Failed to create a virtual environment with $PYTHON_CMD."
+        echo "Install the venv module (e.g. python3-venv) or install uv or pipx first, then re-run the installer."
+        exit 1
+    fi
+    if ! "$VENV_DIR/bin/pip" install --upgrade "$INSTALL_TARGET"; then
+        [ "$venv_existed" = false ] && rm -rf "$VENV_DIR"
+        echo "Error: Failed to install deepfellow-cli into $VENV_DIR."
+        exit 1
+    fi
+    mkdir -p "$BIN_DIR"
+    ln -sf "$VENV_DIR/bin/deepfellow" "$BIN_DIR/deepfellow"
+
+    case ":$PATH:" in
+        *":$BIN_DIR:"*) ;;
+        *)
+            echo ""
+            echo "⚠ $BIN_DIR is not on your PATH. Add it to your shell profile:"
+            echo "    export PATH=\"$BIN_DIR:\$PATH\""
+            echo ""
+            ;;
+    esac
+
+    UNINSTALL_CMD="rm -rf $(printf '%q' "$VENV_DIR") $(printf '%q' "$BIN_DIR/deepfellow")"
+    UPDATE_CMD="$(printf '%q' "$VENV_DIR/bin/pip") install --upgrade $(printf '%q' "$INSTALL_TARGET")"
+}
+
+# Install with `<pip> install --user`, falling back to a dedicated venv on PEP 668.
+# pip's stderr is held back so its PEP 668 advice (--break-system-packages) is not shown
+# when the venv fallback takes over; any other stderr output is printed after pip exits.
+pip_install_user() {
+    local pip_cmd=$1
+    local stderr_log
+    stderr_log=$(mktemp)
+    if "$pip_cmd" install --user "$INSTALL_TARGET" 2>"$stderr_log"; then
+        cat "$stderr_log" >&2
+        rm -f "$stderr_log"
+        UNINSTALL_CMD="$pip_cmd uninstall deepfellow-cli -y"
+        UPDATE_CMD="$pip_cmd install --user --upgrade deepfellow-cli"
+        return 0
+    fi
+    if grep -q "externally-managed-environment" "$stderr_log"; then
+        rm -f "$stderr_log"
+        install_in_venv
+        return 0
+    fi
+    cat "$stderr_log" >&2
+    rm -f "$stderr_log"
+    echo "Error: $pip_cmd failed to install deepfellow-cli."
+    exit 1
+}
 
 if command -v uv &> /dev/null; then
     echo "Using uv tool install..."
@@ -78,39 +144,11 @@ elif command -v pipx &> /dev/null; then
 
 elif command -v pip3 &> /dev/null; then
     echo "Using pip3..."
-    if ! pip3 install --user "$INSTALL_TARGET" 2>/dev/null; then
-        echo ""
-        echo "⚠ Your system uses PEP 668 protection (externally-managed-environment)."
-        echo "This prevents pip from installing packages globally."
-        echo ""
-        read -p "Install with --break-system-packages? [y/N] " confirm
-        if [[ "$confirm" =~ ^[Yy]$ ]]; then
-            pip3 install --user --break-system-packages "$INSTALL_TARGET"
-        else
-            echo "Installation cancelled. Consider installing uv or pipx first."
-            exit 1
-        fi
-    fi
-    UNINSTALL_CMD="pip3 uninstall deepfellow-cli -y"
-    UPDATE_CMD="pip3 install --user --upgrade deepfellow-cli"
+    pip_install_user pip3
 
 elif command -v pip &> /dev/null; then
     echo "Using pip..."
-    if ! pip install --user "$INSTALL_TARGET" 2>/dev/null; then
-        echo ""
-        echo "⚠ Your system uses PEP 668 protection (externally-managed-environment)."
-        echo "This prevents pip from installing packages globally."
-        echo ""
-        read -p "Install with --break-system-packages? [y/N] " confirm
-        if [[ "$confirm" =~ ^[Yy]$ ]]; then
-            pip install --user --break-system-packages "$INSTALL_TARGET"
-        else
-            echo "Installation cancelled. Consider installing uv or pipx first."
-            exit 1
-        fi
-    fi
-    UNINSTALL_CMD="pip uninstall deepfellow-cli -y"
-    UPDATE_CMD="pip install --user --upgrade deepfellow-cli"
+    pip_install_user pip
 
 else
     echo "Error: No package manager found. Please install Python package manager first (uv / pipx / pip3 / pip)."
@@ -118,7 +156,6 @@ else
 fi
 
 # Save the uninstall and update commands so `deepfellow cli uninstall`/`update` can use them later.
-DEEPFELLOW_DIR="$HOME/.deepfellow"
 mkdir -p "$DEEPFELLOW_DIR"
 CONFIG_FILE="$DEEPFELLOW_DIR/config"
 if [ -f "$CONFIG_FILE" ]; then

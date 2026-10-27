@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Outdated `docs/INSTALL.md`; installation is documented in `README.md`
 
 ### Fixed
+- `install.sh` on an externally managed Python (e.g. Homebrew) installs the CLI into a dedicated venv at `~/.deepfellow/cli-venv`, linked into `~/.local/bin`, instead of offering `--break-system-packages`; `deepfellow cli uninstall` removes the venv
 - Milvus installs start up to a minute faster
 - FalkorDB no longer crashes on restart once the knowledge graph holds embeddings: `server install` sets up FalkorDB 4.22.2 (existing installs: reinstall)
 - `server install` can migrate legacy MinIO-backed Milvus data to SeaweedFS again
