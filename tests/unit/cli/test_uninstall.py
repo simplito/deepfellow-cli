@@ -19,6 +19,14 @@ from deepfellow.common.state import state
 _UV_UNINSTALL_CMD = ["uv", "tool", "uninstall", "deepfellow-cli"]
 
 
+@pytest.fixture(autouse=True)
+def deepfellow_directories(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point uninstall at tmp_path so no test can prune the real ~/.deepfellow."""
+    monkeypatch.setattr("deepfellow.cli.uninstall.DF_DEEPFELLOW_DIRECTORY", tmp_path / ".deepfellow")
+    monkeypatch.setattr("deepfellow.cli.uninstall.DF_INFRA_DIRECTORY", tmp_path / ".deepfellow" / "infra")
+    monkeypatch.setattr("deepfellow.cli.uninstall.DF_SERVER_DIRECTORY", tmp_path / ".deepfellow" / "server")
+
+
 @mock.patch("deepfellow.cli.uninstall.run", return_value="deepfellow-cli 0.4.0")
 @mock.patch("deepfellow.cli.uninstall.is_command_available", return_value=True)
 def test_build_uninstall_command_uses_uv_tool_when_package_listed(mock_is_available: Mock, mock_run: Mock) -> None:
@@ -85,6 +93,7 @@ def test_uninstall_resolves_command_with_uninstall_config_key(
     mock_resolve: Mock, mock_run: Mock, mock_echo: Mock
 ) -> None:
     mock_resolve.return_value = _UV_UNINSTALL_CMD
+    mock_echo.confirm.side_effect = [False, True]  # decline data removal, accept CLI uninstall
 
     uninstall(prune=False)
 
@@ -106,6 +115,8 @@ def test_uninstall_exits_with_error_when_no_package_manager(mock_resolve: Mock, 
 @mock.patch("deepfellow.cli.uninstall.run", return_value="ok")
 @mock.patch("deepfellow.cli.uninstall.resolve_cli_command", return_value=_UV_UNINSTALL_CMD)
 def test_uninstall_runs_detected_command(mock_resolve: Mock, mock_run: Mock, mock_echo: Mock) -> None:
+    mock_echo.confirm.side_effect = [False, True]  # decline data removal, accept CLI uninstall
+
     uninstall(prune=False)
 
     assert mock_run.call_count == 1
@@ -120,6 +131,7 @@ def test_uninstall_runs_detected_command(mock_resolve: Mock, mock_run: Mock, moc
 @mock.patch("deepfellow.cli.uninstall.run", side_effect=typer.Exit(1))
 @mock.patch("deepfellow.cli.uninstall.resolve_cli_command", return_value=_UV_UNINSTALL_CMD)
 def test_uninstall_exits_when_run_fails(mock_resolve: Mock, mock_run: Mock, mock_echo: Mock) -> None:
+    mock_echo.confirm.side_effect = [False, True]  # decline data removal, accept CLI uninstall
 
     with pytest.raises(typer.Exit) as exc_info:
         uninstall(prune=False)
