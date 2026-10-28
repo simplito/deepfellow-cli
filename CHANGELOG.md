@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `infra ssl-on` no longer fails to copy the generated certificate out of the Infra container
 - `ssl-on` reports a missing install instead of saying the service is not running
 - Security: `ssl-on` stores the SSL key readable by its owner only, also when you pass your own key
+- Running the unit tests no longer deletes or creates files in the local `~/.deepfellow` directory
 
 ## [0.36.0] - 2026-10-21
 

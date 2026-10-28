@@ -33,7 +33,6 @@ from deepfellow.common.defaults import (
     DF_SERVER_DIRECTORY,
     DF_SERVER_IMAGE,
     DF_SERVER_PORT,
-    DF_SERVER_STORAGE_DIRECTORY,
     DOCKER_COMPOSE_CONFIG_FILENAME,
     DOCKER_COMPOSE_FALKORDB,
     DOCKER_COMPOSE_MILVUS,
@@ -3765,14 +3764,15 @@ def test_apply_mounts_only_storage_volume_in_nightshift(
     mock_save_compose_file: Mock,
     mock_run: Mock,
     install_config: InstallConfig,
+    server_storage_directory: Path,
 ) -> None:
     apply(install_config)
 
     assert mock_save_compose_file.call_count == 1
     services = mock_save_compose_file.call_args[0][0]["services"]
-    assert services["nightshift"]["volumes"] == [f"{DF_SERVER_STORAGE_DIRECTORY}:/app/storage"]
+    assert services["nightshift"]["volumes"] == [f"{server_storage_directory}:/app/storage"]
     assert services["server"]["volumes"] == [
-        f"{DF_SERVER_STORAGE_DIRECTORY}:/app/storage",
+        f"{server_storage_directory}:/app/storage",
         f"{install_config.directory / 'plugins'}:/app/plugins",
     ]
 
@@ -4002,6 +4002,7 @@ def test_apply_creates_plugins_directory_and_mounts_volume(
     mock_save_compose: Mock,
     mock_run: Mock,
     install_config: InstallConfig,
+    server_storage_directory: Path,
 ) -> None:
     apply(install_config)
 
@@ -4009,7 +4010,7 @@ def test_apply_creates_plugins_directory_and_mounts_volume(
     assert plugins_directory.is_dir()
     compose_dict = mock_save_compose.call_args[0][0]
     volumes = compose_dict["services"]["server"]["volumes"]
-    assert f"{DF_SERVER_STORAGE_DIRECTORY}:/app/storage" in volumes
+    assert f"{server_storage_directory}:/app/storage" in volumes
     assert f"{plugins_directory.as_posix()}:/app/plugins" in volumes
 
 

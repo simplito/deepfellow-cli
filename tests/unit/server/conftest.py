@@ -1,9 +1,18 @@
 # SPDX-License-Identifier: LicenseRef-DeepFellow-Free
 # SPDX-FileCopyrightText: 2026 Simplito sp. z o.o.
 
+from pathlib import Path
 from unittest import mock
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def server_storage_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    storage_directory = tmp_path / "server_storage"
+    monkeypatch.setattr("deepfellow.server.utils.install.DF_SERVER_STORAGE_DIRECTORY", storage_directory)
+    monkeypatch.setattr("deepfellow.server.utils.storage.DF_SERVER_STORAGE_DIRECTORY", storage_directory)
+    return storage_directory
 
 
 @pytest.fixture(autouse=True)
