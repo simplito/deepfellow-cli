@@ -6,8 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- `/opsx:sync` command and `openspec-sync-specs` skill (OpenSpec 1.15.0) sync delta specs from a change into the main specs without archiving it
+
 ### Changed
 - Tests are split into `unit`, `integration`, `smoke` and `e2e` folders, with matching `just test-*` commands
+- OpenSpec commands and skills (`/opsx:*`, `openspec-*`) regenerated with OpenSpec 1.15.0; their MIT notice is in `THIRD_PARTY.md`
 - `server install` sets up Milvus 2.6.25, etcd 3.5.34, SeaweedFS 4.48, Qdrant 1.19.2 and MongoDB 8.2.12; existing installs keep their versions unless reinstalled
 - `infra ssl-on` and `server ssl-on` ask for the public https URL and issue the self-signed certificate for its host
 - `infra service install --spec` help says the fields depend on the service and shows the `url` example for `ollama-external`; README explains how to connect Ollama running on the host
