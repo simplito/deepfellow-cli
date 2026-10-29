@@ -285,6 +285,166 @@ def test_install_writes_given_bind_address_to_env(
 @MOCK_ENSURE_NETWORK
 @MOCK_ASSERT_DOCKER
 @MOCK_ECHO
+def test_install_saves_server_url_to_cli_config_when_missing(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_ensure_network: Mock,
+    mock_configure_mongo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    mock_run: Mock,
+    mock_save_compose_file: Mock,
+    tmp_path: Path,
+) -> None:
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+
+    install(**install_kwargs(tmp_path))
+
+    assert read_env_file(state.cli_config_file)["DF_SERVER_URL"] == "http://localhost:8000"
+    assert state.cli_config["df_server_url"] == "http://localhost:8000"
+
+
+@MOCK_SAVE_COMPOSE_FILE
+@MOCK_RUN
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@MOCK_ENSURE_NETWORK
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_install_saves_bind_address_server_url_to_cli_config(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_ensure_network: Mock,
+    mock_configure_mongo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    mock_run: Mock,
+    mock_save_compose_file: Mock,
+    tmp_path: Path,
+) -> None:
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+
+    install(**{**install_kwargs(tmp_path), "bind_address": "127.0.0.1"})
+
+    assert read_env_file(state.cli_config_file)["DF_SERVER_URL"] == "http://127.0.0.1:8000"
+
+
+@MOCK_SAVE_COMPOSE_FILE
+@MOCK_RUN
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@MOCK_ENSURE_NETWORK
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_install_keeps_existing_server_url_in_cli_config(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_ensure_network: Mock,
+    mock_configure_mongo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    mock_run: Mock,
+    mock_save_compose_file: Mock,
+    tmp_path: Path,
+) -> None:
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+    save_env_file(state.cli_config_file, {"DF_SERVER_URL": "http://remote:9000"})
+    state.cli_config = {"df_server_url": "http://remote:9000"}
+
+    install(**install_kwargs(tmp_path))
+
+    assert read_env_file(state.cli_config_file)["DF_SERVER_URL"] == "http://remote:9000"
+    assert state.cli_config["df_server_url"] == "http://remote:9000"
+
+
+@MOCK_SAVE_COMPOSE_FILE
+@MOCK_RUN
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@MOCK_ENSURE_NETWORK
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_install_updates_own_server_url_in_cli_config_on_reinstall_with_new_port(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_ensure_network: Mock,
+    mock_configure_mongo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    mock_run: Mock,
+    mock_save_compose_file: Mock,
+    tmp_path: Path,
+) -> None:
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+    install(**install_kwargs(tmp_path))
+
+    install(**{**install_kwargs(tmp_path), "port": 9000, "explicitly_provided": {"port"}})
+
+    assert read_env_file(state.cli_config_file)["DF_SERVER_URL"] == "http://localhost:9000"
+    assert state.cli_config["df_server_url"] == "http://localhost:9000"
+
+
+@MOCK_SAVE_COMPOSE_FILE
+@MOCK_RUN
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@MOCK_ENSURE_NETWORK
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_install_keeps_existing_server_url_in_cli_config_on_reinstall_with_new_port(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_ensure_network: Mock,
+    mock_configure_mongo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    mock_run: Mock,
+    mock_save_compose_file: Mock,
+    tmp_path: Path,
+) -> None:
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+    install(**install_kwargs(tmp_path))
+    save_env_file(state.cli_config_file, {"DF_SERVER_URL": "http://remote:9000"})
+    state.cli_config = {"df_server_url": "http://remote:9000"}
+
+    install(**{**install_kwargs(tmp_path), "port": 9100, "explicitly_provided": {"port"}})
+
+    assert read_env_file(state.cli_config_file)["DF_SERVER_URL"] == "http://remote:9000"
+    assert state.cli_config["df_server_url"] == "http://remote:9000"
+
+
+@MOCK_SAVE_COMPOSE_FILE
+@MOCK_RUN
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@MOCK_ENSURE_NETWORK
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
 def test_install_warns_when_published_on_all_interfaces(
     mock_echo: Mock,
     mock_assert_docker: Mock,

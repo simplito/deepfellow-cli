@@ -5,6 +5,8 @@ from pathlib import Path
 from unittest import mock
 from unittest.mock import Mock
 
+from deepfellow.common.config import read_env_file, save_env_file
+from deepfellow.common.state import state
 from deepfellow.server.uninstall import uninstall
 
 
@@ -173,3 +175,63 @@ def test_uninstall_removes_nightshift_systemd_timers_before_removing_files(
         mock.call.remove_nightshift_timers(directory),
         mock.call.rmtree(directory),
     ]
+
+
+@mock.patch("deepfellow.server.uninstall.echo")
+@mock.patch("deepfellow.server.uninstall.set_default_server_directory")
+@mock.patch("deepfellow.server.uninstall.get_default_server_directory")
+@mock.patch("deepfellow.server.uninstall.rmtree")
+@mock.patch("deepfellow.server.uninstall.run")
+@mock.patch("deepfellow.server.uninstall.assert_docker")
+@mock.patch("deepfellow.server.uninstall.check_server_directory")
+def test_uninstall_clears_stored_server_url_when_matching(
+    mock_check_server_directory: Mock,
+    mock_assert_docker: Mock,
+    mock_run: Mock,
+    mock_rmtree: Mock,
+    mock_get_default_server_directory: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_echo: Mock,
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "server"
+    directory.mkdir()
+    save_env_file(directory / ".env", {"DF_SERVER_URL": "http://localhost:8000"})
+    mock_get_default_server_directory.return_value = Path("/other/dir")
+    save_env_file(state.cli_config_file, {"DF_SERVER_URL": "http://localhost:8000", "DF_OTHER": "kept"})
+    state.cli_config = {"df_server_url": "http://localhost:8000"}
+
+    uninstall(directory=directory)
+
+    assert read_env_file(state.cli_config_file) == {"DF_OTHER": "kept"}
+    assert "df_server_url" not in state.cli_config
+
+
+@mock.patch("deepfellow.server.uninstall.echo")
+@mock.patch("deepfellow.server.uninstall.set_default_server_directory")
+@mock.patch("deepfellow.server.uninstall.get_default_server_directory")
+@mock.patch("deepfellow.server.uninstall.rmtree")
+@mock.patch("deepfellow.server.uninstall.run")
+@mock.patch("deepfellow.server.uninstall.assert_docker")
+@mock.patch("deepfellow.server.uninstall.check_server_directory")
+def test_uninstall_keeps_stored_server_url_when_not_matching(
+    mock_check_server_directory: Mock,
+    mock_assert_docker: Mock,
+    mock_run: Mock,
+    mock_rmtree: Mock,
+    mock_get_default_server_directory: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_echo: Mock,
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "server"
+    directory.mkdir()
+    save_env_file(directory / ".env", {"DF_SERVER_URL": "http://localhost:8000"})
+    mock_get_default_server_directory.return_value = Path("/other/dir")
+    save_env_file(state.cli_config_file, {"DF_SERVER_URL": "http://remote:9000"})
+    state.cli_config = {"df_server_url": "http://remote:9000"}
+
+    uninstall(directory=directory)
+
+    assert read_env_file(state.cli_config_file)["DF_SERVER_URL"] == "http://remote:9000"
+    assert state.cli_config["df_server_url"] == "http://remote:9000"

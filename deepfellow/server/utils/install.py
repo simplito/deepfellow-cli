@@ -64,7 +64,7 @@ from deepfellow.common.docker import (
     save_compose_file,
 )
 from deepfellow.common.echo import echo
-from deepfellow.common.env import env_get
+from deepfellow.common.env import env_get, env_set
 from deepfellow.common.exceptions import DockerNetworkError, InstallError, reraise_if_debug, translate_to_install_error
 from deepfellow.common.generate import generate_password
 from deepfellow.common.install import (
@@ -888,6 +888,26 @@ def build_nightshift_service(server_service: dict[str, Any]) -> dict[str, Any]:
     return nightshift
 
 
+def _store_default_server_url(server_url: str, previous_url: str | None) -> None:
+    """Store `server_url` as the CLI's default Server URL unless another server's URL is set.
+
+    Commands calling the Server API (organization, project, ...) read the URL from the CLI config,
+    so without it a fresh install would make them prompt for it, or abort under --non-interactive.
+    A stored URL equal to this install's previous one is updated, so a reinstall on another port or
+    bind address doesn't leave it pointing at a dead server. Any other stored URL (e.g. a remote
+    server picked by `server login`) is never overwritten.
+
+    Args:
+        server_url: URL of the just-installed local server, as written to its `.env`.
+        previous_url: `DF_SERVER_URL` from this install's `.env` before it was rewritten, if any.
+    """
+    stored_url = state.cli_config.get("df_server_url")
+    if stored_url and stored_url != previous_url:
+        return
+    env_set(state.cli_config_file, "DF_SERVER_URL", server_url, should_raise=False, docker_note=False)
+    state.cli_config["df_server_url"] = server_url
+
+
 def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa: C901
     """Create the docker network, write the .env/compose files, and pull the image.
 
@@ -903,12 +923,14 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
     # Create the network if needed
     ensure_network(config.docker_network)
 
+    server_url = local_url(config.port, config.bind_address)
+    previous_url = read_env_file_to_dict(config.directory / ".env").get("df_server_url")
     save_env_file(
         config.directory / ".env",
         {
             "DF_SERVER_PORT": config.port,
             "DF_SERVER_BIND_ADDRESS": config.bind_address,
-            "DF_SERVER_URL": local_url(config.port, config.bind_address),
+            "DF_SERVER_URL": server_url,
             "DF_SERVER_IMAGE": config.image,
             "DF_INFRA_DOCKER_SUBNET": config.docker_network,
             "DF_METRICS_USERNAME": config.metrics_username,
@@ -923,6 +945,9 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
             **config.nightshift.envs,
         },
     )
+    # Right after `.env`, not at the end: a failed install already left the new URL in `.env`,
+    # so a retry could no longer recognise the stored URL as this install's previous one.
+    _store_default_server_url(server_url, previous_url if isinstance(previous_url, str) else None)
 
     volumes: dict[str, None] = {}
     services: dict[str, Any] = {}

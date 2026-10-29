@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 - `infra start`, `restart` and `update` wait for Infra to pull service images instead of failing with `unhealthy`, and report every minute that they are still waiting
+- `server install` sets the local server as the default for `server organization`/`project` commands unless one is already configured; reinstalling on another port or address updates it, and `server uninstall` clears it
 
 ## [0.37.0] - 2026-10-28
 
