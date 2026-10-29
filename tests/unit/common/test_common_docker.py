@@ -49,6 +49,7 @@ from deepfellow.common.docker import (
     resolve_compose_volume_name,
     save_compose_file,
     self_signed_cert_name_args,
+    service_health,
     to_https,
     volume_exists,
     volume_exists_or_raise,
@@ -1265,6 +1266,39 @@ def test_get_socket_raises_exit_when_rootful_and_yes_flag_does_not_confirm(
         get_socket(allow_rootful=False)
 
     assert mock_ask.call_count == 1
+
+
+@mock.patch("deepfellow.common.docker.run")
+def test_service_health_returns_status_from_compose_ps(mock_run: mock.MagicMock, tmp_path: Path) -> None:
+    mock_run.return_value = "unhealthy\n"
+
+    result = service_health(tmp_path, "nightshift")
+
+    assert result == "unhealthy"
+    assert mock_run.call_count == 1
+    assert mock_run.call_args == mock.call(
+        ["docker", "compose", "ps", "nightshift", "--format", "{{.Health}}"],
+        cwd=tmp_path,
+        capture_output=True,
+        raises=DockerError,
+    )
+
+
+@mock.patch("deepfellow.common.docker.echo")
+@mock.patch("deepfellow.common.docker.run")
+def test_service_health_returns_none_when_compose_ps_fails(
+    mock_run: mock.MagicMock,
+    mock_echo: mock.MagicMock,
+    tmp_path: Path,
+) -> None:
+    ps_error = DockerError("docker: command not found")
+    mock_run.side_effect = ps_error
+
+    result = service_health(tmp_path, "nightshift")
+
+    assert result is None
+    assert mock_echo.debug.call_count == 1
+    assert mock_echo.debug.call_args == mock.call(ps_error)
 
 
 def test_enable_uvicorn_ssl_adds_ssl_envs_after_existing_ones() -> None:

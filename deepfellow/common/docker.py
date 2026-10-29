@@ -480,6 +480,24 @@ def is_service_running(service: str, cwd: Path) -> bool:
     return result is not None and len(result.splitlines()) > 1
 
 
+def service_health(directory: Path, service: str) -> str | None:
+    """Return a Compose service's health (`healthy`, `unhealthy`, `starting`, or `""` without a healthcheck).
+
+    Returns None when `docker compose ps` itself fails - callers treat that as "unknown".
+    """
+    try:
+        health = run(
+            ["docker", "compose", "ps", service, "--format", "{{.Health}}"],
+            cwd=directory,
+            capture_output=True,
+            raises=DockerError,
+        )
+    except DockerError as exc:
+        echo.debug(exc)
+        return None
+    return (health or "").strip()
+
+
 def get_running_service_image(service: str, cwd: Path) -> str | None:
     """Return the image reference the service's running container was created from.
 

@@ -20,6 +20,7 @@ from deepfellow.common.docker import (
     load_compose_file,
     print_docker_status,
     resolve_compose_volume_name,
+    service_health,
     volume_exists,
 )
 from deepfellow.common.echo import echo
@@ -196,24 +197,6 @@ def start_server(directory: Path) -> None:
         _handle_start_failure(directory, exc)
 
 
-def _service_health(directory: Path, service: str) -> str | None:
-    """Return a Compose service's health (`healthy`, `unhealthy`, `starting`, or `""` without a healthcheck).
-
-    Returns None when `docker compose ps` itself fails - callers treat that as "unknown".
-    """
-    try:
-        health = run(
-            ["docker", "compose", "ps", service, "--format", "{{.Health}}"],
-            cwd=directory,
-            capture_output=True,
-            raises=DockerError,
-        )
-    except DockerError as exc:
-        echo.debug(exc)
-        return None
-    return (health or "").strip()
-
-
 def _is_only_nightshift_unhealthy(directory: Path) -> bool:
     """Whether the server passed its healthcheck and the Nightshift worker failed its own.
 
@@ -222,8 +205,8 @@ def _is_only_nightshift_unhealthy(directory: Path) -> bool:
     """
     return (
         has_nightshift_service(directory)
-        and _service_health(directory, "server") == "healthy"
-        and _service_health(directory, "nightshift") == "unhealthy"
+        and service_health(directory, "server") == "healthy"
+        and service_health(directory, "nightshift") == "unhealthy"
     )
 
 

@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+- `infra service install` names the image being pulled once Infra reports it
+
+### Fixed
+- `infra start`, `restart` and `update` wait for Infra to pull service images instead of failing with `unhealthy`, and report every minute that they are still waiting
+
 ## [0.37.0] - 2026-10-28
 
 ### Added

@@ -775,3 +775,125 @@ def test_stage_only_column_delegates_render_for_stage_row() -> None:
 
     assert result is wrapped.render.return_value
     assert wrapped.render.call_args == mock.call(task)
+
+
+@mock.patch("deepfellow.infra.utils.progress.Progress")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=True)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_labels_stage_with_image_and_shows_determinate_bar_from_zero(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_progress: Mock,
+) -> None:
+    response = _stream_response(
+        lines=_sse_lines(
+            {"type": "progress", "stage": "download", "value": 0.0, "data": {"image": "ollama/ollama:0.34.1"}},
+            {"type": "progress", "stage": "download", "value": 0.5, "data": {"image": "ollama/ollama:0.34.1"}},
+            {"type": "finish", "status": "error"},
+        )
+    )
+    mock_stream.return_value.__enter__.return_value = response
+    progress_instance = mock_progress.return_value.__enter__.return_value
+    progress_instance.add_task.side_effect = ["main-task", "stage-task"]
+
+    install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert progress_instance.add_task.call_args_list == [
+        mock.call("Installing...", total=None, header=True),
+        mock.call("Pulling image ollama/ollama:0.34.1…", total=None),
+    ]
+    assert progress_instance.update.call_args_list == [
+        mock.call("stage-task", completed=0.0, total=1.0),
+        mock.call("stage-task", completed=0.5, total=1.0),
+    ]
+
+
+@mock.patch("deepfellow.infra.utils.progress.Progress")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=True)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_relabels_stage_when_image_arrives_later(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_progress: Mock,
+) -> None:
+    response = _stream_response(
+        lines=_sse_lines(
+            {"type": "progress", "stage": "download", "value": 0.0, "data": {}},
+            {"type": "progress", "stage": "download", "value": 0.0, "data": {"image": "ollama/ollama:0.34.1"}},
+            {"type": "progress", "stage": "download", "value": 0.2, "data": {"image": "ollama/ollama:0.34.1"}},
+            {"type": "finish", "status": "error"},
+        )
+    )
+    mock_stream.return_value.__enter__.return_value = response
+    progress_instance = mock_progress.return_value.__enter__.return_value
+    progress_instance.add_task.side_effect = ["main-task", "stage-task"]
+
+    install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert progress_instance.add_task.call_args_list[1] == mock.call("Download…", total=None)
+    assert progress_instance.update.call_args_list == [
+        mock.call("stage-task", completed=0.0, total=None),
+        mock.call("stage-task", description="Pulling image ollama/ollama:0.34.1…"),
+        mock.call("stage-task", completed=0.0, total=1.0),
+        mock.call("stage-task", completed=0.2, total=1.0),
+    ]
+
+
+@pytest.mark.parametrize("data", [{}, {"image": ""}, {"image": None}, None, "ollama"])
+@mock.patch("deepfellow.infra.utils.progress.Progress")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=True)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_keeps_stage_label_without_image(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_progress: Mock,
+    data: Any,
+) -> None:
+    response = _stream_response(
+        lines=_sse_lines(
+            {"type": "progress", "stage": "download", "value": 0.0, "data": data},
+            {"type": "finish", "status": "error"},
+        )
+    )
+    mock_stream.return_value.__enter__.return_value = response
+    progress_instance = mock_progress.return_value.__enter__.return_value
+    progress_instance.add_task.side_effect = ["main-task", "stage-task"]
+
+    install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert progress_instance.add_task.call_args_list[1] == mock.call("Download…", total=None)
+    assert progress_instance.update.call_args_list == [mock.call("stage-task", completed=0.0, total=None)]
+
+
+@mock.patch("deepfellow.infra.utils.progress._Heartbeat")
+@mock.patch("deepfellow.infra.utils.progress.echo")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=False)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_logs_image_label_when_non_interactive(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_echo: Mock,
+    mock_heartbeat: Mock,
+) -> None:
+    response = _stream_response(
+        lines=_sse_lines(
+            {"type": "progress", "stage": "download", "value": 0.0, "data": {"image": "ollama/ollama:0.34.1"}},
+            {"type": "progress", "stage": "download", "value": 0.5, "data": {}},
+            {"type": "progress", "stage": "download", "value": 1.0, "data": {}},
+            {"type": "finish", "status": "ok"},
+        )
+    )
+    mock_stream.return_value.__enter__.return_value = response
+
+    install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert mock_echo.info.call_args_list == [
+        mock.call("Pulling image ollama/ollama:0.34.1: 0%"),
+        mock.call("Pulling image ollama/ollama:0.34.1: 50%"),
+        mock.call("Pulling image ollama/ollama:0.34.1: 100%"),
+    ]
+    assert mock_heartbeat.return_value.notify.call_args_list == [
+        mock.call("Pulling image ollama/ollama:0.34.1"),
+        mock.call("Pulling image ollama/ollama:0.34.1"),
+        mock.call(None),
+    ]
