@@ -25,7 +25,9 @@ def _ensure_dict(config: Any) -> None:
         raise TypeError("Unexpected response from Infra admin API")
 
 
-def _dynamic_config_values(server: str | None, api_key: str | None, secret: bool) -> dict[str, str]:
+def _dynamic_config_values(
+    server: str | None, api_key: str | None, secret: bool, keys: set[str] | None = None
+) -> dict[str, str]:
     """Fetch current dynamic config from Infra's `/admin/config`.
 
     Resolved the same way `infra config get` resolves its target: `server`/`api_key` (from
@@ -33,6 +35,9 @@ def _dynamic_config_values(server: str | None, api_key: str | None, secret: bool
     admin API key stored locally. Unlike the env file view, this always talks to Infra: it exits
     with an error if nothing is resolvable, or the request fails for any reason (Infra down,
     unreachable, wrong credentials, a non-JSON or unexpected response, ...).
+
+    If `keys` is given, every other entry is dropped before secrets are revealed, so only those
+    keys are revealed (one reveal request each) and returned.
     """
     config: dict[str, Any] = {}
     resolved_server = server or state.cli_config.get("df_infra_external_url")
@@ -55,6 +60,8 @@ def _dynamic_config_values(server: str | None, api_key: str | None, secret: bool
         response.raise_for_status()
         config = response.json()
         _ensure_dict(config)
+        if keys is not None:
+            config["entries"] = [entry for entry in config.get("entries", []) if entry.get("key") in keys]
 
         if secret:
             reveal_secret_entries(
@@ -94,8 +101,30 @@ def info(
         "--doc",
         help="Display environment variables documentation.",
     ),
+    server_key: bool = typer.Option(
+        False,
+        "--server-key",
+        help=(
+            "Print only the INFRA_API_KEY to pass to `server install --infra-api-key` (raw value, for scripts). "
+            "Always reveals the key; cannot be combined with --doc."
+        ),
+    ),
 ) -> None:
     """Display Infra's current dynamic configuration (GET /admin/config)."""
+    if server_key and doc:
+        echo.error("--server-key and --doc cannot be used together.")
+        raise typer.Exit(1)
+
+    if server_key:
+        infra_api_key = _dynamic_config_values(server, api_key, secret=True, keys={"DF_INFRA_API_KEY"}).get(
+            "DF_INFRA_API_KEY"
+        )
+        if not infra_api_key:
+            echo.error("DF_INFRA_API_KEY not found in Infra configuration.")
+            raise typer.Exit(1)
+        typer.echo(infra_api_key)
+        return
+
     env_values = _dynamic_config_values(server, api_key, secret)
 
     if "DF_INFRA_URL" in env_values:

@@ -20,6 +20,7 @@ class EnvMetadata:
 
     description: str = ""
     sensitive: bool = False
+    hint: str = ""
 
     def render(self, key: str, value: str | None, show_secret: bool = False, show_prefix: bool = False) -> str:
         """Return styled env name and value.
@@ -122,7 +123,10 @@ def print_env_info(
         lines = [header]
         for k, v in env_values.items():
             env_meta = env_metadata.get(k, EnvMetadata())
-            lines.append(env_meta.render(k, v, show_secret=show_secret, show_prefix=show_prefix))
+            line = env_meta.render(k, v, show_secret=show_secret, show_prefix=show_prefix)
+            if env_meta.hint:
+                line += f"  [dim italic]← {escape(env_meta.hint)}[/]"
+            lines.append(line)
     echo.info("\n".join(lines))
 
 

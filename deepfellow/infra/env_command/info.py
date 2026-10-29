@@ -29,16 +29,28 @@ ENV_METADATA: dict[str, EnvMetadata] = {
     ),
     "DF_INFRA_IMAGE": EnvMetadata(description="Docker image used to run DeepFellow Infra."),
     "DF_MESH_KEY": EnvMetadata(
-        description="Authentication key used for mesh communication.",
+        description=(
+            "Key other Infras use to join this Infra's mesh (`infra connect <url> <mesh-key>` on the child). "
+            "Not an API key."
+        ),
         sensitive=True,
+        hint="for `infra connect` from a child Infra, not for server install",
     ),
     "DF_INFRA_API_KEY": EnvMetadata(
-        description="API key used to access Infra endpoints.",
+        description=(
+            "API key for regular Infra endpoints (models, chat, embeddings). "
+            "Use this for `server install --infra-api-key`."
+        ),
         sensitive=True,
+        hint="use for `server install --infra-api-key`",
     ),
     "DF_INFRA_ADMIN_API_KEY": EnvMetadata(
-        description="Administrative API key with elevated privileges.",
+        description=(
+            "Administrative API key for Infra admin endpoints (used by `infra config`, `infra connect`, ...). "
+            "Rejected by regular endpoints, so do not pass it to `server install`."
+        ),
         sensitive=True,
+        hint="admin only, not for server install",
     ),
     "DF_CONNECT_TO_MESH_URL": EnvMetadata(description="Optional remote mesh URL to connect to."),
     "DF_CONNECT_TO_MESH_KEY": EnvMetadata(
