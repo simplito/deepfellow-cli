@@ -25,6 +25,9 @@ DF_INFRA_URL = f"http://infra:{DF_INFRA_PORT}"
 DF_INFRA_DOCKER_NETWORK = "deepfellow-infra-net"
 DF_INFRA_STORAGE_DIR = DF_INFRA_DIRECTORY / "storage"
 DF_INFRA_NAME = "infra"
+# How long `start_infra()` waits for Infra to finish pulling service images it needs at startup
+# (it serves no /health until they are pulled, so `docker compose up --wait` gives up first).
+INFRA_PULL_WAIT_TIMEOUT_SECONDS = 30 * 60
 
 DF_SERVER_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / "server"
 DF_SERVER_IMAGE_HUB = "hub.simplito.com/deepfellow/deepfellow-server"

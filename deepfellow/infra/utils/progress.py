@@ -8,6 +8,10 @@ frozen at 0%: a spinner with a pulsing bar in interactive mode, a periodic ``sti
 line in non-interactive mode. The Infra API emits only ``value=0`` and ``value=1`` for the
 ``install`` stage, with the Docker pull/healthcheck wait in between, so without this the
 CLI looks hung for minutes.
+
+A progress event may name the Docker image being pulled in ``data.image``. The stage is then
+labelled ``Pulling image <name>`` and shown as a regular bar from 0%. The label never comes from
+the stage name alone: ``download`` is also the stage of model downloads.
 """
 
 import json
@@ -44,6 +48,9 @@ _HEARTBEAT_INTERVAL = 15.0
 _HEARTBEAT_POLL = 1.0
 # Task field marking the install-message row, which shows no bar or percentage of its own.
 _HEADER_FIELD = "header"
+# Key in a progress event's ``data`` naming the image being pulled. Proposed for the Infra API in
+# DFINFRA-432; current Infra versions send an empty ``data``, so the CLI falls back to the stage name.
+_IMAGE_DATA_KEY = "image"
 
 
 def install_with_progress(
@@ -119,6 +126,18 @@ def _iter_events(response: httpx.Response) -> Iterator[dict[str, Any]]:
             echo.debug(f"Skipping non-JSON stream line: {line!r}")
 
 
+def _event_image(event: dict[str, Any]) -> str | None:
+    """Return the image named in a progress event's ``data``, or ``None`` if it names none."""
+    data = event.get("data")
+    image = data.get(_IMAGE_DATA_KEY) if isinstance(data, dict) else None
+    return image if isinstance(image, str) and image else None
+
+
+def _stage_label(stage: str, image: str | None) -> str:
+    """Return the row label of a stage: the image being pulled, or the capitalized stage name."""
+    return f"Pulling image {image}" if image else stage.capitalize()
+
+
 class _StageOnlyColumn(ProgressColumn):
     """Render the wrapped column for stage rows only, leaving the install-message row blank."""
 
@@ -154,18 +173,26 @@ def _consume_interactive(response: httpx.Response, message: str) -> dict[str, An
         # the stage rows below it show the actual progress.
         main_task = progress.add_task(message, total=None, **{_HEADER_FIELD: True})
         tasks: dict[str, Any] = {}  # stage -> task_id
+        pulls: set[str] = set()  # stages that named the image they pull
         for event in _iter_events(response):
             etype = event.get("type")
             if etype == "progress":
                 stage = event.get("stage", "install")
                 value = float(event.get("value") or 0.0)
+                image = _event_image(event)
                 if stage not in tasks:
                     # total=None makes the bar pulse, so a stage reporting only 0 then 1
                     # reads as working rather than frozen at 0%.
-                    tasks[stage] = progress.add_task(f"{stage.capitalize()}…", total=None)
+                    tasks[stage] = progress.add_task(f"{_stage_label(stage, image)}…", total=None)
+                elif image and stage not in pulls:
+                    progress.update(tasks[stage], description=f"{_stage_label(stage, image)}…")
+                if image:
+                    pulls.add(stage)
                 # Progress.update treats total=None as "leave unchanged", so the task stays
-                # indeterminate until the first real value promotes it to a normal bar.
-                progress.update(tasks[stage], completed=value, total=1.0 if value > 0 else None)
+                # indeterminate until the first real value promotes it to a normal bar. A pull
+                # reports real progress from the start, so its bar is determinate from 0%.
+                determinate = value > 0 or stage in pulls
+                progress.update(tasks[stage], completed=value, total=1.0 if determinate else None)
             elif etype == "finish":
                 finish = event
                 # Snap all bars to 100% on success — including any still-indeterminate one,
@@ -251,6 +278,7 @@ def _consume_non_interactive(response: httpx.Response) -> dict[str, Any]:
     """Log progress as plain lines, with a heartbeat while the current stage stays silent."""
     finish: dict[str, Any] = {"type": "finish", "status": "error"}
     last_logged: dict[str, float] = {}
+    labels: dict[str, str] = {}  # stage -> label, once an event named the image it pulls
     heartbeat = _Heartbeat()
     heartbeat.start()
     try:
@@ -259,12 +287,15 @@ def _consume_non_interactive(response: httpx.Response) -> dict[str, Any]:
             if etype == "progress":
                 stage = event.get("stage", "install")
                 value = float(event.get("value") or 0.0)
+                if image := _event_image(event):
+                    labels[stage] = _stage_label(stage, image)
+                label = labels.get(stage, stage)
                 if value - last_logged.get(stage, -1.0) >= _NON_INTERACTIVE_STEP:
                     last_logged[stage] = value
-                    echo.info(f"{stage}: {int(value * 100)}%")
+                    echo.info(f"{label}: {int(value * 100)}%")
                 # Any event proves the install is alive, so a stage that keeps ticking
                 # (download) never reaches a heartbeat line.
-                heartbeat.notify(stage if value < 1.0 else None)
+                heartbeat.notify(label if value < 1.0 else None)
             elif etype == "finish":
                 finish = event
                 break
