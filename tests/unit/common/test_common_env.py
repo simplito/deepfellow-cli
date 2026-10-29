@@ -81,6 +81,26 @@ def test_render_df_prefix_kept_when_show_prefix():
 
 
 @mock.patch("deepfellow.common.env.echo")
+def test_print_env_info_appends_hint_in_normal_mode(mock_echo: Mock):
+    metadata = {"DF_KEY": EnvMetadata(description="desc", hint="use me")}
+
+    print_env_info("Header", metadata, {"DF_KEY": "val"})
+
+    called_msg = mock_echo.info.call_args[0][0]
+    assert "[dim italic]← use me[/]" in called_msg
+
+
+@mock.patch("deepfellow.common.env.echo")
+def test_print_env_info_skips_hint_in_doc_mode(mock_echo: Mock):
+    metadata = {"DF_KEY": EnvMetadata(description="desc", hint="use me")}
+
+    print_env_info("Header", metadata, {"DF_KEY": "val"}, doc=True)
+
+    called_msg = mock_echo.info.call_args[0][0]
+    assert "use me" not in called_msg
+
+
+@mock.patch("deepfellow.common.env.echo")
 def test_print_env_info_doc_calls_echo_info_with_doc_header(mock_echo: Mock):
     metadata = {"DF_FOO": EnvMetadata(description="Foo desc")}
 

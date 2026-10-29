@@ -7,7 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- `infra info --server-key` prints only the key to pass to `server install --infra-api-key`, for use in scripts
 - `infra service install` names the image being pulled once Infra reports it
+
+### Changed
+- `infra info` and `infra env info` say which key to use for `server install --infra-api-key` and what the other keys are for
 
 ### Fixed
 - `infra start`, `restart` and `update` wait for Infra to pull service images instead of failing with `unhealthy`, and report every minute that they are still waiting

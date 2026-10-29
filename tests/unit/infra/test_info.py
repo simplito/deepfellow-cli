@@ -34,7 +34,7 @@ def no_secrets_file(tmp_path: Path) -> Path:
 def test_doc_mode_calls_print_env_info(mock_print: Mock, mock_dynamic: Mock):
     mock_dynamic.return_value = {"DF_NAME": "myinfra"}
 
-    info(server=None, api_key=None, secret=False, doc=True)
+    info(server=None, api_key=None, secret=False, doc=True, server_key=False)
 
     assert mock_print.call_count == 1
     assert mock_print.call_args == mock.call(
@@ -51,7 +51,7 @@ def test_doc_mode_calls_print_env_info(mock_print: Mock, mock_dynamic: Mock):
 def test_normal_mode_calls_print_env_info(mock_print: Mock, mock_dynamic: Mock):
     mock_dynamic.return_value = {"DF_NAME": "myinfra"}
 
-    info(server=None, api_key=None, secret=False, doc=False)
+    info(server=None, api_key=None, secret=False, doc=False, server_key=False)
 
     assert mock_print.call_count == 1
     assert mock_print.call_args == mock.call(
@@ -68,7 +68,7 @@ def test_normal_mode_calls_print_env_info(mock_print: Mock, mock_dynamic: Mock):
 def test_infra_url_derives_mesh_url(mock_print: Mock, mock_dynamic: Mock):
     mock_dynamic.return_value = {"DF_INFRA_URL": "http://localhost:8080"}
 
-    info(server=None, api_key=None, secret=False, doc=False)
+    info(server=None, api_key=None, secret=False, doc=False, server_key=False)
 
     env_values_passed = mock_print.call_args[0][2]
     assert env_values_passed["DF_INFRA_MESH_URL"] == "ws://localhost:8080"
@@ -79,7 +79,7 @@ def test_infra_url_derives_mesh_url(mock_print: Mock, mock_dynamic: Mock):
 def test_infra_url_https_derives_wss_mesh_url(mock_print: Mock, mock_dynamic: Mock):
     mock_dynamic.return_value = {"DF_INFRA_URL": "https://example.com"}
 
-    info(server=None, api_key=None, secret=False, doc=False)
+    info(server=None, api_key=None, secret=False, doc=False, server_key=False)
 
     env_values_passed = mock_print.call_args[0][2]
     assert env_values_passed["DF_INFRA_MESH_URL"] == "wss://example.com"
@@ -90,7 +90,7 @@ def test_infra_url_https_derives_wss_mesh_url(mock_print: Mock, mock_dynamic: Mo
 def test_show_secret_passed_to_print_env_info(mock_print: Mock, mock_dynamic: Mock):
     mock_dynamic.return_value = {"DF_MESH_KEY": "verysecret"}
 
-    info(server=None, api_key=None, secret=True, doc=False)
+    info(server=None, api_key=None, secret=True, doc=False, server_key=False)
 
     assert mock_print.call_args == mock.call(
         "Information about DeepFellow Infra:",
@@ -106,9 +106,53 @@ def test_show_secret_passed_to_print_env_info(mock_print: Mock, mock_dynamic: Mo
 def test_info_passes_server_and_api_key_through(mock_print: Mock, mock_dynamic: Mock):
     mock_dynamic.return_value = {}
 
-    info(server="http://remote:8086", api_key="explicit-key", secret=True, doc=False)
+    info(server="http://remote:8086", api_key="explicit-key", secret=True, doc=False, server_key=False)
 
     assert mock_dynamic.call_args == mock.call("http://remote:8086", "explicit-key", True)
+
+
+@mock.patch("deepfellow.infra.info.typer.echo")
+@mock.patch("deepfellow.infra.info._dynamic_config_values")
+@mock.patch("deepfellow.infra.info.print_env_info")
+def test_info_server_key_prints_raw_infra_api_key(mock_print: Mock, mock_dynamic: Mock, mock_typer_echo: Mock):
+    mock_dynamic.return_value = {"DF_INFRA_API_KEY": "api-key", "DF_INFRA_ADMIN_API_KEY": "admin-key"}
+
+    info(server="http://remote:8086", api_key="explicit-key", secret=False, doc=False, server_key=True)
+
+    assert mock_dynamic.call_args == mock.call(
+        "http://remote:8086", "explicit-key", secret=True, keys={"DF_INFRA_API_KEY"}
+    )
+    assert mock_typer_echo.call_args == mock.call("api-key")
+    assert mock_print.call_count == 0
+
+
+@mock.patch("deepfellow.infra.info.echo")
+@mock.patch("deepfellow.infra.info._dynamic_config_values")
+def test_info_server_key_exits_when_infra_api_key_missing(mock_dynamic: Mock, mock_echo: Mock):
+    mock_dynamic.return_value = {"DF_INFRA_ADMIN_API_KEY": "admin-key"}
+
+    with pytest.raises(typer.Exit) as exc_info:
+        info(server=None, api_key=None, secret=False, doc=False, server_key=True)
+
+    assert exc_info.value.exit_code == 1
+    assert mock_echo.error.call_args == mock.call("DF_INFRA_API_KEY not found in Infra configuration.")
+
+
+@mock.patch("deepfellow.infra.info.echo")
+@mock.patch("deepfellow.infra.info._dynamic_config_values")
+def test_info_server_key_with_doc_exits(mock_dynamic: Mock, mock_echo: Mock):
+    with pytest.raises(typer.Exit) as exc_info:
+        info(server=None, api_key=None, secret=False, doc=True, server_key=True)
+
+    assert exc_info.value.exit_code == 1
+    assert mock_echo.error.call_args == mock.call("--server-key and --doc cannot be used together.")
+    assert mock_dynamic.call_count == 0
+
+
+def test_infra_metadata_marks_infra_api_key_for_server_install():
+    hint = ENV_METADATA["DF_INFRA_API_KEY"].hint
+
+    assert "server install --infra-api-key" in hint
 
 
 def test_dynamic_config_values_exits_when_nothing_resolvable(no_secrets_file: Path) -> None:
@@ -191,6 +235,32 @@ def test_dynamic_config_values_reveals_secrets_when_requested(mock_get: Mock, no
 
     assert result == {"DF_MESH_KEY": "revealed"}
     assert mock_get.call_count == 2
+
+
+@mock.patch("deepfellow.infra.info.httpx.get")
+def test_dynamic_config_values_reveals_only_requested_keys(mock_get: Mock, no_secrets_file: Path) -> None:
+    def _get(url: str, **kwargs: object) -> Mock:
+        if url.endswith("/reveal"):
+            return Mock(json=lambda: {"value": "revealed"})
+        return Mock(
+            json=lambda: {
+                "entries": [
+                    {"key": "DF_MESH_KEY", "value": "••••••••", "is_secret": True},
+                    {"key": "DF_INFRA_API_KEY", "value": "••••••••", "is_secret": True},
+                    {"key": "DF_INFRA_ADMIN_API_KEY", "value": "••••••••", "is_secret": True},
+                ]
+            },
+        )
+
+    mock_get.side_effect = _get
+
+    result = _dynamic_config_values(server=SERVER, api_key="explicit-key", secret=True, keys={"DF_INFRA_API_KEY"})
+
+    assert result == {"DF_INFRA_API_KEY": "revealed"}
+    assert mock_get.call_count == 2
+    assert mock_get.call_args == mock.call(
+        f"{SERVER}/admin/config/DF_INFRA_API_KEY/reveal", headers={"Authorization": "Bearer explicit-key"}, timeout=5.0
+    )
 
 
 @mock.patch("deepfellow.infra.info.httpx.get", side_effect=httpx.ConnectError("boom"))
