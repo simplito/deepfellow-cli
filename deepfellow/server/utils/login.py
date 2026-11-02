@@ -10,7 +10,7 @@ import typer
 
 from deepfellow.common.config import read_env_file, save_env_file
 from deepfellow.common.echo import echo
-from deepfellow.common.validation import validate_email, validate_password
+from deepfellow.common.validation import validate_email, validate_truthy
 
 
 def get_token(secrets_file: Path, server: str) -> str:
@@ -140,7 +140,7 @@ def get_token_from_login(secrets_file: Path, server: str, email: str | None = No
     """
     # Get user's email and password
     email = email or echo.prompt_until_valid("Provide your email", validate_email)
-    password = password or echo.prompt_until_valid("Provide your password", validate_password, password=True)
+    password = password or echo.prompt_until_valid("Provide your password", validate_truthy, password=True)
 
     # Authorize the user (we need the server's URL)
     url = f"{server}/auth/login"

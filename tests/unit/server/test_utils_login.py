@@ -10,6 +10,7 @@ import typer
 
 from deepfellow.common.config import read_env_file
 from deepfellow.common.state import state
+from deepfellow.common.validation import validate_truthy
 from deepfellow.server.utils.login import get_token, get_token_from_login, register_token, try_refresh_token
 
 SERVER = "http://localhost:8000"
@@ -492,3 +493,30 @@ def test_logout_clears_locally_even_when_server_call_fails(
     assert mock_save.call_count == 1
     saved_secrets = mock_save.call_args[0][1]
     assert "DF_USER_TOKEN" not in saved_secrets
+
+
+@mock.patch("deepfellow.server.utils.login.save_env_file")
+@mock.patch("deepfellow.server.utils.login.read_env_file", return_value={})
+@mock.patch("deepfellow.server.utils.login.httpx.post")
+@mock.patch("deepfellow.server.utils.login.echo.prompt_until_valid", side_effect=["admin@firma.local", "Abc123/xyz"])
+def test_get_token_from_login_prompts_password_with_non_empty_check_only(
+    mock_prompt: mock.Mock,
+    mock_post: mock.Mock,
+    mock_read: mock.Mock,
+    mock_save: mock.Mock,
+    tmp_path: Path,
+) -> None:
+    secrets_file = tmp_path / "secrets"
+    secrets_file.touch()
+    mock_response = mock.Mock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = LOGIN_RESPONSE
+    mock_post.return_value = mock_response
+
+    get_token_from_login(secrets_file, SERVER)
+
+    assert mock_prompt.call_args_list[1] == mock.call("Provide your password", validate_truthy, password=True)
+    assert mock_post.call_args.kwargs["json"] == {"email": "admin@firma.local", "password": "Abc123/xyz"}
+    assert validate_truthy("Abc123/xyz") == "Abc123/xyz"
+    with pytest.raises(typer.BadParameter):
+        validate_truthy("")

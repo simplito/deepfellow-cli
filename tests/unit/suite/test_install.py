@@ -3,7 +3,6 @@
 
 """Tests for the suite install command."""
 
-from types import SimpleNamespace
 from unittest import mock
 from unittest.mock import Mock
 
@@ -139,16 +138,13 @@ def test_explicitly_provided_fields_stay_within_infra_and_server_mergeable_field
     assert {"port", "docker_network"} <= server_mergeable_field_names()
 
 
-@mock.patch("deepfellow.common.validation.validate_email_lib")
 @mock.patch("deepfellow.suite.install.install_util")
 def test_install_command_reads_admin_credentials_from_env_vars(
     mock_install_util: Mock,
-    mock_validate_email_lib: Mock,
 ) -> None:
     """--admin-name/--admin-email/--admin-password must be settable via DF_SERVER_ADMIN_* env vars,
     same as server install, so scripted/non-interactive suite installs don't have to pass the
     password as a CLI argument."""
-    mock_validate_email_lib.return_value = SimpleNamespace(email="admin@example.com")
 
     result = runner.invoke(
         app,
@@ -184,11 +180,9 @@ _ENVVAR_BOUND_OPTIONS = (
 )
 
 
-@mock.patch("deepfellow.common.validation.validate_email_lib")
 @mock.patch("deepfellow.suite.install.install_util")
 def test_install_command_real_cli_defaults_match_expected_values(
     mock_install_util: Mock,
-    mock_validate_email_lib: Mock,
     default_install_kwargs: dict,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -199,7 +193,6 @@ def test_install_command_real_cli_defaults_match_expected_values(
 
     for env_var in _ENVVAR_BOUND_OPTIONS:
         monkeypatch.delenv(env_var, raising=False)
-    mock_validate_email_lib.return_value = SimpleNamespace(email="admin@example.com")
 
     result = runner.invoke(
         app,
@@ -217,16 +210,13 @@ def test_install_command_real_cli_defaults_match_expected_values(
     assert mock_install_util.call_args == mock.call(**default_install_kwargs, explicitly_provided=set())
 
 
-@mock.patch("deepfellow.common.validation.validate_email_lib")
 @mock.patch("deepfellow.suite.install.install_util")
 def test_install_command_passes_allow_rootful_flag(
     mock_install_util: Mock,
-    mock_validate_email_lib: Mock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     for env_var in _ENVVAR_BOUND_OPTIONS:
         monkeypatch.delenv(env_var, raising=False)
-    mock_validate_email_lib.return_value = SimpleNamespace(email="admin@example.com")
 
     result = runner.invoke(
         app,

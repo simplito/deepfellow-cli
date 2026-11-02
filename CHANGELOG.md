@@ -12,10 +12,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 - `infra info` and `infra env info` say which key to use for `server install --infra-api-key` and what the other keys are for
+- Admin and user passwords are checked with the server's rule: at least 10 characters with an uppercase letter, a lowercase letter, a digit and one character that is not a letter or digit
 
 ### Fixed
 - `infra start`, `restart` and `update` wait for Infra to pull service images instead of failing with `unhealthy`, and report every minute that they are still waiting
 - `server install` sets the local server as the default for `server organization`/`project` commands unless one is already configured; reinstalling on another port or address updates it, and `server uninstall` clears it
+- `server create-admin`, `server install` and `suite install` accept emails on internal domains (e.g. `.local`) and work without DNS access
+- `server login` accepts any password the server accepts, e.g. one containing `/`
+- Emails, usernames and passwords with a trailing newline are rejected
 
 ## [0.37.0] - 2026-10-28
 

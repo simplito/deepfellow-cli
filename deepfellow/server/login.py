@@ -8,7 +8,7 @@ import typer
 from deepfellow.common.echo import echo
 from deepfellow.common.rest import get_server_url
 from deepfellow.common.state import state
-from deepfellow.common.validation import validate_email, validate_password, validate_server
+from deepfellow.common.validation import validate_email, validate_server
 from deepfellow.server.utils.login import get_token_from_login, register_token
 
 app = typer.Typer()
@@ -18,7 +18,7 @@ app = typer.Typer()
 def login(
     server: str | None = typer.Option(None, "--url", callback=validate_server, help="DeepFellow Server address"),
     email: str | None = typer.Option(None, callback=validate_email, help="User email"),
-    password: str | None = typer.Option(None, callback=validate_password, help="User password"),
+    password: str | None = typer.Option(None, help="User password"),
     token: str | None = typer.Option(
         None, "--token", help="Register an already-obtained access token directly, skipping email/password login."
     ),
