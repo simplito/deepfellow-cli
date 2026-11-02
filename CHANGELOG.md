@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 - `infra info` and `infra env info` say which key to use for `server install --infra-api-key` and what the other keys are for
+- `changelog-check` also runs on `main` and fails when a merge puts an entry under a released version.
 - Admin and user passwords are checked with the server's rule: at least 10 characters with an uppercase letter, a lowercase letter, a digit and one character that is not a letter or digit
 
 ### Fixed
