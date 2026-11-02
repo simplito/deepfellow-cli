@@ -9,19 +9,18 @@ from typing import Any, cast
 from urllib.parse import urlparse
 
 import typer
-from email_validator import EmailNotValidError
-from email_validator import validate_email as validate_email_lib
 
 from .echo import echo
 from .system import is_command_available
 
 # Empty as no system command is required for server login and organization or project commands
 REQUIRED_COMMANDS: set[str] = set()
-USERNAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_]{2,19}$"
-PASSWORD_REGEX = r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[_!@#$%^&*()\-=+])[a-zA-Z0-9_!@#$%^&*()\-=+]{10,128}$"
+EMAIL_REGEX = r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*"
+USERNAME_REGEX = r"[a-zA-Z][a-zA-Z0-9_]{2,19}"
+PASSWORD_REGEX = r"(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{10,}"
 PASSWORD_REQUIREMENTS = (
-    "Password must be 10-128 characters with at least "
-    "1 uppercase, 1 lowercase, 1 digit and 1 special character (_!@#$%^&*()-=+)."
+    "Password must be at least 10 characters with at least 1 uppercase letter, 1 lowercase letter, 1 digit "
+    "and 1 other character (not a letter or digit)."
 )
 
 
@@ -40,18 +39,16 @@ def validate_system() -> None:
 
 
 def validate_email(value: str | None) -> str | None:
-    """Validate srting is an email."""
+    """Validate the email syntax (no DNS checks) and lowercase its domain, like `email_validator` did."""
     if value is None:
         # We allow email collected via option to be None
         return None
 
-    try:
-        validated = validate_email_lib(value)
+    if not re.fullmatch(EMAIL_REGEX, value):
+        raise typer.BadParameter("Invalid email address")
 
-    except EmailNotValidError as exc:
-        raise typer.BadParameter("Invalid email address") from exc
-
-    return validated.email
+    local_part, _, domain = value.rpartition("@")
+    return f"{local_part}@{domain.lower()}"
 
 
 def validate_url(value: str | None) -> str | None:
@@ -178,7 +175,7 @@ def validate_username(value: str | None) -> str | None:
         return None
 
     validate_truthy(value)
-    if not re.match(USERNAME_REGEX, value):
+    if not re.fullmatch(USERNAME_REGEX, value):
         raise typer.BadParameter("Invalid username - only letters, numbers, and '_' are allowed.")
 
     return value
@@ -189,8 +186,7 @@ def validate_password(value: str | None) -> str | None:
     if value is None:
         return None
 
-    if not re.match(PASSWORD_REGEX, value):
-        # e.g. "Invalid password - must be 10-19 characters with uppercase, lowercase, digit and special char."
+    if not re.fullmatch(PASSWORD_REGEX, value):
         raise typer.BadParameter(f"Invalid password - {PASSWORD_REQUIREMENTS.removeprefix('Password ')}")
 
     return value

@@ -1,14 +1,12 @@
 # SPDX-License-Identifier: LicenseRef-DeepFellow-Free
 # SPDX-FileCopyrightText: 2026 Simplito sp. z o.o.
 
-from types import SimpleNamespace
 from typing import Any
 from unittest import mock
 from unittest.mock import Mock
 
 import pytest
 import typer
-from email_validator import EmailNotValidError
 
 from deepfellow.common.validation import (
     validate_bind_address,
@@ -67,23 +65,49 @@ def test_validate_email_none_returns_none() -> None:
     assert validate_email(None) is None
 
 
-@mock.patch("deepfellow.common.validation.validate_email_lib")
-def test_validate_email_returns_normalized_email_when_valid(mock_validate_email_lib: Mock) -> None:
-    mock_validate_email_lib.return_value = SimpleNamespace(email="user@example.com")
+@pytest.mark.parametrize(
+    "email",
+    [
+        "admin@example.com",
+        "admin@firma.local",
+        "admin@host.internal",
+        "admin@localhost",
+        "First.Last+tag@example.com",
+    ],
+)
+def test_validate_email_valid_returns_value_unchanged(email: str) -> None:
+    result = validate_email(email)
 
-    result = validate_email("USER@EXAMPLE.COM")
-
-    assert result == "user@example.com"
-    assert mock_validate_email_lib.call_count == 1
-    assert mock_validate_email_lib.call_args == mock.call("USER@EXAMPLE.COM")
+    assert result == email
 
 
-@mock.patch("deepfellow.common.validation.validate_email_lib")
-def test_validate_email_raises_when_invalid(mock_validate_email_lib: Mock) -> None:
-    mock_validate_email_lib.side_effect = EmailNotValidError("bad email")
+def test_validate_email_returns_value_with_lowercased_domain() -> None:
+    result = validate_email("First.Last+tag@Example.COM")
 
+    assert result == "First.Last+tag@example.com"
+
+
+@pytest.mark.parametrize(
+    "email",
+    [
+        "",
+        "not-an-email",
+        "user example.com",
+        "a b@x.com",
+        "user@exa mple.com",
+        "a@b@c",
+        "a!@x.com",
+        "@example.com",
+        "user@",
+        "user@example..com",
+        "user@.example.com",
+        "a@b.com\n",
+        "\na@b.com",
+    ],
+)
+def test_validate_email_raises_when_invalid(email: str) -> None:
     with pytest.raises(typer.BadParameter):
-        validate_email("not-an-email")
+        validate_email(email)
 
 
 def test_validate_url_none_returns_none() -> None:
@@ -330,6 +354,7 @@ def test_validate_username_valid(value: str) -> None:
         "1abc",
         "abc!",
         "a" * 21,
+        "username\n",
     ],
 )
 def test_validate_username_raises_when_invalid(value: str) -> None:
@@ -348,7 +373,10 @@ def test_validate_password_none_returns_none() -> None:
         "Abc123456!",  # alphanumeric with special char
         "aA1!@#$%^&*()-_=+",  # all allowed special chars with uppercase and digit
         "Password123_+=",
-        "Aa1!" + "a" * 124,  # exactly 128 characters
+        "Abc123/xyz",  # '/' is a special character
+        "Aa1!" + "a" * 124,  # 128 characters
+        "Aa1!" + "a" * 500,  # no upper length limit
+        "Pass word1?",  # any character counts as special, including space
     ],
 )
 def test_validate_password_valid(password: str) -> None:
@@ -362,12 +390,12 @@ def test_validate_password_valid(password: str) -> None:
     [
         "",  # empty
         "short",  # too short
-        "no$pecials?",  # contains '?'
-        "Aa1!" + "a" * 125,  # too long (129 characters)
+        "Abc1!xyz",  # too short
         "abcde1234!",  # no uppercase
         "ABCDE1234!",  # no lowercase
         "Abcdefghij",  # no digit
         "Abcde12345",  # no special char
+        "Abcde12345!\n",  # trailing newline
     ],
 )
 def test_validate_password_raises_when_invalid(password: str) -> None:

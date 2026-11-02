@@ -7,7 +7,6 @@ import inspect
 import json
 import re
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 from unittest import mock
 from unittest.mock import Mock
@@ -1681,16 +1680,14 @@ def test_install_command_computes_explicitly_provided_from_parameter_source(
     assert mock_install_util.call_args[1]["explicitly_provided"] == {"port", "infra_url"}
 
 
-@mock.patch("deepfellow.common.validation.validate_email_lib")
 @mock.patch("deepfellow.server.install.set_default_server_directory")
 @mock.patch("deepfellow.server.install.install_util")
 def test_install_command_reads_admin_credentials_from_env_vars(
-    mock_install_util, mock_set_default_server_directory, mock_validate_email_lib, tmp_path
+    mock_install_util, mock_set_default_server_directory, tmp_path
 ):
     """--admin-name/--admin-email/--admin-password must be settable via DF_SERVER_ADMIN_* env vars,
     so scripted/non-interactive installs don't have to pass the password as a CLI argument (which
     would leak it into shell history and process listings)."""
-    mock_validate_email_lib.return_value = SimpleNamespace(email="admin@example.com")
 
     result = runner.invoke(
         app,
