@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: LicenseRef-DeepFellow-Free
 # SPDX-FileCopyrightText: 2026 Simplito sp. z o.o.
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -14,10 +15,11 @@ def directory() -> Path:
 
 
 @pytest.fixture(autouse=True)
-def isolate_cli_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Keep every test away from the developer's real ~/.deepfellow config and secrets."""
+def isolate_cli_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Keep every test away from the developer's real ~/.deepfellow config and secrets, and off the network."""
     monkeypatch.setenv("DF_CLI_CONFIG_PATH", str(tmp_path / "config"))
     monkeypatch.setenv("DF_CLI_SECRETS_PATH", str(tmp_path / "secrets"))
+    monkeypatch.setenv("DF_NO_UPDATE_CHECK", "1")
     state.cli_config_file = tmp_path / "config"
     state.cli_secrets_file = tmp_path / "secrets"
     yield

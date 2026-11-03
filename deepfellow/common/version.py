@@ -12,19 +12,35 @@ from deepfellow.common.config import read_env_file_to_dict
 from deepfellow.common.defaults import DF_INFRA_DIRECTORY, DF_SERVER_DIRECTORY
 
 
+def _repo_root() -> Path:
+    """Return the directory that contains the `deepfellow` package.
+
+    That is the repository root in a source checkout and `site-packages` in an installed package.
+    """
+    return Path(__file__).resolve().parents[2]
+
+
+def is_source_checkout() -> bool:
+    """Return whether the CLI runs from a DeepFellow source checkout.
+
+    Detected by a ``.git`` entry only in the directory that contains the `deepfellow` package
+    (see `_repo_root`). This deliberately avoids walking up the directory tree, so an installed
+    package living inside an unrelated repository is not mistaken for a checkout.
+    """
+    return (_repo_root() / ".git").exists()
+
+
 def _run_git(*git_args: str) -> str | None:
     """Run a git command in the CLI source tree and return its stripped stdout.
 
-    Only consults git when running from a DeepFellow source checkout, detected by a
-    ``.git`` directory at the repository root (two levels above this package). This
-    deliberately avoids letting git walk up the directory tree, so an installed
-    package living inside an unrelated repository never reports that repo's data.
+    Only consults git when running from a DeepFellow source checkout (see
+    `is_source_checkout`), so an installed package never reports another repo's data.
     Returns None when not in the source tree, when git is unavailable, or when the
     command fails.
     """
-    repo_root = Path(__file__).resolve().parents[2]
-    if not (repo_root / ".git").exists():
+    if not is_source_checkout():
         return None
+    repo_root = _repo_root()
     try:
         result = subprocess.run(
             ["git", "-C", str(repo_root), *git_args],

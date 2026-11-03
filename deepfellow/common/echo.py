@@ -322,3 +322,5 @@ class Echo(Console):
 
 
 echo = Echo()
+# Notices that must not mix into stdout parsed by scripts.
+echo_err = Echo(stderr=True)

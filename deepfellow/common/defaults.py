@@ -14,6 +14,12 @@ DF_CLI_SECRETS_PATH = DF_DEEPFELLOW_DIRECTORY / "secrets"  # env style secrets f
 
 DF_SUITE_INSTALL_STATE_FILE = DF_DEEPFELLOW_DIRECTORY / "suite_install_state.json"
 
+# The main branch always holds the latest CLI release.
+DF_CLI_LATEST_PYPROJECT_URL = "https://raw.githubusercontent.com/simplito/deepfellow-cli/main/pyproject.toml"
+DF_UPDATE_CHECK_INTERVAL_SECONDS = 24 * 60 * 60
+DF_UPDATE_CHECK_TIMEOUT_SECONDS = 2.0
+DF_NO_UPDATE_CHECK_ENV = "DF_NO_UPDATE_CHECK"
+
 DF_INFRA_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / "infra"
 DF_INFRA_IMAGE_HUB = "hub.simplito.com/deepfellow/deepfellow-infra"
 DF_INFRA_IMAGE = f"{DF_INFRA_IMAGE_HUB}:latest"
