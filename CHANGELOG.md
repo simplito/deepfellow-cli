@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `infra info` and `infra env info` say which key to use for `server install --infra-api-key` and what the other keys are for
 - `changelog-check` also runs on `main` and fails when a merge puts an entry under a released version.
 - Admin and user passwords are checked with the server's rule: at least 10 characters with an uppercase letter, a lowercase letter, a digit and one character that is not a letter or digit
+- MR templates (`feature`, `bug`): the `## Relates` hint no longer gives a work-item example, which the Plane bot took for a real reference (DFCLI-208)
 
 ### Fixed
 - `infra start`, `restart` and `update` wait for Infra to pull service images instead of failing with `unhealthy`, and report every minute that they are still waiting
