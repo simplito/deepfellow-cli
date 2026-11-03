@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `infra info --server-key` prints only the key to pass to `server install --infra-api-key`, for use in scripts
 - `infra service install` names the image being pulled once Infra reports it
 - The CLI says when a newer version is available; `DF_NO_UPDATE_CHECK=1` turns it off
+- `server create-admin` offers to log in the new admin right away, so later commands do not ask for the email and password again
 
 ### Changed
 - `infra info` and `infra env info` say which key to use for `server install --infra-api-key` and what the other keys are for
