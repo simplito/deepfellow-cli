@@ -137,6 +137,108 @@ def test_main_saves_new_config_file_when_missing(
     assert state.cli_config == {}
 
 
+@mock.patch("deepfellow.main.check_for_update")
+@mock.patch("deepfellow.main.validate_system")
+def test_main_runs_update_check_for_regular_subcommand(
+    mock_validate_system: Mock,
+    mock_check_for_update: Mock,
+    tmp_path: Path,
+):
+    ctx = Mock(spec=typer.Context)
+    ctx.invoked_subcommand = "version"
+
+    main(
+        ctx,
+        config=tmp_path / "config",
+        secrets=tmp_path / "secrets",
+        debug=False,
+        yes=False,
+        non_interactive=False,
+        _version=False,
+    )
+
+    assert mock_check_for_update.call_count == 1
+    assert mock_check_for_update.call_args == mock.call()
+
+
+@pytest.mark.parametrize("subcommand", ["update", "cli"])
+@mock.patch("deepfellow.main.check_for_update")
+@mock.patch("deepfellow.main.validate_system")
+def test_main_skips_update_check(
+    mock_validate_system: Mock,
+    mock_check_for_update: Mock,
+    tmp_path: Path,
+    subcommand: str,
+):
+    ctx = Mock(spec=typer.Context)
+    ctx.invoked_subcommand = subcommand
+
+    main(
+        ctx,
+        config=tmp_path / "config",
+        secrets=tmp_path / "secrets",
+        debug=False,
+        yes=False,
+        non_interactive=False,
+        _version=False,
+    )
+
+    assert mock_validate_system.call_count == 1
+    assert mock_check_for_update.call_count == 0
+
+
+@mock.patch("deepfellow.main.check_for_update")
+@mock.patch("deepfellow.main.print_version")
+def test_main_skips_update_check_when_version_flag_set(
+    mock_print_version: Mock,
+    mock_check_for_update: Mock,
+    tmp_path: Path,
+):
+    ctx = Mock(spec=typer.Context)
+    ctx.invoked_subcommand = "version"
+
+    with pytest.raises(typer.Exit) as exc_info:
+        main(
+            ctx,
+            config=tmp_path / "config",
+            secrets=tmp_path / "secrets",
+            debug=False,
+            yes=False,
+            non_interactive=False,
+            _version=True,
+        )
+
+    assert exc_info.value.exit_code == 0
+    assert mock_print_version.call_count == 1
+    assert mock_check_for_update.call_count == 0
+
+
+@mock.patch("deepfellow.main.check_for_update")
+@mock.patch("deepfellow.main.print_name")
+def test_main_skips_update_check_when_no_subcommand_invoked(
+    mock_print_name: Mock,
+    mock_check_for_update: Mock,
+    tmp_path: Path,
+):
+    ctx = Mock(spec=typer.Context)
+    ctx.invoked_subcommand = None
+
+    with pytest.raises(typer.Exit) as exc_info:
+        main(
+            ctx,
+            config=tmp_path / "config",
+            secrets=tmp_path / "secrets",
+            debug=False,
+            yes=False,
+            non_interactive=False,
+            _version=False,
+        )
+
+    assert exc_info.value.exit_code == 0
+    assert mock_print_name.call_count == 1
+    assert mock_check_for_update.call_count == 0
+
+
 @mock.patch("deepfellow.main.echo")
 @mock.patch("deepfellow.main.get_version", return_value="1.2.3")
 def test_version_prints_installed_version(mock_get_version: Mock, mock_echo: Mock) -> None:

@@ -12,6 +12,7 @@ import typer
 from deepfellow.common.config import EnvDict, env_to_dict, read_env_file, save_env_file
 from deepfellow.common.defaults import DF_CLI_CONFIG_PATH, DF_CLI_SECRETS_PATH
 from deepfellow.common.state import state
+from deepfellow.common.update_check import check_for_update
 from deepfellow.common.validation import validate_system
 from deepfellow.common.version import cli_version
 from deepfellow.common.version import version as print_version
@@ -95,6 +96,11 @@ def main(
 
     # Check environment if all commands are installed
     validate_system()
+
+    # `update` updates the CLI itself. The `cli` group runs the check from its own callback,
+    # because the nested `cli update` name isn't visible here.
+    if ctx.invoked_subcommand not in ("update", "cli"):
+        check_for_update()
 
 
 @app.command()

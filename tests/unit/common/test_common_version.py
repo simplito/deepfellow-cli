@@ -8,11 +8,27 @@ from unittest import mock
 from unittest.mock import Mock
 
 from deepfellow.common import version as version_module
-from deepfellow.common.version import _run_git, _service_version, cli_version, version
+from deepfellow.common.version import _run_git, _service_version, cli_version, is_source_checkout, version
 
 
 def _completed(returncode: int, stdout: str = "") -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr="")
+
+
+@mock.patch("deepfellow.common.version.Path.exists", return_value=True)
+def test_is_source_checkout_returns_true_when_git_dir_exists(mock_exists: Mock):
+    result = is_source_checkout()
+
+    assert result is True
+    assert mock_exists.call_count == 1
+
+
+@mock.patch("deepfellow.common.version.Path.exists", return_value=False)
+def test_is_source_checkout_returns_false_when_git_dir_missing(mock_exists: Mock):
+    result = is_source_checkout()
+
+    assert result is False
+    assert mock_exists.call_count == 1
 
 
 @mock.patch("deepfellow.common.version.Path.exists", return_value=True)

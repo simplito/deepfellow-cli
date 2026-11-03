@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 import typer
 
-from deepfellow.common.echo import Echo, echo, get_return_value, is_interactive
+from deepfellow.common.echo import Echo, echo, echo_err, get_return_value, is_interactive
 from deepfellow.common.state import state
 
 _IS_INTERACTIVE = "deepfellow.common.echo.is_interactive"
@@ -759,3 +759,23 @@ def test_spinner_non_interactive_is_noop(mock_interactive, mock_status, prompter
         pass
 
     assert mock_status.call_count == 0
+
+
+@patch(_IS_INTERACTIVE, return_value=False)
+def test_echo_err_warning_writes_to_stderr_only(mock_interactive: Mock, capsys: pytest.CaptureFixture[str]):
+    echo_err.warning("A new version is available")
+
+    captured = capsys.readouterr()
+    assert captured.err == "A new version is available\n"
+    assert captured.out == ""
+
+
+@patch(_IS_INTERACTIVE, return_value=True)
+def test_echo_err_warning_writes_to_stderr_only_in_interactive_mode(
+    mock_interactive: Mock, capsys: pytest.CaptureFixture[str]
+):
+    echo_err.warning("A new version is available")
+
+    captured = capsys.readouterr()
+    assert "A new version is available" in captured.err
+    assert captured.out == ""
