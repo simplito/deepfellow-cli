@@ -1019,49 +1019,33 @@ def test_inspect_normalizes_plugins_setup_from_config_json_back_to_a_string(
     assert json.loads(context.plugins_setup) == {"df_anonymize_models": ["model-a"]}
 
 
+@pytest.mark.parametrize(
+    ("env_line", "expected_error"),
+    [
+        ("DF_LOG_LEVEL=NOT_A_LEVEL", "Invalid DF_LOG_LEVEL"),
+        ("DF_PLUGINS_SETUP=not-json", "Invalid DF_PLUGINS_SETUP"),
+        ('DF_PLUGINS_SETUP=["a", "b"]', "Invalid DF_PLUGINS_SETUP"),
+    ],
+    ids=["invalid_log_level", "malformed_json_plugins_setup", "json_array_plugins_setup"],
+)
 @MOCK_ENSURE_DIRECTORY
 @MOCK_ASSERT_DOCKER
 @MOCK_ECHO
-def test_inspect_rejects_invalid_log_level(
-    mock_echo: Mock, mock_assert_docker: Mock, mock_ensure_directory: Mock, tmp_path: Path
+def test_inspect_rejects_invalid_env_value(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_ensure_directory: Mock,
+    tmp_path: Path,
+    env_line: str,
+    expected_error: str,
 ) -> None:
-    (tmp_path / ".env").write_text("DF_LOG_LEVEL=NOT_A_LEVEL\n")
+    (tmp_path / ".env").write_text(f"{env_line}\n")
 
     with pytest.raises(typer.Exit):
         inspect_util(directory=tmp_path, image="deepfellow-server:test", local_image=False, force_install=False)
 
     assert mock_echo.error.call_count == 1
-    assert "Invalid DF_LOG_LEVEL" in mock_echo.error.call_args[0][0]
-
-
-@MOCK_ENSURE_DIRECTORY
-@MOCK_ASSERT_DOCKER
-@MOCK_ECHO
-def test_inspect_rejects_malformed_json_plugins_setup(
-    mock_echo: Mock, mock_assert_docker: Mock, mock_ensure_directory: Mock, tmp_path: Path
-) -> None:
-    (tmp_path / ".env").write_text("DF_PLUGINS_SETUP=not-json\n")
-
-    with pytest.raises(typer.Exit):
-        inspect_util(directory=tmp_path, image="deepfellow-server:test", local_image=False, force_install=False)
-
-    assert mock_echo.error.call_count == 1
-    assert "Invalid DF_PLUGINS_SETUP" in mock_echo.error.call_args[0][0]
-
-
-@MOCK_ENSURE_DIRECTORY
-@MOCK_ASSERT_DOCKER
-@MOCK_ECHO
-def test_inspect_rejects_json_array_plugins_setup(
-    mock_echo: Mock, mock_assert_docker: Mock, mock_ensure_directory: Mock, tmp_path: Path
-) -> None:
-    (tmp_path / ".env").write_text('DF_PLUGINS_SETUP=["a", "b"]\n')
-
-    with pytest.raises(typer.Exit):
-        inspect_util(directory=tmp_path, image="deepfellow-server:test", local_image=False, force_install=False)
-
-    assert mock_echo.error.call_count == 1
-    assert "Invalid DF_PLUGINS_SETUP" in mock_echo.error.call_args[0][0]
+    assert expected_error in mock_echo.error.call_args[0][0]
 
 
 @MOCK_RESOLVE_TEMPLATE
@@ -1231,36 +1215,23 @@ def test_inspect_does_not_prompt_when_overwrite_pre_resolved(
     assert mock_common_echo.confirm.call_count == 0
 
 
-def test_get_nested_env_value_returns_value_at_multi_segment_path():
-    result = _get_nested_env_value({"df_infra": {"url": "http://infra:8086"}}, ("df_infra", "url"))
+@pytest.mark.parametrize(
+    ("env", "path", "expected"),
+    [
+        ({"df_infra": {"url": "http://infra:8086"}}, ("df_infra", "url"), "http://infra:8086"),
+        ({"df_server_port": 9001}, ("df_server_port",), 9001),
+        ({"df_infra": {}}, ("df_infra", "api_key"), None),
+        ({}, ("df_vector_database", "provider", "url"), None),
+        # A path segment can land on a plain value instead of a nested dict (e.g. a stale/malformed
+        # .env value) - this must report "not found" rather than raise AttributeError.
+        ({"df_infra": "not-a-dict"}, ("df_infra", "url"), None),
+    ],
+    ids=["multi_segment", "single_segment", "missing_leaf", "missing_intermediate", "non_dict_on_path"],
+)
+def test_get_nested_env_value_returns_value_or_none(env: EnvDict, path: tuple[str, ...], expected: Any) -> None:
+    result = _get_nested_env_value(env, path)
 
-    assert result == "http://infra:8086"
-
-
-def test_get_nested_env_value_returns_value_at_single_segment_path():
-    result = _get_nested_env_value({"df_server_port": 9001}, ("df_server_port",))
-
-    assert result == 9001
-
-
-def test_get_nested_env_value_returns_none_for_missing_leaf():
-    result = _get_nested_env_value({"df_infra": {}}, ("df_infra", "api_key"))
-
-    assert result is None
-
-
-def test_get_nested_env_value_returns_none_for_missing_intermediate():
-    result = _get_nested_env_value({}, ("df_vector_database", "provider", "url"))
-
-    assert result is None
-
-
-def test_get_nested_env_value_returns_none_when_path_walks_through_a_non_dict():
-    """A path segment can land on a plain value instead of a nested dict (e.g. a stale/malformed
-    .env value) - this must report "not found" rather than raise AttributeError."""
-    result = _get_nested_env_value({"df_infra": "not-a-dict"}, ("df_infra", "url"))
-
-    assert result is None
+    assert result == expected
 
 
 def test_mergeable_fields_keys_are_unique():
@@ -1382,27 +1353,24 @@ def test_merge_template_config_resolves_each_field_independently():
     assert blocked_by_prior_env == set()
 
 
-def test_resolve_port_restores_prior_env_value_when_not_explicit():
-    result = _resolve_port(DF_SERVER_PORT, {"df_server_port": 9000}, set())
+@pytest.mark.parametrize(
+    ("port", "prior_env", "explicit", "expected"),
+    [
+        (DF_SERVER_PORT, {"df_server_port": 9000}, set(), 9000),
+        (9999, {"df_server_port": "not-a-number"}, {"port"}, 9999),
+        (DF_SERVER_PORT, {}, set(), DF_SERVER_PORT),
+    ],
+    ids=["restores_prior_env_value", "explicit_cli_value_wins", "cli_value_without_prior_env"],
+)
+def test_resolve_port_returns_expected_port(port: int, prior_env: EnvDict, explicit: set[str], expected: int) -> None:
+    result = _resolve_port(port, prior_env, explicit)
 
-    assert result == 9000
+    assert result == expected
 
 
 def test_resolve_port_raises_on_invalid_prior_port():
     with pytest.raises(InstallError):
         _resolve_port(DF_SERVER_PORT, {"df_server_port": "not-a-number"}, set())
-
-
-def test_resolve_port_returns_cli_value_when_explicitly_provided():
-    result = _resolve_port(9999, {"df_server_port": "not-a-number"}, {"port"})
-
-    assert result == 9999
-
-
-def test_resolve_port_returns_cli_value_when_no_prior_env():
-    result = _resolve_port(DF_SERVER_PORT, {}, set())
-
-    assert result == DF_SERVER_PORT
 
 
 @pytest.mark.parametrize(
@@ -1580,16 +1548,13 @@ def test_mergeable_fields_paths_reach_real_env_values_for_milvus(mock_configure_
         assert _get_nested_env_value(original_env_content, path) == expected[key]
 
 
-def test_is_json_object_accepts_valid_object():
-    assert _is_json_object('{"a": 1}') is True
-
-
-def test_is_json_object_rejects_non_object_json():
-    assert _is_json_object("[1, 2, 3]") is False
-
-
-def test_is_json_object_rejects_malformed_json():
-    assert _is_json_object("not-json") is False
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [('{"a": 1}', True), ("[1, 2, 3]", False), ("not-json", False)],
+    ids=["valid_object", "non_object_json", "malformed_json"],
+)
+def test_is_json_object_detects_json_objects(value: str, expected: bool) -> None:
+    assert _is_json_object(value) is expected
 
 
 def test_is_json_object_rejects_deeply_nested_json_without_crashing():
@@ -4198,7 +4163,9 @@ def test_apply_exits_when_plugins_directory_mkdir_fails(
         apply(install_config)
 
     assert mock_echo.error.call_count == 1
-    assert mock_echo.error.call_args == mock.call(f"Unable to create {plugins_directory}: Permission denied.")
+    assert mock_echo.error.call_args == mock.call(
+        f"Unable to create {plugins_directory.as_posix()}: Permission denied."
+    )
     assert mock_save_compose.call_count == 0
 
 

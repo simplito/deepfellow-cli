@@ -4,7 +4,8 @@
 """Install server core logic."""
 
 import json
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Iterator
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 from functools import partial
@@ -908,6 +909,110 @@ def _store_default_server_url(server_url: str, previous_url: str | None) -> None
     state.cli_config["df_server_url"] = server_url
 
 
+@contextmanager
+def _reraise_os_error(action: str, path: Path) -> Iterator[None]:
+    """Report an `OSError` raised while acting on `path` (re-raised in debug mode, otherwise exits).
+
+    Args:
+        action: Verb for the error message, e.g. "write" or "create".
+        path: The file or directory being acted on.
+    """
+    try:
+        yield
+    except OSError as exc:
+        echo.error(f"Unable to {action} {path.as_posix()}: {exc}.")
+        reraise_if_debug(exc)
+
+
+def _keep_legacy_minio(
+    config: InstallConfig, services: dict[str, Any], volumes: dict[str, None], old_minio_service: dict[str, Any]
+) -> None:
+    """Swap the fresh SeaweedFS default back out for the legacy MinIO container being kept.
+
+    Mutates `services` and `volumes` in place.
+    """
+    # Re-checked: a failed migration may have wiped the real volume and left the only copy in a temp volume.
+    try:
+        ensure_no_orphaned_migration_volume(config.directory)
+    except DockerError as exc:
+        echo.error(f"Unable to keep the existing MinIO container: {exc}")
+        reraise_if_debug(exc)
+    # Milvus must point at the kept container, which is still named "minio".
+    del services["seaweedfs"]
+    del volumes["seaweedfs"]
+    volumes["minio"] = None
+    milvus_depends_on = services["milvus"]["depends_on"]
+    milvus_depends_on["minio"] = milvus_depends_on.pop("seaweedfs")
+    services["milvus"]["environment"] = [
+        "MINIO_ADDRESS=minio:9000" if env.startswith("MINIO_ADDRESS=") else env
+        for env in services["milvus"]["environment"]
+    ]
+    services["minio"] = deepcopy(old_minio_service)
+    services["minio"]["pull_policy"] = "never"
+    # The label lets a later reinstall skip the "container is running" check; the CONFIRMED one also silences the
+    # prompt, so it is set only for a deliberate choice, never for the --non-interactive default.
+    was_already_confirmed = MIGRATION_SKIPPED_LABEL_CONFIRMED in (old_minio_service.get("labels") or [])
+    # From `config`, not `state`: a replayed config (`suite install --resume`) may run with other flags.
+    is_confirmed_decision = was_already_confirmed or config.legacy_minio_keep_confirmed
+    labels = [MIGRATION_SKIPPED_LABEL]
+    if is_confirmed_decision:
+        labels.append(MIGRATION_SKIPPED_LABEL_CONFIRMED)
+    services["minio"]["labels"] = labels
+    if is_confirmed_decision:
+        echo.warning(
+            "Keeping the existing MinIO container. This choice is remembered - "
+            "future installs won't re-offer the migration prompt while this image "
+            f"stays cached locally. To migrate later, remove the "
+            f"'{MIGRATION_SKIPPED_LABEL_CONFIRMED}' label from the 'minio' service "
+            "in compose.yaml and run install again."
+        )
+    else:
+        echo.warning(
+            "Keeping the existing MinIO container for this install only - re-run "
+            "interactively, or with `--yes`, to migrate its data to SeaweedFS."
+        )
+
+
+def _add_milvus_services(
+    config: InstallConfig, services: dict[str, Any], volumes: dict[str, None], depends_on: dict[str, Any]
+) -> None:
+    """Add the default Milvus stack to the compose services, handling a pre-existing legacy MinIO install.
+
+    Mutates `services`, `volumes` and `depends_on` in place. May migrate the legacy MinIO data to SeaweedFS.
+    """
+    services.update(deepcopy(DOCKER_COMPOSE_MILVUS))
+    volumes.update({"milvus": None, "etcd": None, "seaweedfs": None})
+    depends_on.update({"milvus": {"condition": "service_healthy"}})
+
+    # resolve() already asked keep-or-migrate for a legacy MinIO; apply() must stay prompt-free and only acts on it.
+    # Re-read from disk, not from `config.legacy_minio_service`: a replayed config may be stale, and writing it back
+    # would put the legacy image over a compose.yaml that was migrated or edited since.
+    old_minio_service = find_legacy_minio_service(config.directory)
+    if old_minio_service is None:
+        if config.legacy_minio_service is not None:
+            echo.debug(
+                "Legacy MinIO service no longer present in compose.yaml (already "
+                "migrated or manually edited) - skipping the keep/migrate replay."
+            )
+    elif config.keep_legacy_minio:
+        _keep_legacy_minio(config, services, volumes, old_minio_service)
+    else:
+        try:
+            # `force=True`: migration is certain, so a stale MIGRATION_SKIPPED_LABEL must not skip the running check.
+            ensure_legacy_minio_not_running(config.directory, old_minio_service, force=True)
+            migrate_minio_data_to_seaweedfs(config.directory, config.docker_network, old_minio_service)
+        except DockerError as exc:
+            echo.error(f"Failed to migrate MinIO data to SeaweedFS: {exc}")
+            reraise_if_debug(exc)
+
+    # Written here, not in resolve(), so a self-healing repair (which skips resolve()) recreates it too.
+    # Skipped when the legacy MinIO is kept, because "seaweedfs" is then removed from `services`.
+    if "seaweedfs" in services and services["seaweedfs"]["image"].startswith("chrislusf/seaweedfs"):
+        seaweedfs_s3_config_path = config.directory / "seaweedfs_s3_config.json"
+        with _reraise_os_error("write", seaweedfs_s3_config_path):
+            seaweedfs_s3_config_path.write_text(SEAWEEDFS_S3_CONFIG)
+
+
 def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa: C901
     """Create the docker network, write the .env/compose files, and pull the image.
 
@@ -968,105 +1073,7 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
                 volumes.update({"qdrant_data": None})
                 depends_on.update({"qdrant": {"condition": "service_started"}})
             else:
-                services.update(deepcopy(DOCKER_COMPOSE_MILVUS))
-                volumes.update({"milvus": None, "etcd": None, "seaweedfs": None})
-                depends_on.update({"milvus": {"condition": "service_healthy"}})
-
-                # The keep-or-migrate decision for a pre-existing MinIO install (from before the
-                # MinIO -> SeaweedFS switch) was already asked in resolve() - apply() only acts on
-                # it here, since apply() itself must stay prompt-free.
-                # Re-derived from disk here, not just trusted from resolve()'s captured
-                # `config.legacy_minio_service` - time may have passed since (e.g. a self-healing
-                # repair replaying an already-resolved config), and blindly writing back a stale
-                # captured service would overwrite a compose.yaml that's since moved on (already
-                # migrated by an earlier apply(), or hand-edited) with a legacy image again.
-                old_minio_service = find_legacy_minio_service(config.directory)
-                if old_minio_service is None:
-                    if config.legacy_minio_service is not None:
-                        echo.debug(
-                            "Legacy MinIO service no longer present in compose.yaml (already "
-                            "migrated or manually edited) - skipping the keep/migrate replay."
-                        )
-                elif config.keep_legacy_minio:
-                    # Re-checked here too: pointing a kept MinIO at a real volume a failed migration
-                    # attempt already wiped, while silently orphaning the temp volume holding the
-                    # only surviving copy, must never happen silently.
-                    try:
-                        ensure_no_orphaned_migration_volume(config.directory)
-                    except DockerError as exc:
-                        echo.error(f"Unable to keep the existing MinIO container: {exc}")
-                        reraise_if_debug(exc)
-                    # Swap the fresh SeaweedFS default (just added above) back out for the legacy
-                    # MinIO container being kept, and repoint Milvus at "minio" instead of
-                    # "seaweedfs" - the actual container being kept is still named "minio".
-                    del services["seaweedfs"]
-                    del volumes["seaweedfs"]
-                    volumes["minio"] = None
-                    milvus_depends_on = services["milvus"]["depends_on"]
-                    milvus_depends_on["minio"] = milvus_depends_on.pop("seaweedfs")
-                    services["milvus"]["environment"] = [
-                        "MINIO_ADDRESS=minio:9000" if env.startswith("MINIO_ADDRESS=") else env
-                        for env in services["milvus"]["environment"]
-                    ]
-                    services["minio"] = deepcopy(old_minio_service)
-                    services["minio"]["pull_policy"] = "never"
-                    # `MIGRATION_SKIPPED_LABEL` alone means "this container is intentionally kept
-                    # running" (so a later reinstall's running-container check doesn't block on it);
-                    # `MIGRATION_SKIPPED_LABEL_CONFIRMED` on top of that additionally means "and
-                    # don't ask again either." The latter is only added when this was a genuine,
-                    # deliberate decision - an explicit interactive choice, or one already confirmed
-                    # on a previous run - never for the `--non-interactive` safe default, so one
-                    # unattended install can't permanently silence the migration prompt for every
-                    # later *interactive* install too. See `should_keep_existing_minio()`.
-                    # `config.legacy_minio_keep_confirmed`, not `state.non_interactive` read here
-                    # directly: apply() can run in a separate process invocation on a persisted,
-                    # replayed config (e.g. `suite install --resume`), where this run's own
-                    # non-interactive-ness no longer reflects how the *original* keep decision was
-                    # made - re-deriving it here would silently downgrade a genuine interactive
-                    # "keep" decision just because the resume happened to run non-interactively.
-                    was_already_confirmed = MIGRATION_SKIPPED_LABEL_CONFIRMED in (old_minio_service.get("labels") or [])
-                    is_confirmed_decision = was_already_confirmed or config.legacy_minio_keep_confirmed
-                    labels = [MIGRATION_SKIPPED_LABEL]
-                    if is_confirmed_decision:
-                        labels.append(MIGRATION_SKIPPED_LABEL_CONFIRMED)
-                    services["minio"]["labels"] = labels
-                    if is_confirmed_decision:
-                        echo.warning(
-                            "Keeping the existing MinIO container. This choice is remembered - "
-                            "future installs won't re-offer the migration prompt while this image "
-                            f"stays cached locally. To migrate later, remove the "
-                            f"'{MIGRATION_SKIPPED_LABEL_CONFIRMED}' label from the 'minio' service "
-                            "in compose.yaml and run install again."
-                        )
-                    else:
-                        echo.warning(
-                            "Keeping the existing MinIO container for this install only - re-run "
-                            "interactively, or with `--yes`, to migrate its data to SeaweedFS."
-                        )
-                else:
-                    try:
-                        # `force=True`: this branch means `should_keep_existing_minio()` already
-                        # returned `False` - the container is about to be migrated for certain, so a
-                        # stale `MIGRATION_SKIPPED_LABEL` (left over from a prior "keep" decision that
-                        # didn't carry forward this run) must never let this skip the running check.
-                        ensure_legacy_minio_not_running(config.directory, old_minio_service, force=True)
-                        migrate_minio_data_to_seaweedfs(config.directory, config.docker_network, old_minio_service)
-                    except DockerError as exc:
-                        echo.error(f"Failed to migrate MinIO data to SeaweedFS: {exc}")
-                        reraise_if_debug(exc)
-
-                # Written here, not by resolve(), so a self-healing repair (which reuses a config
-                # already resolved earlier, without calling resolve() again) still recreates this
-                # bind-mount source instead of silently leaving the S3 gateway without its identities.
-                # Absent (and skipped) only in the keep-legacy-MinIO branch above, which deletes
-                # "seaweedfs" from `services` entirely.
-                if "seaweedfs" in services and services["seaweedfs"]["image"].startswith("chrislusf/seaweedfs"):
-                    seaweedfs_s3_config_path = config.directory / "seaweedfs_s3_config.json"
-                    try:
-                        seaweedfs_s3_config_path.write_text(SEAWEEDFS_S3_CONFIG)
-                    except OSError as exc:
-                        echo.error(f"Unable to write {seaweedfs_s3_config_path.as_posix()}: {exc}.")
-                        reraise_if_debug(exc)
+                _add_milvus_services(config, services, volumes, depends_on)
 
             echo.info(f"A default {config.vectordb_type.capitalize()} setup is created.")
 
@@ -1080,12 +1087,9 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
         # recreates this bind-mount source instead of silently leaving Mongo without its
         # create-user script.
         init_mongo_path = config.directory / "init-mongo.sh"
-        try:
+        with _reraise_os_error("write", init_mongo_path):
             init_mongo_path.write_text(MONGO_DB_INIT_SH)
             init_mongo_path.chmod(0o755)
-        except OSError as exc:
-            echo.error(f"Unable to write {init_mongo_path.as_posix()}: {exc}.")
-            reraise_if_debug(exc)
 
     for api_endpoint_key in config.infra_env:
         shared_envs.append(api_endpoint_key + "=${" + api_endpoint_key + "}")
@@ -1151,16 +1155,10 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
     # Create directories for plugins and storage so Docker never has to auto-create these
     # bind-mount sources itself (which it would do as root, breaking later writes as this user).
     plugins_directory = config.directory / "plugins"
-    try:
+    with _reraise_os_error("create", plugins_directory):
         plugins_directory.mkdir(exist_ok=True)
-    except OSError as exc:
-        echo.error(f"Unable to create {plugins_directory}: {exc}.")
-        reraise_if_debug(exc)
-    try:
+    with _reraise_os_error("create", DF_SERVER_STORAGE_DIRECTORY):
         DF_SERVER_STORAGE_DIRECTORY.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        echo.error(f"Unable to create {DF_SERVER_STORAGE_DIRECTORY}: {exc}.")
-        reraise_if_debug(exc)
 
     storage_volume = f"{DF_SERVER_STORAGE_DIRECTORY}:/app/storage"
     services["server"]["volumes"] = [storage_volume, f"{plugins_directory.as_posix()}:/app/plugins"]
