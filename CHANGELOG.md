@@ -19,6 +19,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - MR templates (`feature`, `bug`): the `## Relates` hint no longer gives a work-item example, which the Plane bot took for a real reference (DFCLI-208)
 
 ### Fixed
+- `infra start` no longer reports Infra as stopped when its state cannot be read
+- `server create-admin` and `server uninstall` handle a failed login or an unwritable config file with a warning instead of failing
+- Clearer messages when a password or username is rejected
 - `infra start`, `restart` and `update` wait for Infra to pull service images instead of failing with `unhealthy`, and report every minute that they are still waiting
 - `server install` sets the local server as the default for `server organization`/`project` commands unless one is already configured; reinstalling on another port or address updates it, and `server uninstall` clears it
 - `server create-admin`, `server install` and `suite install` accept emails on internal domains (e.g. `.local`) and work without DNS access

@@ -48,8 +48,10 @@ def create_admin(
             server = rest.get_server_url(None)
             echo.info(f"Logging in to {server}")
             get_token_from_login(state.cli_secrets_file, server, email=email, password=password)
-        except typer.Exit:
+        except typer.Exit as exc:
             # The admin exists by now; a failed login must not turn that into a failed command.
+            if not exc.exit_code:
+                raise
             echo.warning("The admin was created, but logging in failed. Log in later with `deepfellow server login`.")
         else:
             echo.success("Logged in.")

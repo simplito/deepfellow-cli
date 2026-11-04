@@ -235,3 +235,34 @@ def test_uninstall_keeps_stored_server_url_when_not_matching(
 
     assert read_env_file(state.cli_config_file)["DF_SERVER_URL"] == "http://remote:9000"
     assert state.cli_config["df_server_url"] == "http://remote:9000"
+
+
+@mock.patch("deepfellow.server.uninstall.save_env_file", side_effect=OSError("read-only"))
+@mock.patch("deepfellow.server.uninstall.echo")
+@mock.patch("deepfellow.server.uninstall.set_default_server_directory")
+@mock.patch("deepfellow.server.uninstall.get_default_server_directory")
+@mock.patch("deepfellow.server.uninstall.rmtree")
+@mock.patch("deepfellow.server.uninstall.run")
+@mock.patch("deepfellow.server.uninstall.assert_docker")
+@mock.patch("deepfellow.server.uninstall.check_server_directory")
+def test_uninstall_warns_and_finishes_when_stored_server_url_cannot_be_cleared(
+    mock_check_server_directory: Mock,
+    mock_assert_docker: Mock,
+    mock_run: Mock,
+    mock_rmtree: Mock,
+    mock_get_default_server_directory: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_echo: Mock,
+    mock_save_env_file: Mock,
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "server"
+    directory.mkdir()
+    (directory / ".env").write_text("DF_SERVER_URL=http://localhost:8000\n")
+    mock_get_default_server_directory.return_value = Path("/other/dir")
+    state.cli_config = {"df_server_url": "http://localhost:8000"}
+
+    uninstall(directory=directory)
+
+    assert mock_echo.warning.call_count == 1
+    assert mock_echo.success.call_count == 1

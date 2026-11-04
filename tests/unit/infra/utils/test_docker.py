@@ -96,7 +96,7 @@ def test_start_infra_reraises_compose_error_in_debug_mode(
 
 
 @mock.patch("deepfellow.infra.utils.docker.echo")
-@mock.patch("deepfellow.infra.utils.docker.is_service_running")
+@mock.patch("deepfellow.infra.utils.docker.is_service_running_or_raise")
 @mock.patch("deepfellow.infra.utils.docker._startup_pull_images")
 @mock.patch("deepfellow.infra.utils.docker.run")
 @mock.patch("deepfellow.infra.utils.docker.ensure_network")
@@ -125,7 +125,7 @@ def test_start_infra_exits_when_compose_fails_and_infra_not_running(
 @mock.patch("deepfellow.infra.utils.docker.time.sleep")
 @mock.patch("deepfellow.infra.utils.docker.echo")
 @mock.patch("deepfellow.infra.utils.docker.service_health")
-@mock.patch("deepfellow.infra.utils.docker.is_service_running")
+@mock.patch("deepfellow.infra.utils.docker.is_service_running_or_raise")
 @mock.patch("deepfellow.infra.utils.docker._startup_pull_images")
 @mock.patch("deepfellow.infra.utils.docker.run")
 @mock.patch("deepfellow.infra.utils.docker.ensure_network")
@@ -160,7 +160,7 @@ def test_start_infra_waits_until_healthy_when_infra_pulls_images(
 @mock.patch("deepfellow.infra.utils.docker.time.sleep")
 @mock.patch("deepfellow.infra.utils.docker.echo")
 @mock.patch("deepfellow.infra.utils.docker.service_health")
-@mock.patch("deepfellow.infra.utils.docker.is_service_running")
+@mock.patch("deepfellow.infra.utils.docker.is_service_running_or_raise")
 @mock.patch("deepfellow.infra.utils.docker._startup_pull_images")
 @mock.patch("deepfellow.infra.utils.docker.run")
 @mock.patch("deepfellow.infra.utils.docker.ensure_network")
@@ -196,7 +196,7 @@ def test_start_infra_exits_when_infra_stops_while_pulling(
 @mock.patch("deepfellow.infra.utils.docker.time.sleep")
 @mock.patch("deepfellow.infra.utils.docker.echo")
 @mock.patch("deepfellow.infra.utils.docker.service_health")
-@mock.patch("deepfellow.infra.utils.docker.is_service_running")
+@mock.patch("deepfellow.infra.utils.docker.is_service_running_or_raise")
 @mock.patch("deepfellow.infra.utils.docker._startup_pull_images")
 @mock.patch("deepfellow.infra.utils.docker.run")
 @mock.patch("deepfellow.infra.utils.docker.ensure_network")
@@ -235,7 +235,7 @@ def test_start_infra_exits_when_pull_wait_times_out(
 @mock.patch("deepfellow.infra.utils.docker.time.sleep")
 @mock.patch("deepfellow.infra.utils.docker.echo")
 @mock.patch("deepfellow.infra.utils.docker.service_health")
-@mock.patch("deepfellow.infra.utils.docker.is_service_running")
+@mock.patch("deepfellow.infra.utils.docker.is_service_running_or_raise")
 @mock.patch("deepfellow.infra.utils.docker._startup_pull_images")
 @mock.patch("deepfellow.infra.utils.docker.run")
 @mock.patch("deepfellow.infra.utils.docker.ensure_network")
@@ -290,58 +290,37 @@ def test_startup_pull_images_reads_logs_since_container_start(mock_run: mock.Mag
     ]
 
 
-@mock.patch("deepfellow.infra.utils.docker.run")
-def test_startup_pull_images_returns_empty_list_without_container(mock_run: mock.MagicMock, tmp_path: Path) -> None:
-    mock_run.return_value = ""
-
-    result = _startup_pull_images(tmp_path)
-
-    assert result == []
-    assert mock_run.call_count == 1
-
-
+@pytest.mark.parametrize(
+    ("side_effect", "expected_run_calls", "expected_debug_error"),
+    [
+        ([""], 1, None),
+        (["abc123\n", DockerError("no such container")], 2, DockerError("no such container")),
+        (["abc123\n", f"{STARTED_AT}\n", DockerError("no such service")], 3, DockerError("no such service")),
+        (["abc123\n", f"{STARTED_AT}\n", "INFO Starting DeepFellow Infra\n"], 3, None),
+    ],
+    ids=["without_container", "start_time_unreadable", "logs_fail", "logs_have_no_pulls"],
+)
 @mock.patch("deepfellow.infra.utils.docker.echo")
 @mock.patch("deepfellow.infra.utils.docker.run")
-def test_startup_pull_images_returns_empty_list_when_start_time_unreadable(
+def test_startup_pull_images_returns_empty_list(
     mock_run: mock.MagicMock,
     mock_echo: mock.MagicMock,
     tmp_path: Path,
+    side_effect: list[str | DockerError],
+    expected_run_calls: int,
+    expected_debug_error: DockerError | None,
 ) -> None:
-    inspect_error = DockerError("no such container")
-    mock_run.side_effect = ["abc123\n", inspect_error]
+    mock_run.side_effect = side_effect
 
     result = _startup_pull_images(tmp_path)
 
     assert result == []
-    assert mock_run.call_count == 2
-    assert mock_echo.debug.call_args == mock.call(inspect_error)
-
-
-@mock.patch("deepfellow.infra.utils.docker.echo")
-@mock.patch("deepfellow.infra.utils.docker.run")
-def test_startup_pull_images_returns_empty_list_when_logs_fail(
-    mock_run: mock.MagicMock,
-    mock_echo: mock.MagicMock,
-    tmp_path: Path,
-) -> None:
-    logs_error = DockerError("no such service")
-    mock_run.side_effect = ["abc123\n", f"{STARTED_AT}\n", logs_error]
-
-    result = _startup_pull_images(tmp_path)
-
-    assert result == []
-    assert mock_echo.debug.call_args == mock.call(logs_error)
-
-
-@mock.patch("deepfellow.infra.utils.docker.run")
-def test_startup_pull_images_returns_empty_list_when_logs_have_no_pulls(
-    mock_run: mock.MagicMock, tmp_path: Path
-) -> None:
-    mock_run.side_effect = ["abc123\n", f"{STARTED_AT}\n", "INFO Starting DeepFellow Infra\n"]
-
-    result = _startup_pull_images(tmp_path)
-
-    assert result == []
+    assert mock_run.call_count == expected_run_calls
+    if expected_debug_error is None:
+        assert mock_echo.debug.call_count == 0
+    else:
+        assert mock_echo.debug.call_count == 1
+        assert str(mock_echo.debug.call_args[0][0]) == str(expected_debug_error)
 
 
 @mock.patch("deepfellow.infra.utils.docker.run")
@@ -350,3 +329,34 @@ def test_stop_infra_stops_compose_service(mock_run: mock.MagicMock, tmp_path: Pa
 
     assert mock_run.call_count == 1
     assert mock_run.call_args == mock.call(["docker", "compose", "stop", "infra"], cwd=tmp_path)
+
+
+@mock.patch("deepfellow.infra.utils.docker.time.sleep")
+@mock.patch("deepfellow.infra.utils.docker.echo")
+@mock.patch("deepfellow.infra.utils.docker.service_health")
+@mock.patch("deepfellow.infra.utils.docker.is_service_running_or_raise")
+@mock.patch("deepfellow.infra.utils.docker._startup_pull_images")
+@mock.patch("deepfellow.infra.utils.docker.run")
+@mock.patch("deepfellow.infra.utils.docker.ensure_network")
+@mock.patch("deepfellow.infra.utils.docker.get_docker_network")
+def test_start_infra_keeps_waiting_when_docker_state_is_unknown_during_pull_wait(
+    mock_get_docker_network: mock.MagicMock,
+    mock_ensure_network: mock.MagicMock,
+    mock_run: mock.MagicMock,
+    mock_startup_pull_images: mock.MagicMock,
+    mock_is_service_running: mock.MagicMock,
+    mock_service_health: mock.MagicMock,
+    mock_echo: mock.MagicMock,
+    mock_sleep: mock.MagicMock,
+    tmp_path: Path,
+) -> None:
+    mock_run.side_effect = DockerError(None)
+    mock_startup_pull_images.return_value = ["ollama/ollama:0.34.1"]
+    mock_is_service_running.side_effect = [True, DockerError("ps failed")]
+    mock_service_health.side_effect = [None, "healthy"]
+
+    start_infra(tmp_path)
+
+    assert mock_sleep.call_count == 1
+    assert mock_echo.error.call_count == 0
+    assert mock_echo.success.call_count == 1

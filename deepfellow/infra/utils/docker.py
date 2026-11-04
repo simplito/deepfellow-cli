@@ -13,7 +13,7 @@ from deepfellow.common.docker import (
     DockerError,
     ensure_network,
     get_docker_network,
-    is_service_running,
+    is_service_running_or_raise,
     service_health,
 )
 from deepfellow.common.echo import echo
@@ -99,15 +99,25 @@ def _report_start_failure(exc: DockerError) -> NoReturn:
     reraise_if_debug(exc)
 
 
+def _infra_running(directory: Path) -> bool | None:
+    """Tell whether Infra is running; `None` when `docker compose ps` itself fails (unknown)."""
+    try:
+        return is_service_running_or_raise(INFRA_SERVICE, directory)
+    except DockerError as exc:
+        echo.debug(exc)
+        return None
+
+
 def _wait_for_startup_pulls(directory: Path, exc: DockerError) -> None:
     """Wait for Infra to become healthy if it is still pulling service images; otherwise report `exc`.
 
-    Must be called from the `except` block handling `exc`. Returns once Infra is healthy; exits when
-    it isn't pulling, stops running, or isn't healthy within `INFRA_PULL_WAIT_TIMEOUT_SECONDS`.
+    Must be called from the `except` block handling `exc`. Returns once Infra is healthy;
+    exits (or re-raises in debug mode) when it isn't pulling, is confirmed stopped, or isn't healthy within
+    `INFRA_PULL_WAIT_TIMEOUT_SECONDS`.
     Reports progress every `_PULL_WAIT_REPORT_SECONDS` so the wait never looks hung.
     """
     images = _startup_pull_images(directory)
-    if not images or not is_service_running(INFRA_SERVICE, directory):
+    if not images or not _infra_running(directory):
         _report_start_failure(exc)
 
     echo.warning(
@@ -119,7 +129,7 @@ def _wait_for_startup_pulls(directory: Path, exc: DockerError) -> None:
     next_report = start + _PULL_WAIT_REPORT_SECONDS
     with echo.spinner("Waiting for DeepFellow Infra to pull service images..."):
         while service_health(directory, INFRA_SERVICE) != "healthy":
-            if not is_service_running(INFRA_SERVICE, directory):
+            if _infra_running(directory) is False:
                 echo.error("DeepFellow Infra stopped while pulling service images. Check `deepfellow infra logs`.")
                 reraise_if_debug(exc)
             now = time.monotonic()

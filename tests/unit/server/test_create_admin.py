@@ -206,3 +206,29 @@ def test_create_admin_defaults_to_no_login_in_non_interactive_mode(
     create_admin(directory=directory, name="Ada", email="ada@b.com", password="hunter2hunter")
 
     assert mock_echo.confirm.call_args == mock.call("Do you want to log in as the new admin now?", default=False)
+
+
+@mock.patch("deepfellow.server.create_admin.state")
+@mock.patch("deepfellow.server.create_admin.get_token_from_login", side_effect=typer.Exit(0))
+@mock.patch("deepfellow.server.create_admin.rest")
+@mock.patch("deepfellow.server.create_admin.echo")
+@mock.patch("deepfellow.server.create_admin.apply_admin", return_value=True)
+@mock.patch("deepfellow.server.create_admin.resolve_admin_creds")
+@mock.patch("deepfellow.server.create_admin.check_server_directory")
+def test_create_admin_does_not_report_failed_login_on_clean_exit(
+    mock_check_server_directory: Mock,
+    mock_resolve_admin_creds: Mock,
+    mock_apply_admin: Mock,
+    mock_echo: Mock,
+    mock_rest: Mock,
+    mock_get_token_from_login: Mock,
+    mock_state: Mock,
+    directory: Path,
+) -> None:
+    mock_resolve_admin_creds.return_value = ("Ada", "ada@b.com", "hunter2hunter")
+    mock_echo.confirm.return_value = True
+
+    with pytest.raises(typer.Exit):
+        create_admin(directory=directory, name="Ada", email="ada@b.com", password="hunter2hunter")
+
+    assert mock_echo.warning.call_count == 0
