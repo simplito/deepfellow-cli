@@ -20,7 +20,7 @@ USERNAME_REGEX = r"[a-zA-Z][a-zA-Z0-9_]{2,19}"
 PASSWORD_REGEX = r"(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{10,}"
 PASSWORD_REQUIREMENTS = (
     "Password must be at least 10 characters with at least 1 uppercase letter, 1 lowercase letter, 1 digit "
-    "and 1 other character (not a letter or digit)."
+    "and 1 character other than A-Z, a-z, 0-9."
 )
 
 
@@ -176,7 +176,9 @@ def validate_username(value: str | None) -> str | None:
 
     validate_truthy(value)
     if not re.fullmatch(USERNAME_REGEX, value):
-        raise typer.BadParameter("Invalid username - only letters, numbers, and '_' are allowed.")
+        raise typer.BadParameter(
+            "Invalid username - 3-20 characters: letters, numbers, and '_' only, starting with a letter."
+        )
 
     return value
 

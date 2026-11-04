@@ -31,7 +31,13 @@ def _clear_stored_server_url(server_url: str | None) -> None:
     """
     if not server_url or state.cli_config.get("df_server_url") != server_url:
         return
-    save_env_file(state.cli_config_file, {}, docker_note=False, quiet=True, remove=("DF_SERVER_URL",))
+    try:
+        save_env_file(state.cli_config_file, {}, docker_note=False, quiet=True, remove=("DF_SERVER_URL",))
+    except OSError as exc:
+        echo.warning(
+            f"Server removed, but could not clear DF_SERVER_URL from {state.cli_config_file}: {exc}. Edit it manually."
+        )
+        return
     state.cli_config.pop("df_server_url", None)
 
 

@@ -105,7 +105,7 @@ def info(
         False,
         "--server-key",
         help=(
-            "Print only the INFRA_API_KEY to pass to `server install --infra-api-key` (raw value, for scripts). "
+            "Print only the DF_INFRA_API_KEY to pass to `server install --infra-api-key` (raw value, for scripts). "
             "Always reveals the key; cannot be combined with --doc."
         ),
     ),

@@ -375,15 +375,23 @@ def test_check_for_update_saves_timestamp_and_stays_silent_on_fetch_failure(
     assert mock_echo_err.warning.call_count == 0
 
 
-@mock.patch.dict("os.environ", {DF_NO_UPDATE_CHECK_ENV: "1"})
+@pytest.mark.parametrize(
+    ("env_value", "non_interactive", "source_checkout"),
+    [
+        ("1", False, False),
+        ("0", True, False),
+        ("0", False, True),
+    ],
+    ids=["env_var_set", "non_interactive", "source_checkout"],
+)
 @mock.patch(f"{_MODULE}.echo")
 @mock.patch(f"{_MODULE}.echo_err")
 @mock.patch(f"{_MODULE}.save_env_file")
 @mock.patch(f"{_MODULE}.time")
 @mock.patch(f"{_MODULE}._fetch_latest_version")
 @mock.patch(f"{_MODULE}.cli_version", return_value="0.37.0")
-@mock.patch(f"{_MODULE}.is_source_checkout", return_value=False)
-def test_check_for_update_skips_when_env_var_set(
+@mock.patch(f"{_MODULE}.is_source_checkout")
+def test_check_for_update_skips_when_check_is_disabled(
     mock_is_source_checkout: Mock,
     mock_cli_version: Mock,
     mock_fetch_latest_version: Mock,
@@ -391,62 +399,14 @@ def test_check_for_update_skips_when_env_var_set(
     mock_save_env_file: Mock,
     mock_echo_err: Mock,
     mock_echo: Mock,
+    monkeypatch: pytest.MonkeyPatch,
+    env_value: str,
+    non_interactive: bool,
+    source_checkout: bool,
 ):
-    mock_time.time.return_value = NOW
-    state.cli_config = _fresh_cache("0.38.0")
-
-    check_for_update()
-
-    assert mock_fetch_latest_version.call_count == 0
-    assert mock_save_env_file.call_count == 0
-    assert mock_echo_err.warning.call_count == 0
-
-
-@mock.patch.object(state, "non_interactive", True)
-@mock.patch.dict("os.environ", {DF_NO_UPDATE_CHECK_ENV: "0"})
-@mock.patch(f"{_MODULE}.echo")
-@mock.patch(f"{_MODULE}.echo_err")
-@mock.patch(f"{_MODULE}.save_env_file")
-@mock.patch(f"{_MODULE}.time")
-@mock.patch(f"{_MODULE}._fetch_latest_version")
-@mock.patch(f"{_MODULE}.cli_version", return_value="0.37.0")
-@mock.patch(f"{_MODULE}.is_source_checkout", return_value=False)
-def test_check_for_update_skips_in_non_interactive_mode(
-    mock_is_source_checkout: Mock,
-    mock_cli_version: Mock,
-    mock_fetch_latest_version: Mock,
-    mock_time: Mock,
-    mock_save_env_file: Mock,
-    mock_echo_err: Mock,
-    mock_echo: Mock,
-):
-    mock_time.time.return_value = NOW
-    state.cli_config = _fresh_cache("0.38.0")
-
-    check_for_update()
-
-    assert mock_fetch_latest_version.call_count == 0
-    assert mock_save_env_file.call_count == 0
-    assert mock_echo_err.warning.call_count == 0
-
-
-@mock.patch.dict("os.environ", {DF_NO_UPDATE_CHECK_ENV: "0"})
-@mock.patch(f"{_MODULE}.echo")
-@mock.patch(f"{_MODULE}.echo_err")
-@mock.patch(f"{_MODULE}.save_env_file")
-@mock.patch(f"{_MODULE}.time")
-@mock.patch(f"{_MODULE}._fetch_latest_version")
-@mock.patch(f"{_MODULE}.cli_version", return_value="0.37.0")
-@mock.patch(f"{_MODULE}.is_source_checkout", return_value=True)
-def test_check_for_update_skips_in_source_checkout(
-    mock_is_source_checkout: Mock,
-    mock_cli_version: Mock,
-    mock_fetch_latest_version: Mock,
-    mock_time: Mock,
-    mock_save_env_file: Mock,
-    mock_echo_err: Mock,
-    mock_echo: Mock,
-):
+    monkeypatch.setenv(DF_NO_UPDATE_CHECK_ENV, env_value)
+    monkeypatch.setattr(state, "non_interactive", non_interactive)
+    mock_is_source_checkout.return_value = source_checkout
     mock_time.time.return_value = NOW
     state.cli_config = _fresh_cache("0.38.0")
 
