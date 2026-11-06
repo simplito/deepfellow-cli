@@ -10,7 +10,7 @@ from unittest.mock import Mock
 import httpx
 import pytest
 
-from deepfellow.infra.utils.progress import _Heartbeat, _StageOnlyColumn, install_with_progress
+from deepfellow.infra.utils.progress import _BytesColumn, _Heartbeat, _StageOnlyColumn, install_with_progress
 
 
 def _sse_lines(*events: dict[str, Any]) -> list[str]:
@@ -870,3 +870,158 @@ def test_install_with_progress_logs_image_label_when_non_interactive(
         mock.call("Pulling image ollama/ollama:0.34.1"),
         mock.call(None),
     ]
+
+
+@mock.patch("deepfellow.infra.utils.progress.Progress")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=True)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_tracks_download_bytes(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_progress: Mock,
+) -> None:
+    response = _stream_response(
+        lines=_sse_lines(
+            {"type": "progress", "stage": "download", "value": 0.25, "data": {"completed": 500, "total": 2000}},
+            {"type": "progress", "stage": "download", "value": 0.5, "data": {}},
+            {"type": "finish", "status": "ok"},
+        )
+    )
+    mock_stream.return_value.__enter__.return_value = response
+    progress_instance = mock_progress.return_value.__enter__.return_value
+    progress_instance.add_task.side_effect = ["main-task", "stage-task"]
+
+    install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert progress_instance.update.call_args_list == [
+        mock.call("stage-task", completed=0.25, total=1.0),
+        mock.call("stage-task", bytes=(500, 2000)),
+        mock.call("stage-task", completed=0.5, total=1.0),
+        mock.call("stage-task", bytes=(1000, 2000)),
+        mock.call("main-task", total=1.0, completed=1.0),
+        mock.call("stage-task", total=1.0, completed=1.0),
+        mock.call("stage-task", bytes=(2000, 2000)),
+    ]
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"completed": 500},
+        {"completed": 500, "total": 0},
+        {"completed": "500", "total": 2000},
+        {"completed": 500, "total": None},
+    ],
+)
+@mock.patch("deepfellow.infra.utils.progress.Progress")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=True)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_skips_bytes_without_known_total(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_progress: Mock,
+    data: dict[str, Any],
+) -> None:
+    response = _stream_response(
+        lines=_sse_lines(
+            {"type": "progress", "stage": "download", "value": 0.25, "data": data},
+            {"type": "finish", "status": "error"},
+        )
+    )
+    mock_stream.return_value.__enter__.return_value = response
+    progress_instance = mock_progress.return_value.__enter__.return_value
+    progress_instance.add_task.side_effect = ["main-task", "stage-task"]
+
+    install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert progress_instance.update.call_args_list == [mock.call("stage-task", completed=0.25, total=1.0)]
+
+
+@mock.patch("deepfellow.infra.utils.progress.Progress")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=True)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_keeps_download_bytes_on_error_finish(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_progress: Mock,
+) -> None:
+    response = _stream_response(
+        lines=_sse_lines(
+            {"type": "progress", "stage": "download", "value": 0.25, "data": {"completed": 500, "total": 2000}},
+            {"type": "finish", "status": "error"},
+        )
+    )
+    mock_stream.return_value.__enter__.return_value = response
+    progress_instance = mock_progress.return_value.__enter__.return_value
+    progress_instance.add_task.side_effect = ["main-task", "stage-task"]
+
+    install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert progress_instance.update.call_args_list == [
+        mock.call("stage-task", completed=0.25, total=1.0),
+        mock.call("stage-task", bytes=(500, 2000)),
+    ]
+
+
+@mock.patch("deepfellow.infra.utils.progress._Heartbeat")
+@mock.patch("deepfellow.infra.utils.progress.echo")
+@mock.patch("deepfellow.infra.utils.progress.is_interactive", return_value=False)
+@mock.patch("deepfellow.infra.utils.progress.httpx.stream")
+def test_install_with_progress_logs_download_size_when_non_interactive(
+    mock_stream: Mock,
+    mock_is_interactive: Mock,
+    mock_echo: Mock,
+    mock_heartbeat: Mock,
+) -> None:
+    response = _stream_response(
+        lines=_sse_lines(
+            {
+                "type": "progress",
+                "stage": "download",
+                "value": 0.5,
+                "data": {"completed": 1_000_000, "total": 2_000_000},
+            },
+            {"type": "progress", "stage": "download", "value": 1.0, "data": {}},
+            {"type": "finish", "status": "ok"},
+        )
+    )
+    mock_stream.return_value.__enter__.return_value = response
+
+    install_with_progress("http://infra:8086/admin/services/ollama", "test-key", data={"spec": {}})
+
+    assert mock_echo.info.call_args_list == [
+        mock.call("download: 50% (1.0 MB / 2.0 MB)"),
+        mock.call("download: 100% (2.0 MB / 2.0 MB)"),
+    ]
+
+
+def test_bytes_column_render_returns_empty_text_without_bytes() -> None:
+    task = Mock(fields={})
+
+    result = _BytesColumn().render(task)
+
+    assert str(result) == ""
+
+
+def test_bytes_column_render_shows_size_speed_and_time_remaining() -> None:
+    task = Mock(fields={"bytes": (1_200_000_000, 3_400_000_000)}, speed=0.01, time_remaining=80.0, finished=False)
+
+    result = _BytesColumn().render(task)
+
+    assert str(result) == "1.2/3.4 GB 34.0 MB/s 0:01:20"
+
+
+def test_bytes_column_render_shows_only_size_until_speed_is_known() -> None:
+    task = Mock(fields={"bytes": (0, 3_400_000_000)}, speed=None, time_remaining=None, finished=False)
+
+    result = _BytesColumn().render(task)
+
+    assert str(result) == "0.0/3.4 GB"
+
+
+def test_bytes_column_render_shows_only_size_when_finished() -> None:
+    task = Mock(fields={"bytes": (3_400_000_000, 3_400_000_000)}, speed=0.01, time_remaining=0.0, finished=True)
+
+    result = _BytesColumn().render(task)
+
+    assert str(result) == "3.4/3.4 GB"

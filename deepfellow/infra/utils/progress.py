@@ -12,15 +12,20 @@ CLI looks hung for minutes.
 A progress event may name the Docker image being pulled in ``data.image``. The stage is then
 labelled ``Pulling image <name>`` and shown as a regular bar from 0%. The label never comes from
 the stage name alone: ``download`` is also the stage of model downloads.
+
+A download event may also carry its byte counts in ``data.completed`` and ``data.total``. The row
+then shows the downloaded and total size, the transfer speed and the time remaining.
 """
 
 import json
 import threading
 from collections.abc import Iterator
 from contextlib import ExitStack
+from datetime import timedelta
 from typing import Any
 
 import httpx
+from rich import filesize
 from rich.console import RenderableType
 from rich.progress import (
     BarColumn,
@@ -48,9 +53,14 @@ _HEARTBEAT_INTERVAL = 15.0
 _HEARTBEAT_POLL = 1.0
 # Task field marking the install-message row, which shows no bar or percentage of its own.
 _HEADER_FIELD = "header"
-# Key in a progress event's ``data`` naming the image being pulled. Proposed for the Infra API in
-# DFINFRA-432; current Infra versions send an empty ``data``, so the CLI falls back to the stage name.
+# Task field holding a stage's ``(completed, total)`` bytes, once its events report them. Set as
+# ``progress.update(task_id, bytes=...)``: rich types the ``**fields`` of ``update`` too loosely to unpack a dict.
+_BYTES_FIELD = "bytes"
+# Keys in a progress event's ``data``: the image being pulled, and the bytes downloaded so far and in total.
+# Infra versions that send none of them get the stage name as label and a bar without sizes.
 _IMAGE_DATA_KEY = "image"
+_COMPLETED_DATA_KEY = "completed"
+_TOTAL_DATA_KEY = "total"
 
 
 def install_with_progress(
@@ -133,6 +143,33 @@ def _event_image(event: dict[str, Any]) -> str | None:
     return image if isinstance(image, str) and image else None
 
 
+def _event_bytes(event: dict[str, Any]) -> tuple[int, int] | None:
+    """Return the ``(completed, total)`` bytes of a progress event, or ``None`` if its total is unknown."""
+    data = event.get("data")
+    if not isinstance(data, dict):
+        return None
+    completed, total = data.get(_COMPLETED_DATA_KEY), data.get(_TOTAL_DATA_KEY)
+    if isinstance(completed, int) and isinstance(total, int) and total > 0:
+        return completed, total
+    return None
+
+
+def _stage_bytes(
+    event: dict[str, Any], stage: str, value: float, byte_totals: dict[str, int]
+) -> tuple[int, int] | None:
+    """Return a stage's ``(completed, total)`` bytes after `event`, recording its total in `byte_totals`.
+
+    Infra closes a download with a bare ``value=1``, so an event without bytes is scaled from the
+    stage's last known total.
+    """
+    if (sizes := _event_bytes(event)) is not None:
+        byte_totals[stage] = sizes[1]
+        return sizes
+    if stage in byte_totals:
+        return int(value * byte_totals[stage]), byte_totals[stage]
+    return None
+
+
 def _stage_label(stage: str, image: str | None) -> str:
     """Return the row label of a stage: the image being pulled, or the capitalized stage name."""
     return f"Pulling image {image}" if image else stage.capitalize()
@@ -157,6 +194,27 @@ class _StageOnlyColumn(ProgressColumn):
         return self._column.render(task)
 
 
+class _BytesColumn(ProgressColumn):
+    """Render a downloading stage's size, transfer speed and time remaining; nothing for other rows."""
+
+    def render(self, task: Task) -> RenderableType:
+        """Render e.g. ``1.2/3.4 GB 25.0 MB/s 0:01:20``, leaving out speed and time until they are known."""
+        sizes: tuple[int, int] | None = task.fields.get(_BYTES_FIELD)
+        if sizes is None:
+            return Text()
+        completed, total = sizes
+        unit, suffix = filesize.pick_unit_and_suffix(total, ["bytes", "kB", "MB", "GB", "TB"], 1000)
+        parts = [f"{completed / unit:.1f}/{total / unit:.1f} {suffix}"]
+        # Task progress runs 0..1, so its speed is a fraction of the total per second. Infra derives the
+        # event's value and data.completed/data.total from one counter (value == completed / total, with
+        # total covering the whole download, not one layer), so scaling by the total gives bytes per second.
+        if task.speed and not task.finished:
+            parts.append(f"{filesize.decimal(int(task.speed * total))}/s")
+        if task.time_remaining is not None and not task.finished:
+            parts.append(str(timedelta(seconds=int(task.time_remaining))))
+        return Text(" ".join(parts), style="progress.download")
+
+
 def _consume_interactive(response: httpx.Response, message: str) -> dict[str, Any]:
     """Render progress bars; a stage with no intermediate values pulses with a spinner."""
     finish: dict[str, Any] = {"type": "finish", "status": "error"}
@@ -165,6 +223,7 @@ def _consume_interactive(response: httpx.Response, message: str) -> dict[str, An
         TextColumn("[progress.description]{task.description}"),
         _StageOnlyColumn(BarColumn()),
         _StageOnlyColumn(TaskProgressColumn()),
+        _BytesColumn(),
         TimeElapsedColumn(),
     ]
     with Progress(*columns, console=echo) as progress:
@@ -174,6 +233,7 @@ def _consume_interactive(response: httpx.Response, message: str) -> dict[str, An
         main_task = progress.add_task(message, total=None, **{_HEADER_FIELD: True})
         tasks: dict[str, Any] = {}  # stage -> task_id
         pulls: set[str] = set()  # stages that named the image they pull
+        byte_totals: dict[str, int] = {}  # stage -> total bytes, once an event reported them
         for event in _iter_events(response):
             etype = event.get("type")
             if etype == "progress":
@@ -193,16 +253,22 @@ def _consume_interactive(response: httpx.Response, message: str) -> dict[str, An
                 # reports real progress from the start, so its bar is determinate from 0%.
                 determinate = value > 0 or stage in pulls
                 progress.update(tasks[stage], completed=value, total=1.0 if determinate else None)
+                if (sizes := _stage_bytes(event, stage, value, byte_totals)) is not None:
+                    progress.update(tasks[stage], bytes=sizes)
             elif etype == "finish":
                 finish = event
-                # Snap all bars to 100% on success — including any still-indeterminate one,
-                # which needs its total set before it can show completion.
                 if event.get("status") == "ok":
-                    progress.update(main_task, total=1.0, completed=1.0)
-                    for task_id in tasks.values():
-                        progress.update(task_id, total=1.0, completed=1.0)
+                    _complete_tasks(progress, [main_task, *tasks.values()])
+                    for stage, total in byte_totals.items():
+                        progress.update(tasks[stage], bytes=(total, total))
                 break
     return finish
+
+
+def _complete_tasks(progress: Progress, task_ids: list[Any]) -> None:
+    """Snap bars to 100% - including any still-indeterminate one, which needs its total set to show completion."""
+    for task_id in task_ids:
+        progress.update(task_id, total=1.0, completed=1.0)
 
 
 class _Heartbeat:
@@ -279,6 +345,7 @@ def _consume_non_interactive(response: httpx.Response) -> dict[str, Any]:
     finish: dict[str, Any] = {"type": "finish", "status": "error"}
     last_logged: dict[str, float] = {}
     labels: dict[str, str] = {}  # stage -> label, once an event named the image it pulls
+    byte_totals: dict[str, int] = {}  # stage -> total bytes, once an event reported them
     heartbeat = _Heartbeat()
     heartbeat.start()
     try:
@@ -290,9 +357,12 @@ def _consume_non_interactive(response: httpx.Response) -> dict[str, Any]:
                 if image := _event_image(event):
                     labels[stage] = _stage_label(stage, image)
                 label = labels.get(stage, stage)
+                # Called for every event, logged or not, so the final bare value=1 still gets a total.
+                sizes = _stage_bytes(event, stage, value, byte_totals)
                 if value - last_logged.get(stage, -1.0) >= _NON_INTERACTIVE_STEP:
                     last_logged[stage] = value
-                    echo.info(f"{label}: {int(value * 100)}%")
+                    size = f" ({filesize.decimal(sizes[0])} / {filesize.decimal(sizes[1])})" if sizes else ""
+                    echo.info(f"{label}: {int(value * 100)}%{size}")
                 # Any event proves the install is alive, so a stage that keeps ticking
                 # (download) never reaches a heartbeat line.
                 heartbeat.notify(label if value < 1.0 else None)

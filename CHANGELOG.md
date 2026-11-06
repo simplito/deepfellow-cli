@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+- Install progress shows the downloaded and total size, transfer speed and time remaining when Infra reports download bytes
+- `suite install` names the detected NVIDIA GPU and its VRAM next to the VRAM estimate
+
 ## [0.38.0] - 2026-11-04
 
 ### Added
