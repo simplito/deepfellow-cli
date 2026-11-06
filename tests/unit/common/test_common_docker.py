@@ -1346,12 +1346,12 @@ def test_to_https_switches_only_http_scheme(url: str, expected: str) -> None:
         (
             "https://df.example.com:8086",
             "df.example.com",
-            "DNS:localhost,IP:127.0.0.1,DNS:infra,DNS:df.example.com",
+            "DNS:infra,DNS:localhost,IP:127.0.0.1,IP:::1,DNS:df.example.com",
         ),
-        ("https://10.0.0.5:8086", "10.0.0.5", "DNS:localhost,IP:127.0.0.1,DNS:infra,IP:10.0.0.5"),
-        ("https://[::1]:8086", "::1", "DNS:localhost,IP:127.0.0.1,DNS:infra,IP:::1"),
-        ("https://infra:8086", "infra", "DNS:localhost,IP:127.0.0.1,DNS:infra"),
-        ("https://localhost:8086", "localhost", "DNS:localhost,IP:127.0.0.1,DNS:infra"),
+        ("https://10.0.0.5:8086", "10.0.0.5", "DNS:infra,DNS:localhost,IP:127.0.0.1,IP:::1,IP:10.0.0.5"),
+        ("https://[::1]:8086", "::1", "DNS:infra,DNS:localhost,IP:127.0.0.1,IP:::1"),
+        ("https://infra:8086", "infra", "DNS:infra,DNS:localhost,IP:127.0.0.1,IP:::1"),
+        ("https://localhost:8086", "localhost", "DNS:infra,DNS:localhost,IP:127.0.0.1,IP:::1"),
     ],
 )
 def test_self_signed_cert_name_args_covers_url_host_and_local_names(
@@ -1365,7 +1365,12 @@ def test_self_signed_cert_name_args_covers_url_host_and_local_names(
 def test_self_signed_cert_name_args_falls_back_to_localhost_without_host() -> None:
     result = self_signed_cert_name_args("not-a-url", "server")
 
-    assert result == ["-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1,DNS:server"]
+    assert result == [
+        "-subj",
+        "/CN=localhost",
+        "-addext",
+        "subjectAltName=DNS:server,DNS:localhost,IP:127.0.0.1,IP:::1",
+    ]
 
 
 @mock.patch("deepfellow.common.docker.run")

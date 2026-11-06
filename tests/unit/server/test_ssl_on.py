@@ -130,7 +130,7 @@ def test_ssl_on_generates_self_signed_cert_when_no_paths_provided(
             "-subj",
             "/CN=localhost",
             "-addext",
-            "subjectAltName=DNS:localhost,IP:127.0.0.1,DNS:server",
+            "subjectAltName=DNS:server,DNS:localhost,IP:127.0.0.1,IP:::1",
         ],
         cwd=DIRECTORY,
         quiet=True,
@@ -778,5 +778,5 @@ def test_ssl_on_names_self_signed_cert_after_url(
         "-subj",
         "/CN=df.example.com",
         "-addext",
-        "subjectAltName=DNS:localhost,IP:127.0.0.1,DNS:server,DNS:df.example.com",
+        "subjectAltName=DNS:server,DNS:localhost,IP:127.0.0.1,IP:::1,DNS:df.example.com",
     ]
