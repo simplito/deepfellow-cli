@@ -19,9 +19,7 @@ from deepfellow.common.defaults import DOCKER_COMPOSE_CONFIG_FILENAME, UVICORN_S
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import DockerNetworkError, DockerSocketNotFoundError
 from deepfellow.common.system import run
-
-# Files `ssl-on` keeps in a service's `/ssl`, with their host permissions: the key is owner-only
-SSL_FILE_MODES = {"key.pem": 0o600, "cert.pem": 0o644}
+from deepfellow.common.tls import SSL_FILE_MODES, is_ip_address, local_names, write_ssl_file
 
 
 class DockerError(Exception):
@@ -347,7 +345,7 @@ def to_https(url: str) -> str:
 def self_signed_cert_name_args(url: str, service: str) -> list[str]:
     """Return the `openssl req` arguments that name a self-signed certificate for a service.
 
-    The certificate is issued for the host of `url` and is also valid for `localhost`, `127.0.0.1` and
+    The certificate is issued for the host of `url` and is also valid for `localhost`, `127.0.0.1`, `::1` and
     the service's name in the Docker network, so it verifies under any of the names the service is reached by.
 
     Args:
@@ -355,19 +353,8 @@ def self_signed_cert_name_args(url: str, service: str) -> list[str]:
         service: Docker Compose service name (e.g. `infra`, `server`).
     """
     host = urlparse(url).hostname or "localhost"
-    names = dict.fromkeys(["localhost", "127.0.0.1", service, host])
-    alt_names = [f"IP:{name}" if _is_ip_address(name) else f"DNS:{name}" for name in names]
+    alt_names = [f"IP:{name}" if is_ip_address(name) else f"DNS:{name}" for name in local_names(service, host)]
     return ["-subj", f"/CN={host}", "-addext", f"subjectAltName={','.join(alt_names)}"]
-
-
-def _is_ip_address(value: str) -> bool:
-    """Whether `value` is an IPv4 or IPv6 address rather than a host name."""
-    try:
-        ipaddress.ip_address(value)
-    except ValueError:
-        return False
-
-    return True
 
 
 def _is_unbound_port_mapping(port: object) -> bool:
@@ -427,7 +414,7 @@ def copy_ssl_files_from_service(service: str, ssl_dir: Path, cwd: Path) -> None:
     """
     for name, mode in SSL_FILE_MODES.items():
         content = run(["docker", "compose", "exec", "-T", service, "cat", f"/ssl/{name}"], cwd=cwd, capture_output=True)
-        _write_ssl_file(ssl_dir / name, (content or "").encode(), mode)
+        write_ssl_file(ssl_dir / name, (content or "").encode(), mode)
 
 
 def copy_ssl_files_from_paths(key_path: Path, cert_path: Path, ssl_dir: Path) -> None:
@@ -444,17 +431,8 @@ def copy_ssl_files_from_paths(key_path: Path, cert_path: Path, ssl_dir: Path) ->
         FileNotFoundError: If either source file is missing; nothing is written then.
     """
     key, cert = key_path.read_bytes(), cert_path.read_bytes()
-    _write_ssl_file(ssl_dir / "key.pem", key, SSL_FILE_MODES["key.pem"])
-    _write_ssl_file(ssl_dir / "cert.pem", cert, SSL_FILE_MODES["cert.pem"])
-
-
-def _write_ssl_file(path: Path, content: bytes, mode: int) -> None:
-    """Write `content` to `path` with permissions `mode`."""
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
-    # os.open applies `mode` only to a new file, so an existing one gets it here, before the write
-    os.fchmod(fd, mode)
-    with os.fdopen(fd, "wb") as file:
-        file.write(content)
+    write_ssl_file(ssl_dir / "key.pem", key, SSL_FILE_MODES["key.pem"])
+    write_ssl_file(ssl_dir / "cert.pem", cert, SSL_FILE_MODES["cert.pem"])
 
 
 def is_service_running(service: str, cwd: Path) -> bool:

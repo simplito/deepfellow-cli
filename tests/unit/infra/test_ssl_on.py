@@ -432,5 +432,5 @@ def test_ssl_on_names_self_signed_cert_after_url(mocks: SimpleNamespace, compose
         "-subj",
         "/CN=10.0.0.5",
         "-addext",
-        "subjectAltName=DNS:localhost,IP:127.0.0.1,DNS:infra,IP:10.0.0.5",
+        "subjectAltName=DNS:infra,DNS:localhost,IP:127.0.0.1,IP:::1,IP:10.0.0.5",
     ]
