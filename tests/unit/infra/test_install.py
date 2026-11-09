@@ -47,6 +47,9 @@ if TYPE_CHECKING:
     from deepfellow.common.templates import PostStartAction
 
 
+pytestmark = pytest.mark.usefixtures("_unversioned_cli")
+
+
 @pytest.fixture
 def docker_config() -> Mock:
     m = Mock(spec=Path)
@@ -127,7 +130,7 @@ def dummy_ctx() -> Mock:
     return ctx
 
 
-@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.common.registry.get_newest_image_tag")
 @mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
 @mock.patch("deepfellow.infra.utils.install.ensure_directory")
 @mock.patch("deepfellow.infra.utils.install.get_socket")
@@ -148,7 +151,7 @@ def test_inspect_calls_assert_docker(
     assert mock_assert_docker.call_count == 1
 
 
-@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.common.registry.get_newest_image_tag")
 @mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
 @mock.patch("deepfellow.infra.utils.install.ensure_directory")
 @mock.patch("deepfellow.infra.utils.install.get_socket")
@@ -169,7 +172,7 @@ def test_inspect_passes_allow_rootful_to_get_socket(
     assert mock_get_socket.call_args == mock.call(allow_rootful=True)
 
 
-@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.common.registry.get_newest_image_tag")
 @mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
 @mock.patch("deepfellow.infra.utils.install.ensure_directory")
 @mock.patch("deepfellow.infra.utils.install.get_socket")
@@ -198,7 +201,7 @@ def test_inspect_uses_given_docker_socket_without_get_socket(
     assert mock_assert_docker.call_count == 1
 
 
-@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.common.registry.get_newest_image_tag")
 @mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
 @mock.patch("deepfellow.infra.utils.install.ensure_directory")
 @mock.patch("deepfellow.infra.utils.install.get_socket")
@@ -221,7 +224,7 @@ def test_inspect_ensures_directory_with_force_install(
     )
 
 
-@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.common.registry.get_newest_image_tag")
 @mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
 @mock.patch("deepfellow.common.install.echo")
 @mock.patch("deepfellow.infra.utils.install.get_socket")
@@ -243,7 +246,7 @@ def test_inspect_prompts_once_for_existing_directory_when_overwrite_not_resolved
     assert mock_echo.confirm.call_count == 1
 
 
-@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.common.registry.get_newest_image_tag")
 @mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
 @mock.patch("deepfellow.common.install.echo")
 @mock.patch("deepfellow.infra.utils.install.get_socket")
@@ -271,7 +274,7 @@ def test_inspect_does_not_prompt_when_overwrite_pre_resolved(
     assert mock_echo.confirm.call_count == 0
 
 
-@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.common.registry.get_newest_image_tag")
 @mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
 @mock.patch("deepfellow.infra.utils.install.ensure_directory")
 @mock.patch("deepfellow.infra.utils.install.get_socket")
@@ -303,7 +306,7 @@ def test_inspect_resolves_newest_image_tag_for_default_image(
         pytest.param("custom/image:tag", False, id="custom_image"),
     ],
 )
-@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.common.registry.get_newest_image_tag")
 @mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
 @mock.patch("deepfellow.infra.utils.install.ensure_directory")
 @mock.patch("deepfellow.infra.utils.install.get_socket")
@@ -329,7 +332,7 @@ def test_inspect_skips_newest_image_tag_lookup(
     assert mock_get_newest_image_tag.call_count == 0
 
 
-@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.common.registry.get_newest_image_tag")
 @mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
 @mock.patch("deepfellow.infra.utils.install.ensure_directory")
 @mock.patch("deepfellow.infra.utils.install.get_socket")
@@ -355,7 +358,7 @@ def test_inspect_returns_context_with_docker_socket_and_env_content(
 
 
 @mock.patch("deepfellow.infra.utils.install.resolve_template")
-@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.common.registry.get_newest_image_tag")
 @mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
 @mock.patch("deepfellow.infra.utils.install.ensure_directory")
 @mock.patch("deepfellow.infra.utils.install.get_socket")
@@ -406,7 +409,7 @@ def test_inspect_resolves_template_before_docker_and_directory_access(
 
 
 @mock.patch("deepfellow.infra.utils.install.resolve_template")
-@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.common.registry.get_newest_image_tag")
 @mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
 @mock.patch("deepfellow.infra.utils.install.ensure_directory")
 @mock.patch("deepfellow.infra.utils.install.get_socket")
@@ -440,7 +443,7 @@ def test_inspect_short_circuits_before_docker_when_template_resolution_fails(
 
 
 @mock.patch("deepfellow.infra.utils.install.resolve_template")
-@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.common.registry.get_newest_image_tag")
 @mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
 @mock.patch("deepfellow.infra.utils.install.ensure_directory")
 @mock.patch("deepfellow.infra.utils.install.get_socket")
@@ -471,7 +474,7 @@ def test_inspect_returns_the_resolved_template_in_context(
     assert context.resolved_template == resolved
 
 
-@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.common.registry.get_newest_image_tag")
 @mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
 @mock.patch("deepfellow.infra.utils.install.ensure_directory")
 @mock.patch("deepfellow.infra.utils.install.get_socket")
@@ -2017,7 +2020,9 @@ def test_install_command_delegates_to_install_util(
     install_command(ctx=dummy_ctx(), **default_install_kwargs)
 
     assert mock_install_util.call_count == 1
-    assert mock_install_util.call_args == mock.call(**default_install_kwargs, explicitly_provided=set())
+    assert mock_install_util.call_args == mock.call(
+        **default_install_kwargs, skip_version_check=False, explicitly_provided=set()
+    )
     assert set(mock_install_util.call_args[1]) == set(inspect.signature(install).parameters)
 
 
@@ -2145,7 +2150,7 @@ def test_mergeable_field_names_are_real_command_parameters():
 @mock.patch("deepfellow.infra.utils.install.configure_uuid_key")
 @mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
 @mock.patch("deepfellow.infra.utils.install.ensure_directory")
-@mock.patch("deepfellow.infra.utils.install.get_newest_image_tag")
+@mock.patch("deepfellow.common.registry.get_newest_image_tag")
 @mock.patch("deepfellow.infra.utils.install.get_socket")
 @mock.patch("deepfellow.infra.utils.install.assert_docker")
 @mock.patch("deepfellow.infra.utils.install.echo")
@@ -2287,7 +2292,7 @@ def install_mocks() -> Iterator[InstallMocks]:
         "apply_model_install": "deepfellow.infra.utils.install.apply_model_install",
         "build_service_spec": "deepfellow.infra.utils.install.build_service_spec",
         "apply_service_spec": "deepfellow.infra.utils.install.apply_service_spec",
-        "get_newest_image_tag": "deepfellow.infra.utils.install.get_newest_image_tag",
+        "get_newest_image_tag": "deepfellow.common.registry.get_newest_image_tag",
     }
     patchers = {name: mock.patch(target) for name, target in targets.items()}
     started = {name: patcher.start() for name, patcher in patchers.items()}
@@ -3592,3 +3597,109 @@ def test_apply_success_message_reflects_auto_start_for_templates_with_post_start
     message = mock_echo.success.call_args[0][0]
     assert "Starting it now to run the template's post-start actions." in message
     assert "deepfellow infra start" not in message
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        pytest.param("custom/image:1.3.0", id="newer-minor"),
+        pytest.param("custom/image:2.0.0", id="newer-major"),
+        pytest.param("custom/image:dev", id="non-version-tag"),
+        pytest.param("custom/image", id="no-tag"),
+        pytest.param("custom/image@sha256:abc", id="digest-only"),
+    ],
+)
+@mock.patch("deepfellow.common.registry.echo")
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.2.0")
+@mock.patch("deepfellow.common.registry.get_newest_image_tag")
+@mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.utils.install.ensure_directory")
+@mock.patch("deepfellow.infra.utils.install.get_socket")
+@mock.patch("deepfellow.infra.utils.install.assert_docker")
+def test_inspect_exits_before_changing_anything_when_custom_image_not_known_to_work(
+    mock_assert_docker: Mock,
+    mock_get_socket: Mock,
+    mock_ensure_directory: Mock,
+    mock_read_env_file_to_dict: Mock,
+    mock_get_newest_image_tag: Mock,
+    mock_cli_version: Mock,
+    mock_registry_echo: Mock,
+    image: str,
+    directory: Path,
+) -> None:
+    with pytest.raises(typer.Exit):
+        inspect_util(directory=directory, allow_rootful=False, force_install=False, image=image, local_image=False)
+
+    assert mock_get_socket.call_count == 0
+    assert mock_ensure_directory.call_count == 0
+    assert mock_read_env_file_to_dict.call_count == 0
+
+
+@pytest.mark.parametrize(
+    ("image", "local_image"),
+    [
+        pytest.param("custom/image:1.2.9", False, id="same-minor"),
+        pytest.param("custom/image:2.0.0", True, id="local-image-skips-check"),
+        pytest.param("custom/image", True, id="local-image-without-tag"),
+    ],
+)
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.2.0")
+@mock.patch("deepfellow.common.registry.get_newest_image_tag")
+@mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict", return_value={})
+@mock.patch("deepfellow.infra.utils.install.ensure_directory")
+@mock.patch("deepfellow.infra.utils.install.get_socket", return_value="/var/run/docker.sock")
+@mock.patch("deepfellow.infra.utils.install.assert_docker")
+def test_inspect_accepts_custom_image_known_to_work(
+    mock_assert_docker: Mock,
+    mock_get_socket: Mock,
+    mock_ensure_directory: Mock,
+    mock_read_env_file_to_dict: Mock,
+    mock_get_newest_image_tag: Mock,
+    mock_cli_version: Mock,
+    image: str,
+    local_image: bool,
+    directory: Path,
+) -> None:
+    context = inspect_util(
+        directory=directory, allow_rootful=False, force_install=False, image=image, local_image=local_image
+    )
+
+    assert context.newest_image_tag is None
+    assert mock_ensure_directory.call_count == 1
+
+
+@mock.patch("deepfellow.common.registry.echo")
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.2.0")
+@mock.patch("deepfellow.infra.utils.install.read_env_file_to_dict", return_value={})
+@mock.patch("deepfellow.infra.utils.install.ensure_directory")
+@mock.patch("deepfellow.infra.utils.install.get_socket", return_value="/var/run/docker.sock")
+@mock.patch("deepfellow.infra.utils.install.assert_docker")
+def test_inspect_warns_instead_of_checking_image_when_skip_version_check(
+    mock_assert_docker: Mock,
+    mock_get_socket: Mock,
+    mock_ensure_directory: Mock,
+    mock_read_env_file_to_dict: Mock,
+    mock_cli_version: Mock,
+    mock_registry_echo: Mock,
+    directory: Path,
+) -> None:
+    inspect_util(
+        directory=directory,
+        allow_rootful=False,
+        force_install=False,
+        image="custom/image:2.0.0",
+        local_image=False,
+        skip_version_check=True,
+    )
+
+    assert mock_registry_echo.warning.call_count == 1
+    assert "--skip-version-check" in mock_registry_echo.warning.call_args.args[0]
+    assert mock_registry_echo.error.call_count == 0
+    assert mock_ensure_directory.call_count == 1
+
+
+@mock.patch("deepfellow.infra.install.install_util")
+def test_install_command_forwards_skip_version_check(mock_install_util: Mock, default_install_kwargs: dict) -> None:
+    install_command(ctx=dummy_ctx(), **{**default_install_kwargs, "skip_version_check": True})
+
+    assert mock_install_util.call_args.kwargs["skip_version_check"] is True

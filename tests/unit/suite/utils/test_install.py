@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: LicenseRef-DeepFellow-Free
 # SPDX-FileCopyrightText: 2026 Simplito sp. z o.o.
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from unittest import mock
 from unittest.mock import Mock
@@ -15,12 +15,14 @@ from deepfellow.common.defaults import (
     DF_INFRA_DIRECTORY,
     DF_INFRA_DOCKER_NETWORK,
     DF_INFRA_IMAGE,
+    DF_INFRA_IMAGE_HUB,
     DF_INFRA_PORT,
     DF_INFRA_STORAGE_DIR,
     DF_MONGO_PORT,
     DF_RABBITMQ_URL,
     DF_SERVER_DIRECTORY,
     DF_SERVER_IMAGE,
+    DF_SERVER_IMAGE_HUB,
     DF_SERVER_PORT,
     DF_SUITE_INSTALL_STATE_FILE,
     DOC_CHUNKER_STT_MODEL,
@@ -38,6 +40,8 @@ from deepfellow.server.utils.install import InstallConfig as ServerInstallConfig
 from deepfellow.server.utils.templates import BUILTIN_TEMPLATES as SERVER_BUILTIN_TEMPLATES
 from deepfellow.server.utils.workspace import Workspace
 from deepfellow.suite.utils.install import (
+    STEP_INFRA_CONFIG,
+    STEP_SERVER_CONFIG,
     _build_steps,
     _infra_config_from_dict,
     _infra_config_to_dict,
@@ -183,6 +187,13 @@ def _env_get_no_bind_address(env_file: Path, env_name: str, **kwargs: object) ->
     return None if env_name.endswith("_BIND_ADDRESS") else mock.DEFAULT
 
 
+@pytest.fixture(autouse=True)
+def mock_resolve_install_image() -> Iterator[Mock]:
+    """Stand in for the registry lookup and image check, so that no test reaches the real registry."""
+    with mock.patch("deepfellow.suite.utils.install.resolve_install_image", return_value=None) as mocked:
+        yield mocked
+
+
 def _patch_all_steps(func: Callable[..., None]) -> Callable[..., None]:
     """Patch every granular step function plus load/save/delete_state - the default "everything
     succeeds" scaffolding most tests build on.
@@ -290,6 +301,8 @@ def test_install_success_calls_all_steps_in_order(
         explicitly_provided=set(),
         allow_rootful=False,
         docker_socket=DOCKER_SOCKET,
+        skip_version_check=False,
+        checked_image=DF_INFRA_IMAGE,
     )
     assert mock_server_config.call_count == 1
     assert mock_server_config.call_args.args[0] == mock.sentinel.infra_config
@@ -1321,6 +1334,8 @@ def test_install_resume_with_empty_completed_steps_does_not_force(
         explicitly_provided=set(),
         allow_rootful=False,
         docker_socket=DOCKER_SOCKET,
+        skip_version_check=False,
+        checked_image=DF_INFRA_IMAGE,
     )
     assert mock_server_config.call_args.args[4] is False  # force_install
 
@@ -4320,3 +4335,163 @@ def test_install_non_interactive_prints_vram_estimate_without_extra_prompt(
     assert mock_echo.confirm.call_count == 0
     assert mock_echo.prompt_until_valid.call_count == 0
     assert mock_delete_state.call_count == 1
+
+
+@_patch_all_steps
+def test_install_refuses_image_before_any_prompt_or_config_step(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_resolve_install_image: Mock,
+) -> None:
+    mock_load_state.return_value = None
+    mock_resolve_install_image.side_effect = typer.Exit(1)
+
+    with pytest.raises(InstallError):
+        install()
+
+    assert mock_echo.prompt_until_valid.call_count == 0
+    assert mock_infra_config.call_count == 0
+    assert mock_save_state.call_count == 0
+
+
+@_patch_all_steps
+def test_install_validates_infra_and_server_image_up_front(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_resolve_install_image: Mock,
+) -> None:
+    mock_load_state.return_value = None
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = _make_workspace()
+
+    install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
+
+    assert mock_resolve_install_image.call_args_list == [
+        mock.call("Infra", DF_INFRA_IMAGE_HUB, DF_INFRA_IMAGE, DF_INFRA_IMAGE, False, False),
+        mock.call("Server", DF_SERVER_IMAGE_HUB, DF_SERVER_IMAGE, DF_SERVER_IMAGE, False, False),
+    ]
+
+
+@_patch_all_steps
+def test_install_forwards_skip_version_check_to_validation_and_config_steps(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_resolve_install_image: Mock,
+) -> None:
+    mock_load_state.return_value = None
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = _make_workspace()
+
+    install(
+        admin_name="Admin",
+        admin_email="admin@example.com",
+        admin_password="Sup3r$ecret!",
+        skip_version_check=True,
+    )
+
+    assert [call.args[-1] for call in mock_resolve_install_image.call_args_list] == [True, True]
+    assert mock_infra_config.call_args.kwargs["skip_version_check"] is True
+    assert mock_server_config.call_args.kwargs["skip_version_check"] is True
+
+
+@_patch_all_steps
+def test_install_resume_does_not_validate_images_of_completed_config_steps(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_resolve_install_image: Mock,
+) -> None:
+    mock_load_state.return_value = SuiteInstallState(completed_steps=[STEP_INFRA_CONFIG, STEP_SERVER_CONFIG])
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = _make_workspace()
+
+    install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", resume=True)
+
+    assert mock_resolve_install_image.call_count == 0

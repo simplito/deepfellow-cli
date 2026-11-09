@@ -4,6 +4,7 @@
 """Install server typer command."""
 
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -66,6 +67,13 @@ def install(
     ),
     image: str = typer.Option(DF_SERVER_IMAGE, envvar="DF_SERVER_IMAGE", help="DeepFellow Server docker image."),
     local_image: bool = typer.Option(False, help="Use locally build DeepFellow Server docker image."),
+    skip_version_check: Annotated[
+        bool,
+        typer.Option(
+            "--skip-version-check",
+            help="Install an image not verified against the CLI version (for development).",
+        ),
+    ] = False,
     otel_url: str | None = typer.Option(
         None,
         envvar="DF_OTEL_EXPORTER_OTLP_ENDPOINT",
@@ -163,6 +171,7 @@ def install(
             port=port,
             image=image,
             local_image=local_image,
+            skip_version_check=skip_version_check,
             otel_url=otel_url,
             otel_local=otel_local,
             infra_url=infra_url,

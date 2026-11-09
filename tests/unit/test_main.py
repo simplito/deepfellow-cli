@@ -3,7 +3,6 @@
 
 import runpy
 import sys
-from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 from unittest import mock
 from unittest.mock import Mock
@@ -16,8 +15,8 @@ from deepfellow.main import main, print_name, version
 
 
 @mock.patch("deepfellow.main.validate_system")
-@mock.patch("deepfellow.main.print_version")
-def test_main_shows_version_and_exits_when_version_flag_set(
+@mock.patch("deepfellow.main.print_cli_version")
+def test_main_shows_cli_version_and_exits_when_version_flag_set(
     mock_print_version: Mock,
     mock_validate_system: Mock,
     tmp_path: Path,
@@ -188,7 +187,7 @@ def test_main_skips_update_check(
 
 
 @mock.patch("deepfellow.main.check_for_update")
-@mock.patch("deepfellow.main.print_version")
+@mock.patch("deepfellow.main.print_cli_version")
 def test_main_skips_update_check_when_version_flag_set(
     mock_print_version: Mock,
     mock_check_for_update: Mock,
@@ -239,26 +238,11 @@ def test_main_skips_update_check_when_no_subcommand_invoked(
     assert mock_check_for_update.call_count == 0
 
 
-@mock.patch("deepfellow.main.echo")
-@mock.patch("deepfellow.main.get_version", return_value="1.2.3")
-def test_version_prints_installed_version(mock_get_version: Mock, mock_echo: Mock) -> None:
+@mock.patch("deepfellow.main.print_version")
+def test_version_prints_cli_infra_and_server_versions(mock_print_version: Mock) -> None:
     version()
 
-    assert mock_get_version.call_count == 1
-    assert mock_get_version.call_args == mock.call("deepfellow-cli")
-    assert mock_echo.success.call_count == 1
-    assert mock_echo.success.call_args == mock.call("1.2.3")
-    assert mock_echo.error.call_count == 0
-
-
-@mock.patch("deepfellow.main.echo")
-@mock.patch("deepfellow.main.get_version", side_effect=PackageNotFoundError)
-def test_version_prints_error_when_package_not_found(mock_get_version: Mock, mock_echo: Mock) -> None:
-    version()
-
-    assert mock_get_version.call_count == 1
-    assert mock_echo.error.call_count == 1
-    assert mock_echo.success.call_count == 0
+    assert mock_print_version.call_count == 1
 
 
 def test_print_name_prints_ascii_art(capsys: pytest.CaptureFixture[str]) -> None:

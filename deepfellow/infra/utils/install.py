@@ -49,7 +49,7 @@ from deepfellow.common.env import env_get, env_set
 from deepfellow.common.exceptions import DockerNetworkError, InstallError, translate_to_install_error
 from deepfellow.common.generate import generate_password
 from deepfellow.common.install import assert_docker, ensure_directory
-from deepfellow.common.registry import get_newest_image_tag
+from deepfellow.common.registry import resolve_install_image
 from deepfellow.common.state import state
 from deepfellow.common.system import run
 from deepfellow.common.templates import InstallTemplate, PostStartAction
@@ -88,6 +88,8 @@ def inspect(
     template: str | None = None,
     overwrite: bool | None = None,
     docker_socket: str | None = None,
+    skip_version_check: bool = False,
+    checked_image: str | None = None,
 ) -> InstallContext:
     """Resolve --template, then do a Docker check, directory creation, and existing .env read-back.
 
@@ -109,6 +111,9 @@ def inspect(
         docker_socket: Docker socket path the caller already resolved with `get_socket()`. When
             given, the socket lookup (and its rootful Docker warning/prompt) is skipped, so a caller
             that checks the socket earlier doesn't show that warning twice.
+        skip_version_check: Install an image whose version can't be checked against the CLI, or isn't compatible.
+        checked_image: Image reference the caller already validated with `resolve_install_image()`; when given,
+            the image isn't checked (or looked up in the registry) again.
 
     Returns:
         InstallContext: Read-only values needed by :func:`resolve`.
@@ -122,6 +127,10 @@ def inspect(
         resolved_template = resolve_template(template)
 
     assert_docker()
+    # Before anything is asked or created, so a refused image leaves nothing behind.
+    newest_image_tag = checked_image or resolve_install_image(
+        "Infra", DF_INFRA_IMAGE_HUB, DF_INFRA_IMAGE, image, local_image, skip_version_check
+    )
     if docker_socket is None:
         docker_socket = get_socket(allow_rootful=allow_rootful)
 
@@ -132,7 +141,6 @@ def inspect(
         force_install=force_install,
         overwrite=overwrite,
     )
-    newest_image_tag = get_newest_image_tag(DF_INFRA_IMAGE_HUB) if not local_image and image == DF_INFRA_IMAGE else None
 
     # Prepare the starting point for .env, enriched with config.json's values (which take
     # precedence for fields that migrated there - see _config_json_exists() in
@@ -748,6 +756,7 @@ def install(
     bind_address: str | None = None,
     image: str = DF_INFRA_IMAGE,
     local_image: bool = False,
+    skip_version_check: bool = False,
     docker_config: Path | None = None,
     storage: Path = DF_INFRA_STORAGE_DIR,
     hugging_face_token: str | None = None,
@@ -775,6 +784,7 @@ def install(
         image=image,
         local_image=local_image,
         template=template,
+        skip_version_check=skip_version_check,
     )
 
     docker_config = docker_config or directory / "docker-config.json"

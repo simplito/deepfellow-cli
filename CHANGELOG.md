@@ -10,9 +10,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `workspace install` and `workspace uninstall` set up and remove DeepFellow Workspace with its own Mongo and Redis; the organization and project ids and the small model are picked from DeepFellow Server when it supports it
 - Install progress shows the downloaded and total size, transfer speed and time remaining when Infra reports download bytes
 - `suite install` names the detected NVIDIA GPU and its VRAM next to the VRAM estimate
+- `--skip-version-check` on install and update commands, for development
 
 ### Changed
 - Self-signed certificates from `infra ssl-on` and `server ssl-on` are also valid for `::1`
+- Install and update pick the newest Infra and Server release compatible with the CLI
+- Unsupported or unversioned images (no tag, `latest`, digest only) are refused before any change
+- Update refuses to downgrade Infra or Server newer than the CLI supports
+- Install and update stop instead of falling back to `latest` when the registry is unreachable
+- `deepfellow version` shows the running Infra and Server versions; `--version` shows the CLI only
 
 ## [0.38.0] - 2026-11-04
 

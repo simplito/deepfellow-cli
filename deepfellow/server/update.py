@@ -4,6 +4,7 @@
 """Start infra typer command."""
 
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -13,7 +14,12 @@ from deepfellow.common.docker import get_running_service_image, load_compose_fil
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
 from deepfellow.common.install import assert_docker
-from deepfellow.common.registry import get_newest_image_tag
+from deepfellow.common.registry import (
+    assert_cli_compatible,
+    assert_not_downgrade,
+    get_newest_image_tag,
+    warn_version_check_skipped,
+)
 from deepfellow.common.system import run
 from deepfellow.server.utils.docker import (
     has_nightshift_service,
@@ -34,15 +40,28 @@ from deepfellow.server.utils.validation import check_server_directory
 app = typer.Typer()
 
 
-def _resolve_image(image: str, tag: str | None, current: str = "") -> str:
-    """Return the final image reference to use for update."""
+def _resolve_image(
+    image: str, tag: str | None, current: str = "", local_image: bool = False, skip_version_check: bool = False
+) -> str:
+    """Return the final image reference to use for update, exiting if this CLI can't install it.
+
+    A locally built image is taken as it is: it needs neither the registry nor the checks.
+    """
     if tag:
-        return f"{DF_SERVER_IMAGE_HUB}:{tag}"
-    if image == DF_SERVER_IMAGE:
+        image = f"{DF_SERVER_IMAGE_HUB}:{tag}"
+    if local_image:
+        return image
+    if skip_version_check:
+        warn_version_check_skipped()
+    if not tag and image == DF_SERVER_IMAGE:
         newest = get_newest_image_tag(DF_SERVER_IMAGE_HUB)
+        if not skip_version_check:
+            assert_not_downgrade("Server", current, newest)
         if newest != current:
             echo.info(f"Newest image: {newest}")
         return newest
+    if not skip_version_check:
+        assert_cli_compatible("Server", image)
     return image
 
 
@@ -117,6 +136,13 @@ def update(
     image: str = typer.Option(DF_SERVER_IMAGE, envvar="DF_SERVER_IMAGE", help="DeepFellow Server docker image."),
     local_image: bool = typer.Option(False, help="Use locally build DeepFellow Server docker image."),
     tag: str | None = typer.Option(None, help="Deepfellow Server docker image tag (e.g. 0.15.0)"),
+    skip_version_check: Annotated[
+        bool,
+        typer.Option(
+            "--skip-version-check",
+            help="Skip the CLI/Server version compatibility and downgrade checks (for development).",
+        ),
+    ] = False,
     nightshift: bool | None = typer.Option(
         None,
         "--nightshift/--no-nightshift",
@@ -142,6 +168,12 @@ def update(
     if tag and image != DF_SERVER_IMAGE:
         raise typer.BadParameter("Only one if the `--tag` or `--image` options can be provided.")
 
+    # Resolved and validated before the first question or write, so a refused image leaves the install untouched.
+    values = read_env_file_to_dict(directory / ".env")
+    track_registry = bool(tag) or image == DF_SERVER_IMAGE
+    current = str(values["df_server_image"])
+    image = _resolve_image(image, tag, current, local_image, skip_version_check)
+
     # Every question about adding Nightshift/RabbitMQ is asked here, before anything is written or
     # pulled, so declining or aborting leaves the install as it was.
     had_nightshift = has_nightshift_service(directory)
@@ -149,16 +181,8 @@ def update(
         directory, nightshift, rabbitmq_url, rabbitmq_username, rabbitmq_password
     )
 
-    # Prepare the starting point for .env
-    env_file = directory / ".env"
-    values = read_env_file_to_dict(env_file)
-
     _sync_pull_policy(directory, local_image)
     ports_restricted = migrate_port_bindings(directory)
-
-    track_registry = bool(tag) or image == DF_SERVER_IMAGE
-    current = str(values["df_server_image"])
-    image = _resolve_image(image, tag, current)
 
     if (
         track_registry

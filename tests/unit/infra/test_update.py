@@ -16,6 +16,8 @@ from deepfellow.common.defaults import (
 )
 from deepfellow.infra.update import _resolve_image, update
 
+pytestmark = pytest.mark.usefixtures("_unversioned_cli")
+
 
 @pytest.fixture
 def infra_values() -> dict:
@@ -82,6 +84,19 @@ def test_resolve_image_returns_hub_image_when_tag_provided() -> None:
     result: str = _resolve_image("custom-image", "0.15.0")
 
     assert result == f"{DF_INFRA_IMAGE_HUB}:0.15.0"
+
+
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.2.0")
+def test_resolve_image_exits_when_tag_is_newer_than_cli(mock_cli_version: Mock) -> None:
+    with pytest.raises(typer.Exit):
+        _resolve_image("custom-image", "1.3.0")
+
+
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.2.0")
+def test_resolve_image_allows_newer_tag_for_local_image(mock_cli_version: Mock) -> None:
+    result: str = _resolve_image("custom:2.0.0", None, local_image=True)
+
+    assert result == "custom:2.0.0"
 
 
 @mock.patch("deepfellow.infra.update.get_newest_image_tag")
@@ -770,3 +785,106 @@ def test_update_binds_infra_port_of_install_from_before_bind_addresses(
 
     assert compose_data["services"]["infra"]["ports"] == [f"{INFRA_BIND_ADDRESS}:${{DF_INFRA_PORT}}:8086"]
     assert mock_save.call_count == 1
+
+
+@mock.patch("deepfellow.infra.update.get_newest_image_tag")
+def test_resolve_image_exits_when_installed_is_newer_than_newest_compatible(mock_get_newest_image_tag: Mock) -> None:
+    mock_get_newest_image_tag.return_value = f"{DF_INFRA_IMAGE_HUB}:1.2.0"
+
+    with pytest.raises(typer.Exit):
+        _resolve_image(DF_INFRA_IMAGE, None, f"{DF_INFRA_IMAGE_HUB}:1.3.0")
+
+
+@mock.patch("deepfellow.infra.update.get_newest_image_tag")
+def test_resolve_image_allows_explicit_older_tag_as_downgrade(mock_get_newest_image_tag: Mock) -> None:
+    result: str = _resolve_image(DF_INFRA_IMAGE, "1.1.0", f"{DF_INFRA_IMAGE_HUB}:1.3.0")
+
+    assert result == f"{DF_INFRA_IMAGE_HUB}:1.1.0"
+    assert mock_get_newest_image_tag.call_count == 0
+
+
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.2.0")
+def test_resolve_image_skips_compat_check_when_skip_version_check(mock_cli_version: Mock) -> None:
+    result: str = _resolve_image("custom-image", "1.3.0", skip_version_check=True)
+
+    assert result == f"{DF_INFRA_IMAGE_HUB}:1.3.0"
+
+
+@mock.patch("deepfellow.infra.update.get_newest_image_tag")
+def test_resolve_image_skips_downgrade_check_when_skip_version_check(mock_get_newest_image_tag: Mock) -> None:
+    mock_get_newest_image_tag.return_value = f"{DF_INFRA_IMAGE_HUB}:1.2.0"
+
+    result: str = _resolve_image(DF_INFRA_IMAGE, None, f"{DF_INFRA_IMAGE_HUB}:1.3.0", skip_version_check=True)
+
+    assert result == f"{DF_INFRA_IMAGE_HUB}:1.2.0"
+
+
+@mock.patch("deepfellow.infra.update.echo")
+@mock.patch("deepfellow.infra.update.get_newest_image_tag")
+def test_resolve_image_uses_local_image_without_registry_or_checks(
+    mock_get_newest_image_tag: Mock, mock_echo: Mock
+) -> None:
+    result: str = _resolve_image(DF_INFRA_IMAGE, None, f"{DF_INFRA_IMAGE_HUB}:1.3.0", local_image=True)
+
+    assert result == DF_INFRA_IMAGE
+    assert mock_get_newest_image_tag.call_count == 0
+    assert mock_echo.warning.call_count == 0
+
+
+@mock.patch("deepfellow.infra.update.get_newest_image_tag")
+def test_resolve_image_uses_hub_tag_for_local_image_with_tag(mock_get_newest_image_tag: Mock) -> None:
+    result: str = _resolve_image(DF_INFRA_IMAGE, "dev-build", local_image=True)
+
+    assert result == f"{DF_INFRA_IMAGE_HUB}:dev-build"
+    assert mock_get_newest_image_tag.call_count == 0
+
+
+@pytest.mark.parametrize(
+    "image", [pytest.param("custom/image:dev", id="non-version-tag"), pytest.param("custom/image", id="no-tag")]
+)
+@mock.patch("deepfellow.common.registry.echo")
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.2.0")
+def test_resolve_image_exits_when_custom_image_version_cannot_be_checked(
+    mock_cli_version: Mock, mock_echo: Mock, image: str
+) -> None:
+    with pytest.raises(typer.Exit):
+        _resolve_image(image, None)
+
+    assert "--skip-version-check" in mock_echo.error.call_args.args[0]
+
+
+@mock.patch("deepfellow.infra.update.echo")
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.2.0")
+def test_resolve_image_warns_when_version_check_is_skipped(mock_cli_version: Mock, mock_echo: Mock) -> None:
+    with mock.patch("deepfellow.common.registry.echo") as registry_echo:
+        _resolve_image("custom/image:dev", None, skip_version_check=True)
+
+    assert registry_echo.warning.call_count == 1
+    assert "--skip-version-check" in registry_echo.warning.call_args.args[0]
+
+
+@mock.patch("deepfellow.common.version.cli_version", return_value="0.38.0")
+@mock.patch("deepfellow.common.registry.echo")
+@mock.patch("deepfellow.infra.update.save_compose_file")
+@mock.patch("deepfellow.infra.update.load_compose_file")
+@mock.patch("deepfellow.infra.update.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.update.assert_docker")
+@mock.patch("deepfellow.infra.update.check_infra_directory")
+def test_update_refuses_incompatible_tag_before_changing_anything(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_load: Mock,
+    mock_save: Mock,
+    mock_registry_echo: Mock,
+    mock_cli_version: Mock,
+    infra_values: dict,
+    default_update_kwargs: dict,
+) -> None:
+    mock_read.return_value = infra_values
+
+    with pytest.raises(typer.Exit):
+        update(**{**default_update_kwargs, "tag": "0.39.0"})
+
+    assert mock_load.call_count == 0
+    assert mock_save.call_count == 0

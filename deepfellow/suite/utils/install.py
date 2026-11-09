@@ -19,6 +19,7 @@ from deepfellow.common.defaults import (
     DF_INFRA_DIRECTORY,
     DF_INFRA_DOCKER_NETWORK,
     DF_INFRA_IMAGE,
+    DF_INFRA_IMAGE_HUB,
     DF_INFRA_NAME,
     DF_INFRA_PORT,
     DF_INFRA_STORAGE_DIR,
@@ -29,6 +30,7 @@ from deepfellow.common.defaults import (
     DF_RABBITMQ_URL,
     DF_SERVER_DIRECTORY,
     DF_SERVER_IMAGE,
+    DF_SERVER_IMAGE_HUB,
     DF_SERVER_PORT,
     DF_SUITE_INSTALL_STATE_FILE,
     DOC_CHUNKER_STT_MODEL,
@@ -45,6 +47,7 @@ from deepfellow.common.install import (
     resolve_admin_kwargs,
     validate_non_interactive_admin_values,
 )
+from deepfellow.common.registry import resolve_install_image
 from deepfellow.common.state import state
 from deepfellow.common.templates import PostStartAction
 from deepfellow.common.validation import PASSWORD_REQUIREMENTS, validate_email, validate_password, validate_truthy
@@ -473,6 +476,8 @@ def _infra_config(
     explicitly_provided: Collection[str],
     allow_rootful: bool,
     docker_socket: str,
+    skip_version_check: bool = False,
+    checked_image: str | None = None,
 ) -> InfraInstallConfig:
     """Infra's ask-phase: inspect() + resolve(), collecting every infra-side prompt. No apply.
 
@@ -497,6 +502,8 @@ def _infra_config(
         local_image=local_image,
         template=template,
         docker_socket=docker_socket,
+        skip_version_check=skip_version_check,
+        checked_image=checked_image,
     )
     docker_config = docker_config or directory / "docker-config.json"
     return infra_resolve(
@@ -605,6 +612,8 @@ def _server_config(
     otel_local: bool,
     template: str,
     explicitly_provided: Collection[str],
+    skip_version_check: bool = False,
+    checked_image: str | None = None,
 ) -> ServerInstallConfig:
     """Server's ask-phase: inspect() + resolve(), collecting every server-side prompt. No apply.
 
@@ -631,6 +640,8 @@ def _server_config(
         admin_name=name,
         admin_email=email,
         admin_password=password,
+        skip_version_check=skip_version_check,
+        checked_image=checked_image,
     )
     return server_resolve(
         context,
@@ -858,6 +869,7 @@ def install(
     server_bind_address: str | None = None,
     server_image: str = DF_SERVER_IMAGE,
     server_local_image: bool = False,
+    skip_version_check: bool = False,
     server_directory: Path = DF_SERVER_DIRECTORY,
     docker_network: str = DF_INFRA_DOCKER_NETWORK,
     mongodb_port: int = DF_MONGO_PORT,
@@ -931,6 +943,8 @@ def install(
             value, falling back to all interfaces.
         server_image: DeepFellow Server docker image.
         server_local_image: Whether to use a locally built DeepFellow Server docker image.
+        skip_version_check: Install infra and server images whose version can't be checked against the CLI, or
+            isn't compatible.
         server_directory: Target directory for the DeepFellow Server installation.
         docker_network: The Docker network name shared by infra and server.
         mongodb_port: Host port to publish the locally-managed MongoDB on.
@@ -1043,6 +1057,28 @@ def install(
     steps = _build_steps(infra_post_start_actions, server_post_start_actions)
     total_steps = len(steps)
 
+    # Both images are validated before the first prompt or write: infra's configuration step would
+    # otherwise create its directory and ask its questions before server's image gets refused. A step
+    # that already ran (`--resume`) was validated back then.
+    # The result is handed on to each step's inspect(), so the registry is asked (and the
+    # --skip-version-check warning shown) once per component.
+    infra_checked_image: str | None = None
+    server_checked_image: str | None = None
+    if STEP_INFRA_CONFIG not in install_state.completed_steps:
+        infra_checked_image = (
+            resolve_install_image(
+                "Infra", DF_INFRA_IMAGE_HUB, DF_INFRA_IMAGE, infra_image, infra_local_image, skip_version_check
+            )
+            or infra_image
+        )
+    if STEP_SERVER_CONFIG not in install_state.completed_steps:
+        server_checked_image = (
+            resolve_install_image(
+                "Server", DF_SERVER_IMAGE_HUB, DF_SERVER_IMAGE, server_image, server_local_image, skip_version_check
+            )
+            or server_image
+        )
+
     print_vram_estimate(infra_post_start_actions)
 
     # A prior run's persisted admin (if any) is the fallback source, same shape --admin-*/env vars
@@ -1118,6 +1154,8 @@ def install(
             explicitly_provided=infra_explicitly_provided,
             allow_rootful=allow_rootful,
             docker_socket=docker_socket,
+            skip_version_check=skip_version_check,
+            checked_image=infra_checked_image,
         ),
         on_success=lambda cfg: setattr(install_state, "infra_config", _infra_config_to_dict(cfg)),
         on_skip=partial(_infra_config_on_skip, install_state, explicitly_provided),
@@ -1152,6 +1190,8 @@ def install(
             otel_local=otel_local,
             template=template,
             explicitly_provided=server_explicitly_provided,
+            skip_version_check=skip_version_check,
+            checked_image=server_checked_image,
         ),
         on_success=lambda cfg: setattr(install_state, "server_config", _server_config_to_dict(cfg)),
         on_skip=partial(_server_config_on_skip, install_state, explicitly_provided),

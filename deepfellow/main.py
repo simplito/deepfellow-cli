@@ -3,8 +3,6 @@
 
 """Main typer module."""
 
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version as get_version
 from pathlib import Path
 
 import typer
@@ -14,7 +12,7 @@ from deepfellow.common.defaults import DF_CLI_CONFIG_PATH, DF_CLI_SECRETS_PATH
 from deepfellow.common.state import state
 from deepfellow.common.update_check import check_for_update
 from deepfellow.common.validation import validate_system
-from deepfellow.common.version import cli_version
+from deepfellow.common.version import cli_version, print_cli_version
 from deepfellow.common.version import version as print_version
 
 from .cli import app as cli_app
@@ -72,7 +70,7 @@ def main(
 ) -> None:
     """DeepFellow Command Line Interface."""
     if _version:
-        print_version()
+        print_cli_version()
         raise typer.Exit()
     if ctx.invoked_subcommand is None:
         print_name()
@@ -106,11 +104,8 @@ def main(
 
 @app.command()
 def version() -> None:
-    """Print version info."""
-    try:
-        echo.success(get_version("deepfellow-cli"))
-    except PackageNotFoundError:
-        echo.error("No version information available. Have you installed the command?")
+    """Print the CLI version, and the Infra and Server version with where it comes from."""
+    print_version()
 
 
 # Add object-based command groups

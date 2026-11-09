@@ -14,8 +14,10 @@ from deepfellow.common.defaults import (
     DOCKER_COMPOSE_CONFIG_FILENAME,
     DOCKER_COMPOSE_RABBITMQ,
 )
-from deepfellow.server.update import update
+from deepfellow.server.update import _resolve_image, update
 from deepfellow.server.utils.configure import NightshiftConfig
+
+pytestmark = pytest.mark.usefixtures("_unversioned_cli")
 
 
 @pytest.fixture
@@ -1871,3 +1873,123 @@ def test_update_does_not_skip_when_ports_restricted(
     assert mock_echo.confirm.call_count == 1
     assert mock_echo.warning.call_count == 1
     assert "all network interfaces" in mock_echo.warning.call_args.args[0]
+
+
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.2.0")
+def test_resolve_image_exits_when_tag_is_newer_than_cli(mock_cli_version: Mock) -> None:
+    with pytest.raises(typer.Exit):
+        _resolve_image("custom-image", "2.0.0")
+
+
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.2.0")
+def test_resolve_image_returns_hub_image_when_tag_fits_cli(mock_cli_version: Mock) -> None:
+    result: str = _resolve_image("custom-image", "1.2.9")
+
+    assert result == f"{DF_SERVER_IMAGE_HUB}:1.2.9"
+
+
+@mock.patch("deepfellow.server.update.get_newest_image_tag")
+def test_resolve_image_exits_when_installed_is_newer_than_newest_compatible(mock_get_newest_image_tag: Mock) -> None:
+    mock_get_newest_image_tag.return_value = f"{DF_SERVER_IMAGE_HUB}:1.2.0"
+
+    with pytest.raises(typer.Exit):
+        _resolve_image(DF_SERVER_IMAGE, None, f"{DF_SERVER_IMAGE_HUB}:1.3.0")
+
+
+@mock.patch("deepfellow.server.update.get_newest_image_tag")
+def test_resolve_image_allows_explicit_older_tag_as_downgrade(mock_get_newest_image_tag: Mock) -> None:
+    result: str = _resolve_image(DF_SERVER_IMAGE, "1.1.0", f"{DF_SERVER_IMAGE_HUB}:1.3.0")
+
+    assert result == f"{DF_SERVER_IMAGE_HUB}:1.1.0"
+    assert mock_get_newest_image_tag.call_count == 0
+
+
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.2.0")
+def test_resolve_image_skips_compat_check_when_skip_version_check(mock_cli_version: Mock) -> None:
+    result: str = _resolve_image("custom-image", "2.0.0", skip_version_check=True)
+
+    assert result == f"{DF_SERVER_IMAGE_HUB}:2.0.0"
+
+
+@mock.patch("deepfellow.server.update.get_newest_image_tag")
+def test_resolve_image_skips_downgrade_check_when_skip_version_check(mock_get_newest_image_tag: Mock) -> None:
+    mock_get_newest_image_tag.return_value = f"{DF_SERVER_IMAGE_HUB}:1.2.0"
+
+    result: str = _resolve_image(DF_SERVER_IMAGE, None, f"{DF_SERVER_IMAGE_HUB}:1.3.0", skip_version_check=True)
+
+    assert result == f"{DF_SERVER_IMAGE_HUB}:1.2.0"
+
+
+@mock.patch("deepfellow.server.update.echo")
+@mock.patch("deepfellow.server.update.get_newest_image_tag")
+def test_resolve_image_uses_local_image_without_registry_or_checks(
+    mock_get_newest_image_tag: Mock, mock_echo: Mock
+) -> None:
+    result: str = _resolve_image(DF_SERVER_IMAGE, None, f"{DF_SERVER_IMAGE_HUB}:1.3.0", local_image=True)
+
+    assert result == DF_SERVER_IMAGE
+    assert mock_get_newest_image_tag.call_count == 0
+    assert mock_echo.warning.call_count == 0
+
+
+@mock.patch("deepfellow.server.update.get_newest_image_tag")
+def test_resolve_image_uses_hub_tag_for_local_image_with_tag(mock_get_newest_image_tag: Mock) -> None:
+    result: str = _resolve_image(DF_SERVER_IMAGE, "dev-build", local_image=True)
+
+    assert result == f"{DF_SERVER_IMAGE_HUB}:dev-build"
+    assert mock_get_newest_image_tag.call_count == 0
+
+
+@pytest.mark.parametrize(
+    "image", [pytest.param("custom/image:dev", id="non-version-tag"), pytest.param("custom/image", id="no-tag")]
+)
+@mock.patch("deepfellow.common.registry.echo")
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.2.0")
+def test_resolve_image_exits_when_custom_image_version_cannot_be_checked(
+    mock_cli_version: Mock, mock_echo: Mock, image: str
+) -> None:
+    with pytest.raises(typer.Exit):
+        _resolve_image(image, None)
+
+    assert "--skip-version-check" in mock_echo.error.call_args.args[0]
+
+
+@mock.patch("deepfellow.common.registry.echo")
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.2.0")
+def test_resolve_image_warns_when_version_check_is_skipped(mock_cli_version: Mock, mock_echo: Mock) -> None:
+    _resolve_image("custom/image:dev", None, skip_version_check=True)
+
+    assert mock_echo.warning.call_count == 1
+    assert "--skip-version-check" in mock_echo.warning.call_args.args[0]
+
+
+@mock.patch("deepfellow.common.version.cli_version", return_value="0.38.0")
+@mock.patch("deepfellow.common.registry.echo")
+@mock.patch("deepfellow.server.update.migrate_port_bindings")
+@mock.patch("deepfellow.server.update._sync_pull_policy")
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition")
+@mock.patch("deepfellow.server.update.has_nightshift_service")
+@mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
+@mock.patch("deepfellow.server.update.check_server_directory")
+def test_update_refuses_incompatible_tag_before_asking_or_changing_anything(
+    mock_check: Mock,
+    mock_assert_docker: Mock,
+    mock_read: Mock,
+    mock_has_nightshift_service: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_sync_pull_policy: Mock,
+    mock_migrate_port_bindings: Mock,
+    mock_registry_echo: Mock,
+    mock_cli_version: Mock,
+    server_values: dict,
+    default_update_kwargs: dict,
+) -> None:
+    mock_read.return_value = server_values
+
+    with pytest.raises(typer.Exit):
+        update(**{**default_update_kwargs, "tag": "0.39.0"})
+
+    assert mock_resolve_nightshift_addition.call_count == 0
+    assert mock_sync_pull_policy.call_count == 0
+    assert mock_migrate_port_bindings.call_count == 0
