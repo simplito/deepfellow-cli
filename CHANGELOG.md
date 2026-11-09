@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Update refuses to downgrade Infra or Server newer than the CLI supports
 - Install and update stop instead of falling back to `latest` when the registry is unreachable
 - `deepfellow version` shows the running Infra and Server versions; `--version` shows the CLI only
+- `RELEASE.md` tells to update the version in `uv.lock` together with `pyproject.toml`
 
 ## [0.38.0] - 2026-11-04
 
