@@ -7,8 +7,21 @@ from pathlib import Path
 from unittest import mock
 from unittest.mock import Mock
 
+import pytest
+
 from deepfellow.common import version as version_module
-from deepfellow.common.version import _run_git, _service_version, cli_version, is_source_checkout, version
+from deepfellow.common.docker import DockerError
+from deepfellow.common.version import (
+    _run_git,
+    _running_service_version,
+    _service_version,
+    cli_version,
+    is_compatible_with_cli,
+    is_source_checkout,
+    parse_major_minor,
+    print_cli_version,
+    version,
+)
 
 
 def _completed(returncode: int, stdout: str = "") -> subprocess.CompletedProcess:
@@ -132,32 +145,133 @@ def test_service_version_unknown_when_image_has_no_tag(mock_is_dir: Mock, mock_r
     assert _service_version(Path("/infra"), "df_infra_image") == "unknown"
 
 
-@mock.patch("deepfellow.common.version._service_version")
-@mock.patch("deepfellow.common.version.cli_version")
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.23")
+def test_print_cli_version_prints_only_cli_version(mock_cli_version: Mock, capsys: pytest.CaptureFixture[str]) -> None:
+    print_cli_version()
+
+    assert capsys.readouterr().out == "DeepFellow CLI 1.23\n"
+
+
+@mock.patch("deepfellow.server.utils.options.get_default_server_directory")
+@mock.patch("deepfellow.common.version._service_version", return_value=None)
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.23")
 def test_version_prints_cli_only_when_nothing_installed(
-    mock_cli_version: Mock, mock_service_version: Mock, capsys
+    mock_cli_version: Mock, mock_service_version: Mock, mock_server_dir: Mock, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    mock_cli_version.return_value = "1.23"
-    mock_service_version.return_value = None
-
     version()
 
-    out = capsys.readouterr().out
-    assert out == "DeepFellow CLI 1.23\n"
+    assert capsys.readouterr().out == "DeepFellow CLI 1.23\n"
 
 
+@mock.patch("deepfellow.common.version.get_running_service_image")
+@mock.patch("deepfellow.common.version.is_service_running_or_raise", return_value=True)
+@mock.patch("deepfellow.server.utils.options.get_default_server_directory")
 @mock.patch("deepfellow.common.version._service_version")
-@mock.patch("deepfellow.common.version.cli_version")
-def test_version_prints_all_when_both_installed(mock_cli_version: Mock, mock_service_version: Mock, capsys) -> None:
-    mock_cli_version.return_value = "1.23"
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.23")
+def test_version_prints_running_versions_from_containers_in_default_directories(
+    mock_cli_version: Mock,
+    mock_service_version: Mock,
+    mock_server_dir: Mock,
+    mock_is_running: Mock,
+    mock_running_image: Mock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     mock_service_version.side_effect = ["4.56", "7.89"]
+    mock_server_dir.return_value = Path("/custom/server")
+    mock_running_image.side_effect = ["hub/infra:v4.57.0", "hub/server:7.90.1"]
 
     version()
 
-    out = capsys.readouterr().out
-    assert out == "DeepFellow CLI 1.23\nDeepFellow Infra 4.56\nDeepFellow Server 7.89\n"
-    assert mock_service_version.call_count == 2
+    assert (
+        capsys.readouterr().out
+        == "DeepFellow CLI 1.23\nDeepFellow Infra 4.57.0 (running)\nDeepFellow Server 7.90.1 (running)\n"
+    )
     assert mock_service_version.call_args_list == [
         mock.call(version_module.DF_INFRA_DIRECTORY, "df_infra_image"),
-        mock.call(version_module.DF_SERVER_DIRECTORY, "df_server_image"),
+        mock.call(Path("/custom/server"), "df_server_image"),
     ]
+    assert mock_is_running.call_args_list == [
+        mock.call("infra", version_module.DF_INFRA_DIRECTORY),
+        mock.call("server", Path("/custom/server")),
+    ]
+
+
+@mock.patch("deepfellow.common.version.get_running_service_image")
+@mock.patch("deepfellow.common.version.is_service_running_or_raise", return_value=False)
+def test_running_service_version_reports_configured_version_when_stack_stopped(
+    mock_is_running: Mock, mock_running_image: Mock
+) -> None:
+    result = _running_service_version("infra", Path("/infra"), "4.56")
+
+    assert result == "4.56 (from configuration, stopped)"
+    assert mock_running_image.call_count == 0
+
+
+@mock.patch("deepfellow.common.version.get_running_service_image")
+@mock.patch("deepfellow.common.version.is_service_running_or_raise", side_effect=DockerError("daemon down"))
+def test_running_service_version_reports_configured_version_when_docker_cannot_be_checked(
+    mock_is_running: Mock, mock_running_image: Mock
+) -> None:
+    result = _running_service_version("infra", Path("/infra"), "4.56")
+
+    assert result == "4.56 (from configuration, couldn't check whether it is running)"
+    assert mock_running_image.call_count == 0
+
+
+@pytest.mark.parametrize("running_image", [pytest.param(None, id="no-image"), pytest.param("hub/infra", id="no-tag")])
+@mock.patch("deepfellow.common.version.get_running_service_image")
+@mock.patch("deepfellow.common.version.is_service_running_or_raise", return_value=True)
+def test_running_service_version_falls_back_to_configuration_when_running_image_has_no_version(
+    mock_is_running: Mock, mock_running_image: Mock, running_image: str | None
+) -> None:
+    mock_running_image.return_value = running_image
+
+    result = _running_service_version("infra", Path("/infra"), "4.56")
+
+    assert result == "4.56 (from configuration, running image has no version)"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param("1.2.3", (1, 2), id="full-version"),
+        pytest.param("v1.2", (1, 2), id="v-prefix-no-patch"),
+        pytest.param("1.2.3-volta", (1, 2), id="suffix"),
+        pytest.param("0.37.0", (0, 37), id="zero-major"),
+        pytest.param("latest", None, id="non-version"),
+        pytest.param("1", None, id="major-only"),
+        pytest.param("", None, id="empty"),
+    ],
+)
+def test_parse_major_minor_extracts_major_and_minor(text: str, expected: tuple[int, int] | None) -> None:
+    result = parse_major_minor(text)
+
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    ("cli", "tag", "expected"),
+    [
+        pytest.param("1.4.2", "1.4.9", True, id="same-minor-newer-patch"),
+        pytest.param("1.4.2", "v1.2.0", True, id="older-minor-v-prefix"),
+        pytest.param("1.4.2", "1.5.0", False, id="newer-minor"),
+        pytest.param("1.4.2", "2.0.0", False, id="newer-major"),
+        pytest.param("1.4.2", "0.9.0", False, id="older-major"),
+        pytest.param("1.4.2", "latest", True, id="non-version-tag"),
+        pytest.param("abc1234", "2.0.0", True, id="dev-cli"),
+        pytest.param("0.37.0", "0.37.5", True, id="zero-major-same-minor"),
+        pytest.param("0.37.0", "v0.37.0", True, id="zero-major-v-prefix"),
+        pytest.param("0.37.0", "0.36.9", False, id="zero-major-older-minor"),
+        pytest.param("0.37.0", "0.38.0", False, id="zero-major-newer-minor"),
+        pytest.param("0.37.0", "1.0.0", False, id="zero-major-newer-major"),
+    ],
+)
+@mock.patch("deepfellow.common.version.cli_version")
+def test_is_compatible_with_cli_compares_major_and_minor(
+    mock_cli_version: Mock, cli: str, tag: str, expected: bool
+) -> None:
+    mock_cli_version.return_value = cli
+
+    result = is_compatible_with_cli(tag)
+
+    assert result is expected

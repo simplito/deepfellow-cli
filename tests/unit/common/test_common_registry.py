@@ -5,14 +5,24 @@ from unittest import mock
 from unittest.mock import Mock
 
 import httpx
+import pytest
+import typer
 
 from deepfellow.common.registry import (
+    _image_tag,
     _parse_tag,
+    assert_cli_compatible,
+    assert_not_downgrade,
     get_newest_image_tag,
     list_image_tags,
     newest_semver_tag,
+    resolve_install_image,
     split_release_tag,
+    warn_version_check_skipped,
 )
+from deepfellow.common.version import compatible_tags
+
+pytestmark = pytest.mark.usefixtures("_unversioned_cli")
 
 HUB = "hub.example.com/org/image"
 IMAGE_PATH = "org/image"
@@ -135,38 +145,45 @@ def test_get_newest_image_tag_plain_semver_beats_lower_v_tag(mock_get: Mock) -> 
     assert result == f"{HUB}:0.27.1"
 
 
+@mock.patch("deepfellow.common.registry.echo")
 @mock.patch("deepfellow.common.registry.httpx.get")
-def test_get_newest_image_tag_falls_back_to_latest_on_http_error(mock_get: Mock) -> None:
+def test_get_newest_image_tag_exits_on_http_error(mock_get: Mock, mock_echo: Mock) -> None:
     mock_get.side_effect = httpx.ConnectError("unreachable")
 
-    result = get_newest_image_tag(HUB)
+    with pytest.raises(typer.Exit):
+        get_newest_image_tag(HUB)
 
-    assert result == f"{HUB}:latest"
+    assert mock_echo.error.call_count == 1
+    assert f"--image {HUB}:X.Y.Z" in mock_echo.error.call_args.args[0]
 
 
+@mock.patch("deepfellow.common.registry.echo")
 @mock.patch("deepfellow.common.registry.httpx.get")
-def test_get_newest_image_tag_falls_back_when_no_semver_or_dev_tags(mock_get: Mock) -> None:
+def test_get_newest_image_tag_exits_when_registry_has_no_release_tags(mock_get: Mock, mock_echo: Mock) -> None:
     mock_get.side_effect = [
         _make_probe_response("https://auth.example.com/token"),
         _make_token_response("tok"),
         _make_tags_response(["latest", "abc123def"]),
     ]
 
-    result = get_newest_image_tag(HUB)
+    with pytest.raises(typer.Exit):
+        get_newest_image_tag(HUB)
 
-    assert result == f"{HUB}:latest"
+    assert mock_echo.error.call_count == 1
 
 
+@mock.patch("deepfellow.common.registry.echo")
 @mock.patch("deepfellow.common.registry.httpx.get")
-def test_get_newest_image_tag_falls_back_when_token_missing(mock_get: Mock) -> None:
+def test_get_newest_image_tag_exits_when_token_missing(mock_get: Mock, mock_echo: Mock) -> None:
     probe = Mock(spec=httpx.Response)
     probe.status_code = 401
-    probe.headers = {}  # no WWW-Authenticate
+    probe.headers = {}  # no WWW-Authenticate -> no token -> list_image_tags returns []
     mock_get.return_value = probe
 
-    result = get_newest_image_tag(HUB)
+    with pytest.raises(typer.Exit):
+        get_newest_image_tag(HUB)
 
-    assert result == f"{HUB}:latest"
+    assert mock_echo.error.call_count == 1
 
 
 @mock.patch("deepfellow.common.registry.httpx.get")
@@ -188,21 +205,6 @@ def test_get_newest_image_tag_omits_service_param_when_missing_from_header(mock_
         params={"scope": f"repository:{IMAGE_PATH}:pull"},
         timeout=10,
     )
-
-
-@mock.patch("deepfellow.common.registry.echo")
-@mock.patch("deepfellow.common.registry.httpx.get")
-def test_get_newest_image_tag_warns_when_no_tags_available(mock_get: Mock, mock_echo: Mock) -> None:
-    probe = Mock(spec=httpx.Response)
-    probe.status_code = 401
-    probe.headers = {}  # no WWW-Authenticate -> no token -> list_image_tags returns []
-    mock_get.return_value = probe
-
-    result = get_newest_image_tag(HUB)
-
-    assert result == f"{HUB}:latest"
-    assert mock_echo.warning.call_count == 1
-    assert mock_echo.warning.call_args == mock.call(f"Unable to fetch tags for {HUB}, falling back to latest.")
 
 
 # --- list_image_tags ---
@@ -248,8 +250,9 @@ def test_list_image_tags_returns_empty_list_for_host_less_image_name() -> None:
     assert result == []
 
 
+@mock.patch("deepfellow.common.registry.echo")
 @mock.patch("deepfellow.common.registry.httpx.get")
-def test_get_newest_image_tag_falls_back_when_tags_request_raises(mock_get: Mock) -> None:
+def test_get_newest_image_tag_exits_when_tags_request_raises(mock_get: Mock, mock_echo: Mock) -> None:
     tags_resp = Mock(spec=httpx.Response)
     tags_resp.raise_for_status.side_effect = httpx.HTTPStatusError("403", request=Mock(), response=Mock())
     mock_get.side_effect = [
@@ -258,6 +261,217 @@ def test_get_newest_image_tag_falls_back_when_tags_request_raises(mock_get: Mock
         tags_resp,
     ]
 
+    with pytest.raises(typer.Exit):
+        get_newest_image_tag(HUB)
+
+    assert mock_echo.error.call_count == 1
+
+
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.4.2")
+@mock.patch("deepfellow.common.registry.httpx.get")
+def test_get_newest_image_tag_skips_releases_newer_than_cli(mock_get: Mock, mock_cli_version: Mock) -> None:
+    mock_get.side_effect = [
+        _make_probe_response("https://auth.example.com/token"),
+        _make_token_response("tok"),
+        _make_tags_response(["1.3.9", "1.4.7", "1.5.0", "2.0.0"]),
+    ]
+
     result = get_newest_image_tag(HUB)
 
-    assert result == f"{HUB}:latest"
+    assert result == f"{HUB}:1.4.7"
+
+
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.4.2")
+@mock.patch("deepfellow.common.registry.httpx.get")
+def test_get_newest_image_tag_exits_when_no_release_fits_cli(mock_get: Mock, mock_cli_version: Mock) -> None:
+    mock_get.side_effect = [
+        _make_probe_response("https://auth.example.com/token"),
+        _make_token_response("tok"),
+        _make_tags_response(["2.0.0", "2.1.0"]),
+    ]
+
+    with pytest.raises(typer.Exit):
+        get_newest_image_tag(HUB)
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        pytest.param(f"{HUB}:1.5.0", id="newer-minor"),
+        pytest.param(f"{HUB}:2.0.0", id="newer-major"),
+        pytest.param(f"{HUB}:v1.5.0", id="newer-minor-v-prefix"),
+        pytest.param(f"{HUB}:0.9.0", id="older-major"),
+        pytest.param(f"{HUB}:1.5.0@sha256:abc", id="newer-minor-with-digest"),
+        pytest.param(f"{HUB}:dev", id="non-version-tag"),
+        pytest.param(f"{HUB}:latest", id="latest-tag"),
+        pytest.param(HUB, id="no-tag"),
+        pytest.param("localhost:5000/image", id="registry-port-no-tag"),
+        pytest.param(f"{HUB}@sha256:abc", id="digest-only"),
+        pytest.param(f"{HUB}:1.4.0@sha256:abc", id="matching-tag-with-digest"),
+    ],
+)
+@mock.patch("deepfellow.common.registry.echo")
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.4.2")
+def test_assert_cli_compatible_exits_when_image_not_known_to_work(
+    mock_cli_version: Mock, mock_echo: Mock, image: str
+) -> None:
+    with pytest.raises(typer.Exit):
+        assert_cli_compatible("Server", image)
+
+    assert mock_echo.error.call_count == 1
+    assert "--skip-version-check" in mock_echo.error.call_args.args[0]
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        pytest.param(f"{HUB}:1.4.0", id="older-minor"),
+        pytest.param(f"{HUB}:v1.4.9", id="same-minor-v-prefix"),
+        pytest.param("localhost:5000/image:1.4.1", id="registry-port-and-tag"),
+    ],
+)
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.4.2")
+def test_assert_cli_compatible_passes_when_image_fits_cli(mock_cli_version: Mock, image: str) -> None:
+    assert_cli_compatible("Server", image)
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        pytest.param(f"{HUB}:2.0.0", id="newer-major"),
+        pytest.param(f"{HUB}:dev", id="non-version-tag"),
+        pytest.param(HUB, id="no-tag"),
+    ],
+)
+@mock.patch("deepfellow.common.version.cli_version", return_value="unknown")
+def test_assert_cli_compatible_passes_any_image_for_dev_build_of_cli(mock_cli_version: Mock, image: str) -> None:
+    assert_cli_compatible("Server", image)
+
+
+@pytest.mark.parametrize(
+    ("image", "expected"),
+    [
+        pytest.param(f"{HUB}:1.2.3", "1.2.3", id="tag"),
+        pytest.param(f"{HUB}:1.2.3@sha256:abc", "1.2.3", id="tag-and-digest"),
+        pytest.param(f"{HUB}@sha256:abc", None, id="digest-only"),
+        pytest.param(HUB, None, id="no-tag"),
+        pytest.param("localhost:5000/image", None, id="registry-port-no-tag"),
+        pytest.param("localhost:5000/image:dev", "dev", id="registry-port-and-tag"),
+        pytest.param("image:", None, id="empty-tag"),
+    ],
+)
+def test_image_tag_reads_tag_of_last_path_segment(image: str, expected: str | None) -> None:
+    result = _image_tag(image)
+
+    assert result == expected
+
+
+@mock.patch("deepfellow.common.version.cli_version")
+def test_compatible_tags_resolves_cli_version_once(mock_cli_version: Mock) -> None:
+    mock_cli_version.return_value = "1.4.2"
+
+    result = compatible_tags(["2.0.0", "1.5.0", "1.4.7", "1.3.9"])
+
+    assert result == ["1.4.7", "1.3.9"]
+    assert mock_cli_version.call_count == 1
+
+
+@pytest.mark.parametrize(
+    ("current", "newest"),
+    [
+        pytest.param(f"{HUB}:1.5.0", f"{HUB}:1.4.7", id="installed-newer"),
+        pytest.param(f"{HUB}:v1.5.0", f"{HUB}:1.4.7", id="installed-newer-v-prefix"),
+    ],
+)
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.4.2")
+def test_assert_not_downgrade_exits_when_newest_is_older(mock_cli_version: Mock, current: str, newest: str) -> None:
+    with pytest.raises(typer.Exit):
+        assert_not_downgrade("Server", current, newest)
+
+
+@pytest.mark.parametrize(
+    ("current", "newest"),
+    [
+        pytest.param(f"{HUB}:1.4.7", f"{HUB}:1.4.7", id="same"),
+        pytest.param(f"{HUB}:1.4.0", f"{HUB}:1.4.7", id="installed-older"),
+        pytest.param(f"{HUB}:latest", f"{HUB}:1.4.7", id="installed-not-a-version"),
+        pytest.param("", f"{HUB}:1.4.7", id="nothing-installed"),
+        pytest.param(f"{HUB}:1.5.0", f"{HUB}:latest", id="newest-not-a-version"),
+    ],
+)
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.4.2")
+def test_assert_not_downgrade_passes_when_newest_is_not_older(
+    mock_cli_version: Mock, current: str, newest: str
+) -> None:
+    assert_not_downgrade("Server", current, newest)
+
+
+@pytest.mark.parametrize(
+    ("cli", "tag", "expected_hint"),
+    [
+        pytest.param("0.37.1", "0.38.0", "deepfellow cli update", id="0x-newer-minor"),
+        pytest.param("0.37.1", "0.36.4", "release that matches the CLI", id="0x-older-minor"),
+        pytest.param("1.4.2", "2.0.0", "deepfellow cli update", id="newer-major"),
+        pytest.param("1.4.2", "0.9.0", "release that matches the CLI", id="older-major"),
+    ],
+)
+@mock.patch("deepfellow.common.registry.echo")
+@mock.patch("deepfellow.common.version.cli_version")
+def test_assert_cli_compatible_hint_depends_on_direction(
+    mock_version_cli: Mock, mock_echo: Mock, cli: str, tag: str, expected_hint: str
+) -> None:
+    mock_version_cli.return_value = cli
+
+    with pytest.raises(typer.Exit):
+        assert_cli_compatible("Server", f"{HUB}:{tag}")
+
+    assert expected_hint in mock_echo.error.call_args.args[0]
+
+
+# --- warn_version_check_skipped / resolve_install_image ---
+
+
+@mock.patch("deepfellow.common.registry.echo")
+def test_warn_version_check_skipped_warns_about_the_flag(mock_echo: Mock) -> None:
+    warn_version_check_skipped()
+
+    assert mock_echo.warning.call_count == 1
+    assert "--skip-version-check" in mock_echo.warning.call_args.args[0]
+
+
+@mock.patch("deepfellow.common.registry.get_newest_image_tag", return_value=f"{HUB}:1.4.7")
+def test_resolve_install_image_returns_newest_tag_for_default_image(mock_newest: Mock) -> None:
+    result = resolve_install_image("Server", HUB, f"{HUB}:latest", f"{HUB}:latest", False, False)
+
+    assert result == f"{HUB}:1.4.7"
+    assert mock_newest.call_args == mock.call(HUB)
+
+
+@mock.patch("deepfellow.common.registry.assert_cli_compatible")
+@mock.patch("deepfellow.common.registry.get_newest_image_tag")
+def test_resolve_install_image_checks_nothing_for_local_image(mock_newest: Mock, mock_assert: Mock) -> None:
+    result = resolve_install_image("Server", HUB, f"{HUB}:latest", f"{HUB}:latest", True, False)
+
+    assert result is None
+    assert mock_newest.call_count == 0
+    assert mock_assert.call_count == 0
+
+
+@mock.patch("deepfellow.common.registry.assert_cli_compatible")
+@mock.patch("deepfellow.common.registry.get_newest_image_tag")
+def test_resolve_install_image_checks_explicit_image(mock_newest: Mock, mock_assert: Mock) -> None:
+    result = resolve_install_image("Server", HUB, f"{HUB}:latest", f"{HUB}:1.4.0", False, False)
+
+    assert result is None
+    assert mock_newest.call_count == 0
+    assert mock_assert.call_args == mock.call("Server", f"{HUB}:1.4.0")
+
+
+@mock.patch("deepfellow.common.registry.echo")
+@mock.patch("deepfellow.common.registry.assert_cli_compatible")
+def test_resolve_install_image_warns_instead_of_checking_when_skipped(mock_assert: Mock, mock_echo: Mock) -> None:
+    result = resolve_install_image("Server", HUB, f"{HUB}:latest", f"{HUB}:2.0.0", False, True)
+
+    assert result is None
+    assert mock_assert.call_count == 0
+    assert mock_echo.warning.call_count == 1

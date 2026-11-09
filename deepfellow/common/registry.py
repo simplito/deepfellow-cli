@@ -6,8 +6,11 @@
 import re
 
 import httpx
+import typer
 
+from deepfellow.common import version as cli_info
 from deepfellow.common.echo import echo
+from deepfellow.common.version import compatible_tags, is_compatible_with_cli, parse_major_minor
 
 
 def _parse_tag(tag: str) -> tuple[int, ...] | None:
@@ -112,13 +115,141 @@ def get_newest_image_tag(hub: str) -> str:
     Args:
         hub: Image hub without tag, e.g. ``registry.example.com/org/image``.
 
-    Falls back to :latest if the registry is unreachable or has no semver tags.
-    """
-    tags = list_image_tags(hub)
-    semver_tags = [t for t in tags if _parse_tag(t)]
-    if not semver_tags:
-        if not tags:
-            echo.warning(f"Unable to fetch tags for {hub}, falling back to latest.")
-        return f"{hub}:latest"
+    Only tags this CLI is compatible with are considered (see `is_compatible_with_cli`), so a CLI 1.x
+    never picks up a 2.0 release.
 
-    return f"{hub}:{semver_tags[0]}"
+    Raises:
+        typer.Exit: If the registry is unreachable or has no release tags, or has release tags but none
+            of them works with this CLI.
+    """
+    semver_tags = [t for t in list_image_tags(hub) if _parse_tag(t)]
+    if not semver_tags:
+        echo.error(
+            f"Couldn't determine the newest release of {hub}: the registry is unreachable or has no release tags. "
+            f"Pass a version explicitly: `--image {hub}:X.Y.Z` (or `--tag X.Y.Z` on update)."
+        )
+        raise typer.Exit(1)
+
+    compatible = compatible_tags(semver_tags)
+    if not compatible:
+        echo.error(
+            f"No version of {hub} is compatible with DeepFellow CLI {cli_info.cli_version()}. "
+            "Run `deepfellow cli update` to update the CLI first."
+        )
+        raise typer.Exit(1)
+
+    return f"{hub}:{compatible[0]}"
+
+
+def _image_tag(image: str) -> str | None:
+    """Return the tag of an image reference, or `None` if it has none.
+
+    A digest (`@sha256:...`) is ignored, and only the last path segment is searched, so the port of a
+    registry (`registry:5000/df/infra`) isn't mistaken for a tag.
+    """
+    last_segment = image.partition("@")[0].rpartition("/")[2]
+    name, separator, tag = last_segment.partition(":")
+    return tag if name and separator and tag else None
+
+
+def warn_version_check_skipped() -> None:
+    """Tell the user that the CLI/component compatibility checks were bypassed on purpose."""
+    echo.warning("Skipping the CLI/component version compatibility check (--skip-version-check).")
+
+
+def assert_cli_compatible(component: str, image: str) -> None:
+    """Exit unless `image` carries a version this CLI is known to handle.
+
+    Anything that can't be compared with the CLI's version (no tag, a tag that isn't a version, a digest, even one
+    next to a tag) is refused as well: it needs an explicit `--skip-version-check`. A dev build of the CLI,
+    whose own version can't be read, accepts every image.
+
+    Args:
+        component: Name for the message, e.g. ``Server``.
+        image: Full image reference.
+
+    Raises:
+        typer.Exit: If the image's version is outside what the CLI supports, or can't be determined. The hint
+            is to update the CLI for a newer release, and to pick a matching release for an older one.
+    """
+    cli = cli_info.cli_version()
+    cli_parsed = parse_major_minor(cli)
+    if cli_parsed is None:
+        return
+    # Docker pulls by digest and ignores a tag next to it, so the tag says nothing about what runs.
+    tag = None if "@" in image else _image_tag(image)
+    component_version = parse_major_minor(tag) if tag else None
+    if component_version is None:
+        echo.error(
+            f"Can't tell whether {image} works with DeepFellow CLI {cli}: it has no version to compare. "
+            f"Use an image with a version tag, or pass `--skip-version-check` to use it anyway."
+        )
+        raise typer.Exit(1)
+    if is_compatible_with_cli(tag or ""):
+        return
+    # Updating the CLI only helps against a release newer than the CLI supports.
+    hint = (
+        "Use a release that matches the CLI, or pass `--skip-version-check`."
+        if component_version < cli_parsed
+        else "Run `deepfellow cli update` to update the CLI first, then retry, or pass `--skip-version-check`."
+    )
+    echo.error(
+        f"DeepFellow {component} {(tag or '').removeprefix('v')} is not compatible with DeepFellow CLI {cli}. {hint}"
+    )
+    raise typer.Exit(1)
+
+
+def resolve_install_image(
+    component: str, hub: str, default_image: str, image: str, local_image: bool, skip_version_check: bool
+) -> str | None:
+    """Validate the image of an install before anything is changed; return the newest tag when none was chosen.
+
+    Args:
+        component: Name for the message, e.g. ``Server``.
+        hub: Image hub without tag, where the newest release is looked up.
+        default_image: The `--image` default, meaning that no image was chosen.
+        image: The image given to the command.
+        local_image: Whether a locally built image is used, which is never checked.
+        skip_version_check: Whether to bypass the compatibility check of an explicit image.
+
+    Returns:
+        The newest compatible image reference for the default image, otherwise `None`.
+
+    Raises:
+        typer.Exit: If the registry has no release this CLI can install, or the explicit image isn't compatible.
+    """
+    if local_image:
+        return None
+    if image == default_image:
+        return get_newest_image_tag(hub)
+    if skip_version_check:
+        warn_version_check_skipped()
+    else:
+        assert_cli_compatible(component, image)
+    return None
+
+
+def assert_not_downgrade(component: str, current: str, newest: str) -> None:
+    """Exit when the newest release this CLI supports is older than what is already installed.
+
+    Args:
+        component: Name for the message, e.g. ``Server``.
+        current: Installed image reference. One whose tag isn't a version passes.
+        newest: Image reference picked for the update. One whose tag isn't a version passes.
+
+    Raises:
+        typer.Exit: If `newest` is older than `current`, so the update would silently downgrade.
+    """
+    installed_tag = current.rpartition(":")[2]
+    newest_tag = newest.rpartition(":")[2]
+    installed = _parse_tag(installed_tag)
+    target = _parse_tag(newest_tag)
+    if installed is None or target is None or target >= installed:
+        return
+    echo.error(
+        f"Installed DeepFellow {component} {installed_tag.removeprefix('v')} is newer than "
+        f"DeepFellow CLI {cli_info.cli_version()} supports (newest compatible: {newest_tag.removeprefix('v')}). "
+        "Run `deepfellow cli update` to update the CLI, pass `--tag` to downgrade on purpose, "
+        "or `--skip-version-check` to bypass this check."
+    )
+    raise typer.Exit(1)

@@ -12,7 +12,7 @@ from typer.testing import CliRunner
 from deepfellow.common.exceptions import DockerNetworkError
 from deepfellow.common.state import state
 from deepfellow.main import app
-from deepfellow.update import UpdateStepsError, _run_step, _uses_local_image, update
+from deepfellow.update import UpdateStepsError, _run_step, _update_components, _uses_local_image, update
 
 
 def test_run_step_returns_true_when_step_succeeds() -> None:
@@ -168,7 +168,7 @@ def test_update_skip_cli_runs_steps_in_process(
     assert mock_run.call_count == 0
     assert mock_update_infra.call_count == 1
     assert mock_update_infra.call_args == mock.call(
-        directory=mock_infra_dir, image=mock.ANY, local_image=False, tag=None
+        directory=mock_infra_dir, image=mock.ANY, local_image=False, tag=None, skip_version_check=False
     )
     assert mock_update_server.call_count == 1
     assert mock_update_server.call_args == mock.call(
@@ -176,11 +176,47 @@ def test_update_skip_cli_runs_steps_in_process(
         image=mock.ANY,
         local_image=False,
         tag=None,
+        skip_version_check=False,
         nightshift=None,
         rabbitmq_url=None,
         rabbitmq_username="",
         rabbitmq_password="",
     )
+
+
+@mock.patch("deepfellow.update.get_default_server_directory")
+@mock.patch("deepfellow.common.registry.list_image_tags", return_value=["0.38.1", "0.38.0"])
+@mock.patch("deepfellow.common.version.cli_version", return_value="0.38.0")
+@mock.patch("deepfellow.common.registry.echo")
+@mock.patch("deepfellow.infra.update.run")
+@mock.patch("deepfellow.infra.update.assert_docker")
+@mock.patch("deepfellow.infra.update.check_infra_directory")
+def test_update_components_refuses_to_downgrade_installed_infra(
+    mock_check_infra_directory: Mock,
+    mock_assert_docker: Mock,
+    mock_run: Mock,
+    mock_echo: Mock,
+    mock_cli_version: Mock,
+    mock_list_image_tags: Mock,
+    mock_get_server_dir: Mock,
+    tmp_path: Path,
+) -> None:
+    # The real `update_infra` runs here, so that the options `_update_components` leaves out are the real defaults.
+    infra_dir = tmp_path / "infra"
+    infra_dir.mkdir()
+    (infra_dir / ".env").write_text("DF_INFRA_IMAGE=hub.example.com/df/infra:0.39.0\n")
+    compose_file = infra_dir / "compose.yaml"
+    compose_file.write_text("services:\n  infra:\n    image: ${DF_INFRA_IMAGE}\n")
+    mock_get_server_dir.return_value = tmp_path / "no-server"
+
+    with mock.patch("deepfellow.update.DF_INFRA_DIRECTORY", infra_dir):
+        result = _update_components()
+
+    assert result is False
+    assert mock_run.call_count == 0
+    assert "newer than" in mock_echo.error.call_args.args[0]
+    assert (infra_dir / ".env").read_text() == "DF_INFRA_IMAGE=hub.example.com/df/infra:0.39.0\n"
+    assert compose_file.read_text() == "services:\n  infra:\n    image: ${DF_INFRA_IMAGE}\n"
 
 
 @pytest.mark.parametrize(

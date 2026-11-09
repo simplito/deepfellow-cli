@@ -75,7 +75,7 @@ from deepfellow.common.install import (
     resolve_admin_kwargs,
     validate_non_interactive_admin_values,
 )
-from deepfellow.common.registry import get_newest_image_tag
+from deepfellow.common.registry import resolve_install_image
 from deepfellow.common.state import state
 from deepfellow.common.system import run
 from deepfellow.common.templates import InstallTemplate, PostStartAction
@@ -208,6 +208,8 @@ def inspect(
     admin_email: str | None = None,
     admin_password: str | None = None,
     overwrite: bool | None = None,
+    skip_version_check: bool = False,
+    checked_image: str | None = None,
 ) -> InstallContext:
     """Resolve --template, then do a Docker check, directory creation, and existing .env read-back.
 
@@ -231,6 +233,9 @@ def inspect(
             post-start-action check).
         overwrite: Pre-answered directory-overwrite decision, passed straight through to
             `ensure_directory()`. Leave `None` to preserve today's inline prompt.
+        skip_version_check: Install an image whose version can't be checked against the CLI, or isn't compatible.
+        checked_image: Image reference the caller already validated with `resolve_install_image()`; when given,
+            the image isn't checked (or looked up in the registry) again.
 
     Returns:
         InstallContext: Read-only values needed by :func:`resolve`.
@@ -247,14 +252,15 @@ def inspect(
         _validate_non_interactive_post_start_actions(resolved_template, admin_name, admin_email, admin_password)
 
     assert_docker()
+    # Before anything is asked or created, so a refused image leaves nothing behind.
+    newest_image_tag = checked_image or resolve_install_image(
+        "Server", DF_SERVER_IMAGE_HUB, DF_SERVER_IMAGE, image, local_image, skip_version_check
+    )
     ensure_directory(
         directory,
         error_message="Unable to create DeepFellow Server directory.",
         force_install=force_install,
         overwrite=overwrite,
-    )
-    newest_image_tag = (
-        get_newest_image_tag(DF_SERVER_IMAGE_HUB) if not local_image and image == DF_SERVER_IMAGE else None
     )
 
     env_file = directory / ".env"
@@ -1336,6 +1342,7 @@ def install(
     bind_address: str | None = None,
     image: str = DF_SERVER_IMAGE,
     local_image: bool = False,
+    skip_version_check: bool = False,
     otel_url: str | None = None,
     otel_local: bool = False,
     infra_url: str = DF_INFRA_URL,
@@ -1389,6 +1396,7 @@ def install(
         admin_name=admin_name,
         admin_email=admin_email,
         admin_password=admin_password,
+        skip_version_check=skip_version_check,
     )
 
     config = resolve(

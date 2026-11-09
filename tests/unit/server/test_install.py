@@ -6,6 +6,7 @@
 import inspect
 import json
 import re
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -75,6 +76,8 @@ from deepfellow.server.utils.install import inspect as inspect_util
 from deepfellow.server.utils.minio_migration import MIGRATION_SKIPPED_LABEL, MIGRATION_SKIPPED_LABEL_CONFIRMED
 from deepfellow.server.utils.templates import BUILTIN_TEMPLATES, VALID_CONFIG_KEYS
 
+pytestmark = pytest.mark.usefixtures("_unversioned_cli")
+
 runner = CliRunner()
 
 MOCK_ECHO = mock.patch("deepfellow.server.utils.install.echo")
@@ -88,7 +91,16 @@ MOCK_CONFIGURE_OTEL = mock.patch("deepfellow.server.utils.install.configure_otel
 MOCK_RUN = mock.patch("deepfellow.server.utils.install.run")
 MOCK_SAVE_COMPOSE_FILE = mock.patch("deepfellow.server.utils.install.save_compose_file")
 MOCK_SAVE_ENV_FILE = mock.patch("deepfellow.server.utils.install.save_env_file")
-MOCK_GET_NEWEST_IMAGE_TAG = mock.patch("deepfellow.server.utils.install.get_newest_image_tag")
+MOCK_GET_NEWEST_IMAGE_TAG = mock.patch("deepfellow.common.registry.get_newest_image_tag")
+
+
+@pytest.fixture(autouse=True)
+def _registry_newest_image_tag() -> Iterator[None]:
+    """Answer the registry lookup of the default image, so that no test asks the real registry."""
+    with mock.patch("deepfellow.common.registry.get_newest_image_tag", side_effect=lambda hub: f"{hub}:latest"):
+        yield
+
+
 MOCK_ENV_GET = mock.patch("deepfellow.server.utils.install.env_get")
 MOCK_CONFIGURE_ECHO = mock.patch("deepfellow.server.utils.configure.echo")
 MOCK_RESOLVE_TEMPLATE = mock.patch("deepfellow.server.utils.install.resolve_template")
@@ -1623,7 +1635,7 @@ def test_install_command_delegates_to_install_util(mock_install_util, mock_set_d
     install_command(ctx=dummy_ctx(), **kwargs)
 
     assert mock_install_util.call_count == 1
-    assert mock_install_util.call_args == mock.call(**kwargs, explicitly_provided=set())
+    assert mock_install_util.call_args == mock.call(**kwargs, skip_version_check=False, explicitly_provided=set())
     assert set(mock_install_util.call_args[1]) == set(inspect.signature(install).parameters)
 
 
@@ -5635,3 +5647,99 @@ def test_resolve_forces_nightshift_mode_only_when_explicitly_provided(
     resolve(context, **kwargs, explicitly_provided=explicitly_provided)
 
     assert mock_configure_nightshift.call_args.kwargs["force_provided_mode"] is expected
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        pytest.param("custom/image:1.3.0", id="newer-minor"),
+        pytest.param("custom/image:2.0.0", id="newer-major"),
+        pytest.param("custom/image:dev", id="non-version-tag"),
+        pytest.param("custom/image", id="no-tag"),
+        pytest.param("custom/image@sha256:abc", id="digest-only"),
+    ],
+)
+@mock.patch("deepfellow.common.registry.echo")
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.2.0")
+@MOCK_GET_NEWEST_IMAGE_TAG
+@MOCK_ENSURE_DIRECTORY
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_inspect_exits_before_changing_anything_when_custom_image_not_known_to_work(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_ensure_directory: Mock,
+    mock_get_newest_image_tag: Mock,
+    mock_cli_version: Mock,
+    mock_registry_echo: Mock,
+    image: str,
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(typer.Exit):
+        inspect_util(directory=tmp_path, image=image, local_image=False, force_install=False)
+
+    assert mock_ensure_directory.call_count == 0
+
+
+@pytest.mark.parametrize(
+    ("image", "local_image"),
+    [
+        pytest.param("custom/image:1.2.9", False, id="same-minor"),
+        pytest.param("custom/image:2.0.0", True, id="local-image-skips-check"),
+        pytest.param("custom/image", True, id="local-image-without-tag"),
+    ],
+)
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.2.0")
+@MOCK_GET_NEWEST_IMAGE_TAG
+@MOCK_ENSURE_DIRECTORY
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_inspect_accepts_custom_image_known_to_work(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_ensure_directory: Mock,
+    mock_get_newest_image_tag: Mock,
+    mock_cli_version: Mock,
+    image: str,
+    local_image: bool,
+    tmp_path: Path,
+) -> None:
+    context = inspect_util(directory=tmp_path, image=image, local_image=local_image, force_install=False)
+
+    assert context.newest_image_tag is None
+    assert mock_ensure_directory.call_count == 1
+
+
+@mock.patch("deepfellow.common.registry.echo")
+@mock.patch("deepfellow.common.version.cli_version", return_value="1.2.0")
+@MOCK_ENSURE_DIRECTORY
+@MOCK_ASSERT_DOCKER
+@MOCK_ECHO
+def test_inspect_warns_instead_of_checking_image_when_skip_version_check(
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_ensure_directory: Mock,
+    mock_cli_version: Mock,
+    mock_registry_echo: Mock,
+    tmp_path: Path,
+) -> None:
+    inspect_util(
+        directory=tmp_path,
+        image="custom/image:2.0.0",
+        local_image=False,
+        force_install=False,
+        skip_version_check=True,
+    )
+
+    assert mock_registry_echo.warning.call_count == 1
+    assert "--skip-version-check" in mock_registry_echo.warning.call_args.args[0]
+    assert mock_registry_echo.error.call_count == 0
+    assert mock_ensure_directory.call_count == 1
+
+
+@mock.patch("deepfellow.server.install.set_default_server_directory")
+@mock.patch("deepfellow.server.install.install_util")
+def test_install_command_forwards_skip_version_check(mock_install_util, mock_set_default_server_directory, tmp_path):
+    install_command(ctx=dummy_ctx(), **{**install_kwargs(tmp_path), "skip_version_check": True})
+
+    assert mock_install_util.call_args.kwargs["skip_version_check"] is True

@@ -4,6 +4,7 @@
 """Install infra typer command."""
 
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -51,6 +52,13 @@ def install(
     ),
     image: str = typer.Option(DF_INFRA_IMAGE, envvar="DF_INFRA_IMAGE", help="DeepFellow Infra docker image."),
     local_image: bool = typer.Option(False, help="Use locally build DeepFellow Infra docker image."),
+    skip_version_check: Annotated[
+        bool,
+        typer.Option(
+            "--skip-version-check",
+            help="Install an image not verified against the CLI version (for development).",
+        ),
+    ] = False,
     docker_config: Path | None = typer.Option(None, envvar="DF_INFRA_DOCKER_CONFIG", help="Path to the docker config."),
     storage: Path = typer.Option(
         DF_INFRA_STORAGE_DIR, envvar="DF_INFRA_STORAGE_DIR", help="Storage for the DeepFellow Infra services."
@@ -103,6 +111,7 @@ def install(
             port=port,
             image=image,
             local_image=local_image,
+            skip_version_check=skip_version_check,
             docker_config=docker_config,
             storage=storage,
             hugging_face_token=hugging_face_token,

@@ -65,6 +65,7 @@ def default_install_kwargs() -> dict:
         "server_bind_address": None,
         "server_image": DF_SERVER_IMAGE,
         "server_local_image": False,
+        "skip_version_check": False,
         "server_directory": DF_SERVER_DIRECTORY.resolve(),
         "docker_network": DF_INFRA_DOCKER_NETWORK,
         "mongodb_port": DF_MONGO_PORT,
@@ -342,3 +343,10 @@ def test_install_command_forwards_falkordb_and_mongodb_and_otel_options(
     assert call_kwargs["falkordb_username"] == "graphuser"
     assert call_kwargs["falkordb_password"] == "graphpass"
     assert call_kwargs["otel_local"] is True
+
+
+@mock.patch("deepfellow.suite.install.install_util")
+def test_install_command_forwards_skip_version_check(mock_install_util: Mock, default_install_kwargs: dict) -> None:
+    install_command(ctx=dummy_ctx(), **{**default_install_kwargs, "skip_version_check": True})
+
+    assert mock_install_util.call_args.kwargs["skip_version_check"] is True

@@ -4,6 +4,7 @@
 """Install suite typer command."""
 
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -155,6 +156,13 @@ def install(
     ),
     server_image: str = typer.Option(DF_SERVER_IMAGE, envvar="DF_SERVER_IMAGE", help="DeepFellow Server docker image."),
     server_local_image: bool = typer.Option(False, help="Use locally build DeepFellow Server docker image."),
+    skip_version_check: Annotated[
+        bool,
+        typer.Option(
+            "--skip-version-check",
+            help="Install images not verified against the CLI version (for development).",
+        ),
+    ] = False,
     server_directory: Path = typer.Option(
         DF_SERVER_DIRECTORY,
         envvar="DF_SERVER_DIRECTORY",
@@ -255,6 +263,7 @@ def install(
             server_bind_address=server_bind_address,
             server_image=server_image,
             server_local_image=server_local_image,
+            skip_version_check=skip_version_check,
             server_directory=server_directory,
             docker_network=docker_network,
             mongodb_port=mongodb_port,

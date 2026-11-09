@@ -68,7 +68,13 @@ def _update_components() -> bool:
             echo.info("DeepFellow Infra uses a locally built image, skipping.")
         else:
             ok = _run_step(
-                lambda: update_infra(directory=DF_INFRA_DIRECTORY, image=DF_INFRA_IMAGE, local_image=False, tag=None)
+                lambda: update_infra(
+                    directory=DF_INFRA_DIRECTORY,
+                    image=DF_INFRA_IMAGE,
+                    local_image=False,
+                    tag=None,
+                    skip_version_check=False,
+                )
             )
     else:
         echo.info("DeepFellow Infra not installed, skipping.")
@@ -88,6 +94,7 @@ def _update_components() -> bool:
                         image=DF_SERVER_IMAGE,
                         local_image=False,
                         tag=None,
+                        skip_version_check=False,
                         nightshift=nightshift,
                         rabbitmq_url=None,
                         rabbitmq_username="",
