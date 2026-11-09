@@ -12,7 +12,9 @@ Releases go through a Merge Request to `main`. The tag is pushed **after** the M
    git checkout -b release/0.9.0
    ```
 2. Update `[Unreleased]` section in `CHANGELOG.md` — rename it to the new version with today's date, e.g. `## [0.9.0] - 2026-05-19`.
-3. Update `version` in `pyproject.toml`.
+3. Update `version` in `pyproject.toml` and `uv.lock`.
+
+   `uv.lock` stores the project version too. Change the `version` of the `deepfellow-cli` package in it by hand, to the same value as in `pyproject.toml`, and do not run `uv lock`: it also rewrites the `revision` line when the local uv writes a different one than the uv that last wrote the file. Check that `git diff uv.lock` shows that one line only.
 4. Commit:
    ```bash
    git commit -am "Release 0.9.0"
