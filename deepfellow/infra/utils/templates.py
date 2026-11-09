@@ -20,6 +20,7 @@ from deepfellow.common.defaults import (
     DF_INFRA_NAME,
     DF_INFRA_PORT,
     DF_INFRA_URL,
+    DF_WORKSPACE_SMALL_MODEL,
     DOC_CHUNKER_STT_MODEL,
 )
 from deepfellow.common.templates import (
@@ -94,7 +95,7 @@ BUILTIN_TEMPLATES: dict[str, InstallTemplate] = {
             },
             {
                 "function": "infra.model.install",
-                "kwargs": {"service_name": "ollama", "model_name": "gemma4:e4b"},
+                "kwargs": {"service_name": "ollama", "model_name": DF_WORKSPACE_SMALL_MODEL},
             },
             {
                 "function": "infra.model.install",

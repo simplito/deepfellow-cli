@@ -9,11 +9,12 @@ import typer
 
 from deepfellow.common import rest
 from deepfellow.common.echo import echo
+from deepfellow.common.install import resolve_admin_creds
 from deepfellow.common.state import state
 from deepfellow.common.validation import validate_email
 from deepfellow.server.utils.login import get_token_from_login
 from deepfellow.server.utils.options import directory_option
-from deepfellow.server.utils.users import apply_admin, resolve_admin_creds
+from deepfellow.server.utils.users import apply_admin
 from deepfellow.server.utils.validation import check_server_directory
 
 app = typer.Typer()

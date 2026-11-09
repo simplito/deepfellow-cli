@@ -67,6 +67,48 @@ def validate_url(value: str | None) -> str | None:
     return value
 
 
+def _validate_url_scheme(value: str | None, schemes: tuple[str, ...], name: str) -> str | None:
+    """Validate that the value is a URL with one of the given schemes and a host."""
+    if value is None:
+        return None
+
+    result = urlparse(value)
+    if result.scheme not in schemes or not result.netloc:
+        raise typer.BadParameter(f"Invalid {name} URL - expected {' or '.join(f'{x}://' for x in schemes)}<host>...")
+
+    return value
+
+
+def validate_mongo_url(value: str | None) -> str | None:
+    """Validate a MongoDB connection string (mongodb:// or mongodb+srv://)."""
+    return _validate_url_scheme(value, ("mongodb", "mongodb+srv"), "MongoDB")
+
+
+def validate_redis_url(value: str | None) -> str | None:
+    """Validate a Redis URL (redis:// or rediss://)."""
+    return _validate_url_scheme(value, ("redis", "rediss"), "Redis")
+
+
+def validate_origin(value: str | None) -> str | None:
+    """Validate a browser origin: http(s)://<host>[:port], without credentials, path, query or fragment."""
+    if value is None:
+        return None
+
+    result = urlparse(value)
+    if (
+        result.scheme not in ("http", "https")
+        or not result.hostname
+        or result.username is not None
+        or result.path not in ("", "/")
+        or result.params
+        or result.query
+        or result.fragment
+    ):
+        raise typer.BadParameter("Invalid origin - expected http(s)://<host>[:port], no path, query or credentials")
+
+    return value
+
+
 def validate_connection_string(value: str | None) -> str | None:
     """Validate connection string in format: host[:port]."""
     if value is None:

@@ -26,6 +26,7 @@ from .prune import app as prune_app
 from .server import app as server_app
 from .suite import app as suite_app
 from .update import app as update_app
+from .workspace import app as workspace_app
 
 app = typer.Typer(invoke_without_command=True)
 
@@ -122,6 +123,7 @@ app.add_typer(
     suite_app, name="suite", help="One-step installation for infra, server, tools and automatic configuration."
 )
 app.add_typer(update_app)
+app.add_typer(workspace_app, name="workspace", help="Install and remove DeepFellow Workspace.")
 
 if __name__ == "__main__":
     app()

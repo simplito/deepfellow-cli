@@ -7,18 +7,18 @@ from unittest import mock
 import pytest
 import typer
 
+from deepfellow.common.install import resolve_admin_creds
 from deepfellow.common.validation import PASSWORD_REQUIREMENTS
 from deepfellow.server.utils.users import (
     UserActionError,
     apply_admin,
     create_admin,
     reset_password,
-    resolve_admin_creds,
 )
 
 
 @mock.patch("deepfellow.common.echo.Prompt.ask")
-@mock.patch("deepfellow.server.utils.users.validate_email")
+@mock.patch("deepfellow.common.install.validate_email")
 @mock.patch("deepfellow.server.utils.users.run")
 def test_resolve_admin_creds_prompts_for_missing_name_and_triggers_no_docker_compose_call(
     mock_run: mock.Mock, mock_validate_email: mock.Mock, mock_ask: mock.Mock
@@ -44,7 +44,7 @@ def test_apply_admin_from_resolved_credentials_triggers_no_prompt(mock_run: mock
 
 
 @mock.patch("deepfellow.common.echo.Prompt.ask")
-@mock.patch("deepfellow.server.utils.users.validate_email")
+@mock.patch("deepfellow.common.install.validate_email")
 @mock.patch("deepfellow.server.utils.users.run")
 def test_create_admin_prompt_email_validation_called(
     mock_run: mock.Mock, mock_validate_email: mock.Mock, mock_ask: mock.Mock
@@ -60,7 +60,7 @@ def test_create_admin_prompt_email_validation_called(
 
 
 @mock.patch("deepfellow.common.echo.Prompt.ask")
-@mock.patch("deepfellow.server.utils.users.validate_email")
+@mock.patch("deepfellow.common.install.validate_email")
 @mock.patch("deepfellow.server.utils.users.run")
 def test_create_admin_reprompts_until_password_valid(
     mock_run: mock.Mock, mock_validate_email: mock.Mock, mock_ask: mock.Mock
@@ -76,7 +76,7 @@ def test_create_admin_reprompts_until_password_valid(
     assert "Password1!" in mock_run.call_args_list[0][0][0]
 
 
-@mock.patch("deepfellow.server.utils.users.echo")
+@mock.patch("deepfellow.common.install.echo")
 @mock.patch("deepfellow.server.utils.users.run")
 def test_create_admin_prints_password_requirements_before_prompting(mock_run: mock.Mock, mock_echo: mock.Mock):
     mock_run.return_value = "Admin created"

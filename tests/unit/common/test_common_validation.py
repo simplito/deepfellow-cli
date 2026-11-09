@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: LicenseRef-DeepFellow-Free
 # SPDX-FileCopyrightText: 2026 Simplito sp. z o.o.
 
+from collections.abc import Callable
 from typing import Any
 from unittest import mock
 from unittest.mock import Mock
@@ -15,9 +16,12 @@ from deepfellow.common.validation import (
     validate_distinct_hours,
     validate_email,
     validate_hhmm,
+    validate_mongo_url,
+    validate_origin,
     validate_password,
     validate_port,
     validate_rabbitmq_credential,
+    validate_redis_url,
     validate_server,
     validate_system,
     validate_truthy,
@@ -59,10 +63,6 @@ def test_validate_system_passes_when_required_commands_available(
 
     assert mock_is_command_available.call_count == 1
     assert mock_is_command_available.call_args == mock.call("docker")
-
-
-def test_validate_email_none_returns_none() -> None:
-    assert validate_email(None) is None
 
 
 @pytest.mark.parametrize(
@@ -110,10 +110,6 @@ def test_validate_email_raises_when_invalid(email: str) -> None:
         validate_email(email)
 
 
-def test_validate_url_none_returns_none() -> None:
-    assert validate_url(None) is None
-
-
 @pytest.mark.parametrize(
     "value",
     [
@@ -149,10 +145,6 @@ def test_validate_url_raises_when_urlparse_errors(mock_urlparse: Mock) -> None:
         validate_url("https://example.com")
 
     assert mock_urlparse.call_count == 1
-
-
-def test_validate_connection_string_none_returns_none() -> None:
-    assert validate_connection_string(None) is None
 
 
 @pytest.mark.parametrize(
@@ -244,10 +236,6 @@ def test_validate_bind_address_raises_when_not_an_ip_address(value: str) -> None
         validate_bind_address(value)
 
 
-def test_validate_server_none_returns_none() -> None:
-    assert validate_server(None) is None
-
-
 def test_validate_server_strips_trailing_slash() -> None:
     result = validate_server("https://example.com/")
 
@@ -298,14 +286,6 @@ def test_validate_truthy_returns_value_when_truthy() -> None:
 def test_validate_truthy_raises_when_falsy(value: Any) -> None:
     with pytest.raises(typer.BadParameter):
         validate_truthy(value)
-
-
-def test_validate_username_none_returns_none() -> None:
-    assert validate_username(None) is None
-
-
-def test_validate_hhmm_none_returns_none() -> None:
-    assert validate_hhmm(None) is None
 
 
 @pytest.mark.parametrize("value", ["00:00", "22:00", "23:59", "06:05"])
@@ -360,10 +340,6 @@ def test_validate_username_valid(value: str) -> None:
 def test_validate_username_raises_when_invalid(value: str) -> None:
     with pytest.raises(typer.BadParameter):
         validate_username(value)
-
-
-def test_validate_password_none_returns_none() -> None:
-    assert validate_password(None) is None
 
 
 @pytest.mark.parametrize(
@@ -421,3 +397,74 @@ def test_validate_rabbitmq_credential_returns_value_when_safe(value: str) -> Non
 def test_validate_rabbitmq_credential_raises_when_empty_or_breaks_uri(value: str | None) -> None:
     with pytest.raises(typer.BadParameter):
         validate_rabbitmq_credential(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["mongodb://localhost:27017", "mongodb://a:1,b:2/?replicaSet=rs0", "mongodb+srv://user:pw@cluster.example.com/db"],
+)
+def test_validate_mongo_url_accepts_mongo_urls(value: str) -> None:
+    assert validate_mongo_url(value) == value
+
+
+@pytest.mark.parametrize("value", ["", "localhost:27017", "http://localhost", "mongodb://", "redis://localhost"])
+def test_validate_mongo_url_rejects_other_values(value: str) -> None:
+    with pytest.raises(typer.BadParameter):
+        validate_mongo_url(value)
+
+
+@pytest.mark.parametrize("value", ["redis://localhost:6379", "rediss://user:pw@cache.example.com:6380"])
+def test_validate_redis_url_accepts_redis_urls(value: str) -> None:
+    assert validate_redis_url(value) == value
+
+
+@pytest.mark.parametrize("value", ["", "localhost:6379", "http://localhost", "redis://", "mongodb://localhost"])
+def test_validate_redis_url_rejects_other_values(value: str) -> None:
+    with pytest.raises(typer.BadParameter):
+        validate_redis_url(value)
+
+
+@pytest.mark.parametrize(
+    "validator",
+    [
+        validate_email,
+        validate_url,
+        validate_connection_string,
+        validate_server,
+        validate_username,
+        validate_hhmm,
+        validate_password,
+        validate_mongo_url,
+        validate_redis_url,
+        validate_origin,
+    ],
+)
+def test_validate_optional_value_none_returns_none(validator: Callable[[Any], Any]) -> None:
+    assert validator(None) is None
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["http://localhost", "https://example.com", "https://example.com:8443", "http://example.com/"],
+)
+def test_validate_origin_accepts_origins(value: str) -> None:
+    assert validate_origin(value) == value
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "example.com",
+        "ftp://example.com",
+        "http://",
+        "https://user:pw@example.com",
+        "https://example.com/path",
+        "https://example.com?x=1",
+        "https://example.com#frag",
+        "https://example.com/;p",
+    ],
+)
+def test_validate_origin_rejects_invalid_values(value: str) -> None:
+    with pytest.raises(typer.BadParameter):
+        validate_origin(value)
