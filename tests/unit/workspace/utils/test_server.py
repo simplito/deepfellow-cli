@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: LicenseRef-DeepFellow-Free
 # SPDX-FileCopyrightText: 2026 Simplito sp. z o.o.
 
+import ssl
 from collections.abc import Iterator
 from unittest import mock
 from unittest.mock import Mock
@@ -8,7 +9,7 @@ from unittest.mock import Mock
 import httpx
 import pytest
 
-from deepfellow.workspace.utils.server import _failed, list_server_models, resolve_server_ids
+from deepfellow.workspace.utils.server import _failed, is_server_reachable, list_server_models, resolve_server_ids
 
 
 def _response(status_code: int, payload: object) -> httpx.Response:
@@ -204,3 +205,48 @@ def test_resolve_server_ids_falls_back_to_host_url_from_cli_config(mock_get: Moc
 
     assert result == ("o", "p")
     assert mock_get.call_args.args == ("http://localhost:8000/info",)
+
+
+@mock.patch("deepfellow.workspace.utils.server.state")
+@mock.patch("deepfellow.workspace.utils.server.httpx.get")
+def test_is_server_reachable_remote_url_answers_returns_true(mock_get: Mock, mock_state: Mock) -> None:
+    mock_state.cli_config = {}
+    mock_get.return_value = _response(404, {})
+
+    assert is_server_reachable("https://df.example.com/v1") is True
+    assert mock_get.call_args == mock.call("https://df.example.com", timeout=5.0)
+
+
+@mock.patch("deepfellow.workspace.utils.server.state")
+@mock.patch("deepfellow.workspace.utils.server.httpx.get", side_effect=httpx.ConnectError("refused"))
+def test_is_server_reachable_connection_refused_returns_false(mock_get: Mock, mock_state: Mock) -> None:
+    mock_state.cli_config = {}
+
+    assert is_server_reachable("https://df.example.com/v1") is False
+
+
+@mock.patch("deepfellow.workspace.utils.server.state")
+@mock.patch("deepfellow.workspace.utils.server.httpx.get")
+def test_is_server_reachable_container_url_down_falls_back_to_host_url(mock_get: Mock, mock_state: Mock) -> None:
+    mock_state.cli_config = {"df_server_url": "http://localhost:8000"}
+    mock_get.side_effect = [httpx.ConnectError("no such host"), _response(200, {})]
+
+    assert is_server_reachable("http://server:8000/v1") is True
+    assert mock_get.call_count == 2
+    assert mock_get.call_args == mock.call("http://localhost:8000", timeout=5.0)
+
+
+@mock.patch("deepfellow.workspace.utils.server.state")
+@mock.patch("deepfellow.workspace.utils.server.httpx.get")
+def test_is_server_reachable_untrusted_certificate_returns_true(mock_get: Mock, mock_state: Mock) -> None:
+    # Arrange
+    mock_state.cli_config = {}
+    error = httpx.ConnectError("certificate verify failed")
+    error.__cause__ = ssl.SSLCertVerificationError("self-signed certificate")
+    mock_get.side_effect = error
+
+    # Act
+    result = is_server_reachable("https://df.example.com/v1")
+
+    # Assert
+    assert result is True

@@ -8,12 +8,13 @@ from deepfellow.main import app
 runner = CliRunner()
 
 
-def test_workspace_help_lists_install_and_uninstall() -> None:
+def test_workspace_help_lists_all_commands() -> None:
     result = runner.invoke(app, ["workspace", "--help"])
 
     assert result.exit_code == 0
     assert "install" in result.output
-    assert "uninstall" in result.output
+    for name in ("uninstall", "start", "stop", "restart", "status", "logs"):
+        assert name in result.output
 
 
 def test_workspace_install_rejects_smtp_port_out_of_range() -> None:

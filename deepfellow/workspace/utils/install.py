@@ -4,6 +4,7 @@
 """Workspace install logic."""
 
 import re
+import time
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
@@ -18,10 +19,14 @@ from deepfellow.common.defaults import (
     DF_WORKSPACE_PORT,
     DOCKER_COMPOSE_CONFIG_FILENAME,
     MONGO_REPLICA_SET,
+    WORKSPACE_APP_SERVICE,
+    WORKSPACE_MONGO_SERVICE,
+    WORKSPACE_MONGO_VOLUME,
     WORKSPACE_REDIS_IMAGE,
+    WORKSPACE_REDIS_SERVICE,
     mongo_replica_set_service,
 )
-from deepfellow.common.docker import ensure_network, save_compose_file
+from deepfellow.common.docker import ensure_network, load_compose_file, save_compose_file
 from deepfellow.common.echo import echo, is_interactive
 from deepfellow.common.exceptions import DockerNetworkError, InstallError
 from deepfellow.common.generate import generate_password
@@ -30,10 +35,6 @@ from deepfellow.common.system import run
 from deepfellow.common.validation import validate_bind_address
 from deepfellow.workspace.utils.configure import ADMIN_KEYS, SMTP_REQUIRED_KEYS, SMTP_TRIGGER_KEYS
 
-APP_SERVICE = "workspace"
-MONGO_SERVICE = "workspace-mongo-db"
-REDIS_SERVICE = "workspace-redis"
-MONGO_VOLUME = "workspace-mongo-db"
 MONGO_USER = "workspace"
 MONGO_PASSWORD_KEY = "DF_WORKSPACE_MONGO_PASSWORD"
 MONGO_KEY_KEY = "DF_WORKSPACE_MONGO_KEY"
@@ -57,6 +58,8 @@ IMAGE_KEY = "DF_WORKSPACE_IMAGE"
 PORT_KEY = "DF_WORKSPACE_PORT"
 BIND_ADDRESS_KEY = "DF_WORKSPACE_BIND_ADDRESS"
 DOCKER_NETWORK_KEY = "DF_WORKSPACE_DOCKER_NETWORK"
+MONGO_MIGRATION_ATTEMPTS = 30
+MONGO_MIGRATION_DELAY = 2.0
 
 
 def resolve_stack_settings(
@@ -225,20 +228,20 @@ def build_compose(
     volumes: dict[str, None] = {}
     if local_mongo:
         environment += [
-            f"MONGO_DB_URL=mongodb://{MONGO_USER}:${{{MONGO_PASSWORD_KEY}}}@{MONGO_SERVICE}:27017/"
+            f"MONGO_DB_URL=mongodb://{MONGO_USER}:${{{MONGO_PASSWORD_KEY}}}@{WORKSPACE_MONGO_SERVICE}:27017/"
             f"?replicaSet={MONGO_REPLICA_SET}&authSource=admin",
             f"MONGO_DB_NAME={DF_WORKSPACE_MONGO_DB}",
         ]
-        depends_on[MONGO_SERVICE] = {"condition": "service_healthy"}
+        depends_on[WORKSPACE_MONGO_SERVICE] = {"condition": "service_healthy"}
         services |= mongo_replica_set_service(
-            MONGO_SERVICE, MONGO_VOLUME, MONGO_USER, MONGO_PASSWORD_KEY, MONGO_KEY_KEY
+            WORKSPACE_MONGO_SERVICE, WORKSPACE_MONGO_VOLUME, MONGO_USER, MONGO_PASSWORD_KEY, MONGO_KEY_KEY
         )
-        volumes[MONGO_VOLUME] = None
+        volumes[WORKSPACE_MONGO_VOLUME] = None
     if local_redis:
-        environment.append(f"REDIS_URL=redis://{REDIS_SERVICE}:6379")
-        depends_on[REDIS_SERVICE] = {"condition": "service_healthy"}
-        services[REDIS_SERVICE] = {
-            "container_name": REDIS_SERVICE,
+        environment.append(f"REDIS_URL=redis://{WORKSPACE_REDIS_SERVICE}:6379")
+        depends_on[WORKSPACE_REDIS_SERVICE] = {"condition": "service_healthy"}
+        services[WORKSPACE_REDIS_SERVICE] = {
+            "container_name": WORKSPACE_REDIS_SERVICE,
             "image": WORKSPACE_REDIS_IMAGE,
             "restart": "always",
             "healthcheck": {
@@ -250,7 +253,7 @@ def build_compose(
             },
         }
     app: dict[str, Any] = {
-        "container_name": APP_SERVICE,
+        "container_name": WORKSPACE_APP_SERVICE,
         "image": image,
         "restart": "always",
         "env_file": ["./.env"],
@@ -269,11 +272,80 @@ def build_compose(
     }
     if depends_on:
         app["depends_on"] = depends_on
-    compose: dict[str, Any] = {"services": {APP_SERVICE: app, **services}}
+    compose: dict[str, Any] = {"services": {WORKSPACE_APP_SERVICE: app, **services}}
     if volumes:
         compose["volumes"] = volumes
     compose["networks"] = {docker_network: {"external": True}}
     return compose
+
+
+def has_unprotected_mongo(directory: Path, existing: Mapping[str, str]) -> bool:
+    """Tell whether `directory` holds a Mongo data volume made before the stack's Mongo was password-protected.
+
+    Such a volume has no root user, and the image creates one only on an empty data directory, so the user has to
+    be added by hand (see `protect_existing_mongo`).
+
+    Args:
+        directory: Install directory.
+        existing: The .env of the previous install.
+
+    Returns:
+        True when the previous compose.yaml has the Mongo volume but the previous .env no Mongo password.
+    """
+    if existing.get(MONGO_PASSWORD_KEY):
+        return False
+    compose_file = directory / DOCKER_COMPOSE_CONFIG_FILENAME
+    if not compose_file.is_file():
+        return False
+    return WORKSPACE_MONGO_VOLUME in (load_compose_file(compose_file).get("volumes") or {})
+
+
+def protect_existing_mongo(directory: Path, password: str) -> None:
+    """Start the stack's Mongo with authentication on an old data volume and create its root user.
+
+    With authentication on and no user yet, mongod accepts a connection from its own host to create the first one
+    (the "localhost exception"), so the user is created through `mongosh` inside the container. The password is
+    passed through the environment, not the command line.
+
+    Args:
+        directory: Install directory, with the new compose.yaml already written.
+        password: Password of the root user, as written to .env.
+
+    Raises:
+        InstallError: When Mongo does not start or the user cannot be created.
+    """
+    echo.info("Adding the root user to the existing Mongo data (it was created without a password).")
+    run(["docker", "compose", "up", "-d", "--no-deps", WORKSPACE_MONGO_SERVICE], cwd=directory, raises=InstallError)
+    script = (
+        f'db.getSiblingDB("admin").createUser({{user: "{MONGO_USER}", pwd: process.env.MONGO_PW, roles: ["root"]}})'
+    )
+    command = [
+        "docker",
+        "compose",
+        "exec",
+        "-T",
+        "-e",
+        "MONGO_PW",
+        WORKSPACE_MONGO_SERVICE,
+        "mongosh",
+        "--quiet",
+        "--eval",
+        script,
+    ]
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            run(command, cwd=directory, raises=InstallError, quiet=True, extra_env={"MONGO_PW": password})
+        except InstallError as exc:
+            if attempt >= MONGO_MIGRATION_ATTEMPTS:
+                raise InstallError(
+                    "Could not add the root user to the existing Mongo data. Back up the Docker volume of "
+                    f"'{WORKSPACE_MONGO_VOLUME}' and see the Mongo logs ('docker logs {WORKSPACE_MONGO_SERVICE}')."
+                ) from exc
+            time.sleep(MONGO_MIGRATION_DELAY)
+        else:
+            return
 
 
 def confirm_overwrite(directory: Path) -> bool:
@@ -345,6 +417,9 @@ def install(
     if overwrite is None and directory.is_dir() and not force_install:
         overwrite = confirm_overwrite(directory)
     ensure_directory(directory, force_install=force_install, overwrite=overwrite)
+    migrate_mongo = local_mongo and has_unprotected_mongo(directory, existing)
+    env_file = directory / ".env"
+    previous_env = env_file.read_text() if env_file.is_file() else None
     # Compose interpolates `$` in `env_file` values, so a literal `$` has to be written as `$$`.
     compose_env = {key: value.replace("$", "$$") for key, value in env.items()}
     save_env_file(directory / ".env", compose_env, docker_note=False, quiet=True, remove=resets, always_quote=True)
@@ -354,7 +429,16 @@ def install(
     )
 
     try:
-        ensure_network(docker_network)
+        try:
+            ensure_network(docker_network)
+            if migrate_mongo:
+                protect_existing_mongo(directory, env[MONGO_PASSWORD_KEY])
+        except BaseException:
+            # Keep the old .env (no Mongo password) whenever the root user was not created, also on a failed network
+            # or an interrupt, so that a rerun still sees an unprotected Mongo to migrate.
+            if migrate_mongo and previous_env is not None:
+                env_file.write_text(previous_env)
+            raise
         echo.info("Starting DeepFellow Workspace.")
         run(["docker", "compose", "up", "-d", "--wait", "--remove-orphans"], cwd=directory, raises=InstallError)
     except (DockerNetworkError, InstallError) as exc:

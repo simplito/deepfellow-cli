@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - `workspace install` and `workspace uninstall` set up and remove DeepFellow Workspace with its own Mongo and Redis; the organization and project ids and the small model are picked from DeepFellow Server when it supports it
+- `workspace start`, `stop`, `restart`, `status` and `logs` manage a running DeepFellow Workspace;
+- `workspace start` and `workspace restart` recreate a missing Docker network and ask before going on when DeepFellow Server, local or at its configured URL, is not running
+- `workspace install` adds the root user to an existing Workspace Mongo created without a password, so reinstalling over an older Workspace keeps its data
 - Install progress shows the downloaded and total size, transfer speed and time remaining when Infra reports download bytes
 - `suite install` names the detected NVIDIA GPU and its VRAM next to the VRAM estimate
 - `--skip-version-check` on install and update commands, for development

@@ -7,12 +7,11 @@ from pathlib import Path
 
 import typer
 
-from deepfellow.common.defaults import DOCKER_COMPOSE_CONFIG_FILENAME
+from deepfellow.common.defaults import DOCKER_COMPOSE_CONFIG_FILENAME, WORKSPACE_MONGO_VOLUME
 from deepfellow.common.docker import load_compose_file, resolve_compose_volume_name
 from deepfellow.common.echo import echo
 from deepfellow.common.install import assert_docker
 from deepfellow.common.system import run
-from deepfellow.workspace.utils.install import MONGO_VOLUME
 from deepfellow.workspace.utils.options import directory_option
 
 app = typer.Typer()
@@ -31,7 +30,7 @@ def uninstall(directory: Path = directory_option("DeepFellow Workspace directory
     run(["docker", "compose", "rm", "-s", "-f", "-v"], directory, quiet=True)
     run(["docker", "compose", "down", "--remove-orphans"], directory, quiet=True)
     kept = f"{directory / '.env'} and {directory / DOCKER_COMPOSE_CONFIG_FILENAME}"
-    if MONGO_VOLUME in load_compose_file(directory / DOCKER_COMPOSE_CONFIG_FILENAME).get("volumes", {}):
-        volume = resolve_compose_volume_name(directory, MONGO_VOLUME) or MONGO_VOLUME
+    if WORKSPACE_MONGO_VOLUME in load_compose_file(directory / DOCKER_COMPOSE_CONFIG_FILENAME).get("volumes", {}):
+        volume = resolve_compose_volume_name(directory, WORKSPACE_MONGO_VOLUME) or WORKSPACE_MONGO_VOLUME
         kept = f"its Mongo data (Docker volume {volume}), {kept}"
     echo.success(f"DeepFellow Workspace uninstalled. Kept: {kept}.")

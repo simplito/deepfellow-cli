@@ -3,6 +3,8 @@
 
 """Look up what DeepFellow Server knows about an API key."""
 
+import ssl
+
 import httpx
 
 from deepfellow.common.echo import echo
@@ -136,3 +138,45 @@ def list_server_models(server_url: str, api_key: str) -> list[str] | None:
         if isinstance(item, dict) and isinstance(item.get("id"), str) and _is_chat_model(item)
     ]
     return list(dict.fromkeys(ids))
+
+
+def _is_tls_error(exc: BaseException) -> bool:
+    """Tell whether an exception, or one in its cause chain, is a TLS error."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        if isinstance(current, ssl.SSLError):
+            return True
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def is_server_reachable(server_url: str) -> bool:
+    """Check whether anything answers at the DeepFellow Server URL.
+
+    The URL meant for the container (e.g. `http://server:8000/v1`) often does not resolve on this host, so the host
+    URL from the CLI config is tried too. Any HTTP answer counts: the check is about the Server being up, not
+    about the API key or the certificate.
+
+    Args:
+        server_url: DeepFellow Server URL, with or without the trailing `/v1`.
+
+    Returns:
+        True when a request to the URL (or to the host URL from the CLI config) got an HTTP answer.
+    """
+    bases = [_base(server_url)]
+    host_url = state.cli_config.get("df_server_url")
+    if isinstance(host_url, str) and host_url and _base(host_url) not in bases:
+        bases.append(_base(host_url))
+    for base in bases:
+        echo.debug(f"GET {base}")
+        try:
+            httpx.get(base, timeout=_INFO_TIMEOUT_SECONDS)
+        except (httpx.HTTPError, httpx.InvalidURL) as exc:
+            # A certificate the CLI does not trust (e.g. an internal CA) still means the Server is up.
+            if _is_tls_error(exc):
+                return True
+            continue
+        return True
+    return False
