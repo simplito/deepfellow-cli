@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- `workspace install` and `workspace uninstall` set up and remove DeepFellow Workspace with its own Mongo and Redis; the organization and project ids and the small model are picked from DeepFellow Server when it supports it
 - Install progress shows the downloaded and total size, transfer speed and time remaining when Infra reports download bytes
 - `suite install` names the detected NVIDIA GPU and its VRAM next to the VRAM estimate
 

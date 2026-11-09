@@ -245,6 +245,7 @@ def save_env_file(
     docker_note: bool = True,
     quiet: bool = False,
     remove: Iterable[str] = (),
+    always_quote: bool = False,
 ) -> None:
     """Creates or updates .env file with provided values.
 
@@ -256,6 +257,8 @@ def save_env_file(
         remove: Keys to drop from the file. Applied after merging `values`, so omitting a key
             from `values` alone does not delete it — the file is re-read and merged with the
             existing content, which would otherwise restore any key not explicitly removed.
+        always_quote: Whether to double-quote every value. Needed when Docker Compose parses the file
+            (`env_file`), since it treats an unquoted `#` as a comment and a leading `'` as a quote.
     """
     # Load existing values if file exists
     existing_vars = {}
@@ -273,7 +276,7 @@ def save_env_file(
     content = "# Docker Compose Environment Variables\n# Edit these values as needed\n\n" if docker_note else ""
     for key, value in final_vars.items():
         str_value = str(value)
-        if _needs_env_value_quoting(str_value):
+        if always_quote or _needs_env_value_quoting(str_value):
             content += f'{key}="{_escape_env_value(str_value)}"\n'
         else:
             content += f"{key}={str_value}\n"

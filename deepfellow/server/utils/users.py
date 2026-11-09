@@ -9,31 +9,13 @@ from pathlib import Path
 import typer
 
 from deepfellow.common.echo import echo
+from deepfellow.common.install import resolve_admin_creds
 from deepfellow.common.system import run
-from deepfellow.common.validation import PASSWORD_REQUIREMENTS, validate_email, validate_password, validate_truthy
+from deepfellow.common.validation import validate_email, validate_password
 
 
 class UserActionError(Exception):
     """Raised if create exception failes on docker."""
-
-
-def resolve_admin_creds(name: str | None, email: str | None, password: str | None) -> tuple[str, str, str]:
-    """Resolve admin credentials, prompting interactively for whichever are missing.
-
-    Args:
-        name: Admin name. Prompted interactively if not given.
-        email: Admin email. Prompted interactively if not given.
-        password: Admin password. Prompted interactively if not given.
-
-    Returns:
-        The resolved (name, email, password) tuple. Performs no admin-creation action.
-    """
-    name = name or echo.prompt_until_valid("Provide admin name", validate_truthy)
-    email = email or echo.prompt_until_valid("Provide admin email", validate_email)
-    if not password:
-        echo.info(PASSWORD_REQUIREMENTS)
-    password = password or echo.prompt_until_valid("Provide admin password", validate_password, password=True)
-    return str(name), str(email), str(password)
 
 
 def apply_admin(directory: Path, name: str, email: str, password: str, *, silent_if_exists: bool = False) -> bool:

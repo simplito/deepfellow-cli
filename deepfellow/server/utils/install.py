@@ -71,6 +71,7 @@ from deepfellow.common.generate import generate_password
 from deepfellow.common.install import (
     assert_docker,
     ensure_directory,
+    resolve_admin_creds,
     resolve_admin_kwargs,
     validate_non_interactive_admin_values,
 )
@@ -105,7 +106,7 @@ from deepfellow.server.utils.mongo_migration import is_legacy_mongo_install, mig
 from deepfellow.server.utils.storage import config_json_exists
 from deepfellow.server.utils.systemd import reconcile_nightshift_schedule
 from deepfellow.server.utils.templates import dispatch_post_start_action, resolve_template
-from deepfellow.server.utils.users import apply_admin, resolve_admin_creds
+from deepfellow.server.utils.users import apply_admin
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 

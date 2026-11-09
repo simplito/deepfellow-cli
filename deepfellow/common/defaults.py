@@ -382,6 +382,77 @@ DOCKER_COMPOSE_MONGO_DB = {
     }
 }
 
+MONGO_IMAGE = "mongo:8.2.12@sha256:e0ce8c35124d4a9f9785532d1f268f39e9728ffa1cb38f46fa482436424c4bd3"
+MONGO_REPLICA_SET = "rs0"
+
+
+def mongo_replica_set_service(name: str, volume: str, user: str, password_var: str, key_var: str) -> dict[str, Any]:
+    """Build a single-node, password-protected replica-set Mongo service that publishes no host port.
+
+    A replica set with authentication needs a keyfile, so the service writes one from `key_var` at start and
+    creates the root user on the first start. The healthcheck authenticates, initiates the replica set when it
+    does not exist yet and passes only once the node is primary and accepts writes, so a dependent service
+    started with `condition: service_healthy` can write at once.
+
+    Args:
+        name: Service name; also its container name and the replica-set member host.
+        volume: Name of the compose volume holding the data.
+        user: Name of the root user to create.
+        password_var: Name of the compose variable (e.g. from `.env`) holding the root user's password.
+        key_var: Name of the compose variable holding the replica-set keyfile content (6-1024 base64 characters).
+
+    Returns:
+        A one-key dict `{name: service}`, ready for `merge_services`.
+    """
+    initiate = f'{{_id: "{MONGO_REPLICA_SET}", members: [{{_id: 0, host: "{name}:27017"}}]}}'
+    script = (
+        f"try {{ rs.status() }} catch (e) {{ rs.initiate({initiate}) }}; quit(db.hello().isWritablePrimary ? 0 : 1)"
+    )
+    # `$$` is Compose's escape: the shell inside the container expands these from the container environment.
+    healthcheck = (
+        'mongosh --quiet -u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD" '
+        f"--authenticationDatabase admin --eval '{script}'"
+    )
+    keyfile = "/data/keyfile"
+    return {
+        name: {
+            "container_name": name,
+            "image": MONGO_IMAGE,
+            "restart": "always",
+            # mongod refuses a keyfile that is readable by others or not owned by its own user.
+            "entrypoint": [
+                "bash",
+                "-c",
+                f'install -m 400 -o mongodb -g mongodb <(printf %s "$$MONGO_KEY") {keyfile}'
+                ' && exec docker-entrypoint.sh "$$@"',
+                "--",
+            ],
+            "command": ["mongod", "--replSet", MONGO_REPLICA_SET, "--bind_ip_all", "--keyFile", keyfile],
+            "volumes": [f"{volume}:/data/db"],
+            "environment": [
+                f"MONGO_INITDB_ROOT_USERNAME={user}",
+                f"MONGO_INITDB_ROOT_PASSWORD=${{{password_var}}}",
+                f"MONGO_KEY=${{{key_var}}}",
+                "GLIBC_TUNABLES=glibc.cpu.hwcaps=-SHSTK",
+            ],
+            "healthcheck": {
+                "test": ["CMD-SHELL", healthcheck],
+                "interval": "5s",
+                "timeout": "10s",
+                "retries": 20,
+                "start_period": "10s",
+            },
+        }
+    }
+
+
+DF_WORKSPACE_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / "workspace"
+DF_WORKSPACE_IMAGE = "hub.simplito.com/deepfellow/deepfellow-workspace:v0.7.1"
+DF_WORKSPACE_PORT = 3000
+DF_WORKSPACE_MONGO_DB = "workspace_db"
+DF_WORKSPACE_SMALL_MODEL = "gemma4:e4b"
+WORKSPACE_REDIS_IMAGE = "redis:8.0@sha256:ae471bdc20de180beed36e347d170ec0bdf8faa327959ea1f24692f22b05b955"
+
 DF_FALKORDB_URL = "falkordb:6379"
 DF_FALKORDB_PORT = 6379
 

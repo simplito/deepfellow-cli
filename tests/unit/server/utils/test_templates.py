@@ -40,7 +40,7 @@ def test_dispatch_post_start_action_calls_registered_function_with_kwargs() -> N
 
 
 @mock.patch("deepfellow.server.utils.users.run")
-@mock.patch("deepfellow.server.utils.users.echo")
+@mock.patch("deepfellow.common.install.echo")
 def test_dispatch_post_start_action_creates_admin_from_builtin_workspace_template(
     mock_echo: Mock,
     mock_run: Mock,
