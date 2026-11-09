@@ -175,10 +175,12 @@ DOCKER_COMPOSE_SERVER_BASE_ENVS = [
     "DF_VECTOR_DATABASE__PROVIDER__ACTIVE=${DF_VECTOR_DATABASE__PROVIDER__ACTIVE}",
 ]
 
+SERVER_CONTAINER_NAME = "server"
+
 # Its environment is built by apply() from DOCKER_COMPOSE_SERVER_BASE_ENVS.
 DOCKER_COMPOSE_SERVER: dict[str, ServiceConfig] = {
     "server": {
-        "container_name": "server",
+        "container_name": SERVER_CONTAINER_NAME,
         "image": "${DF_SERVER_IMAGE}",
         "ports": [f"{SERVER_BIND_ADDRESS}:${{DF_SERVER_PORT}}:8000"],
         "restart": "unless-stopped",
@@ -451,6 +453,10 @@ DF_WORKSPACE_IMAGE = "hub.simplito.com/deepfellow/deepfellow-workspace:v0.7.1"
 DF_WORKSPACE_PORT = 3000
 DF_WORKSPACE_MONGO_DB = "workspace_db"
 DF_WORKSPACE_SMALL_MODEL = "gemma4:e4b"
+WORKSPACE_APP_SERVICE = "workspace"
+WORKSPACE_MONGO_SERVICE = "workspace-mongo-db"
+WORKSPACE_REDIS_SERVICE = "workspace-redis"
+WORKSPACE_MONGO_VOLUME = "workspace-mongo-db"
 WORKSPACE_REDIS_IMAGE = "redis:8.0@sha256:ae471bdc20de180beed36e347d170ec0bdf8faa327959ea1f24692f22b05b955"
 
 DF_FALKORDB_URL = "falkordb:6379"

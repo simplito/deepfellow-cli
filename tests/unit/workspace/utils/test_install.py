@@ -14,9 +14,11 @@ from deepfellow.common.exceptions import DockerNetworkError, InstallError
 from deepfellow.workspace.utils.install import (
     build_compose,
     build_env,
+    has_unprotected_mongo,
     incomplete_groups,
     install,
     missing_values,
+    protect_existing_mongo,
     read_existing_env,
     resolve_stack_settings,
 )
@@ -516,3 +518,121 @@ def test_install_persists_stack_settings_in_env(mock_ensure_network: Mock, mock_
     assert stored["DF_WORKSPACE_PORT"] == "3000"
     assert stored["DF_WORKSPACE_BIND_ADDRESS"] == ""
     assert stored["DF_WORKSPACE_DOCKER_NETWORK"] == "net"
+
+
+def _old_install(directory: Path, volume: bool = True) -> None:
+    directory.mkdir()
+    (directory / "compose.yaml").write_text(
+        "services: {}\n" + ("volumes:\n  workspace-mongo-db: {}\n" if volume else "")
+    )
+
+
+def test_has_unprotected_mongo_true_for_old_volume_without_password(tmp_path: Path) -> None:
+    _old_install(tmp_path / "ws")
+
+    assert has_unprotected_mongo(tmp_path / "ws", {"APP_SECRET": "x"}) is True
+
+
+def test_has_unprotected_mongo_false_when_password_known(tmp_path: Path) -> None:
+    _old_install(tmp_path / "ws")
+
+    assert has_unprotected_mongo(tmp_path / "ws", {"DF_WORKSPACE_MONGO_PASSWORD": "p"}) is False
+
+
+def test_has_unprotected_mongo_false_without_previous_volume_or_compose(tmp_path: Path) -> None:
+    _old_install(tmp_path / "ws", volume=False)
+
+    assert has_unprotected_mongo(tmp_path / "ws", {}) is False
+    assert has_unprotected_mongo(tmp_path / "none", {}) is False
+
+
+@mock.patch("deepfellow.workspace.utils.install.time.sleep")
+@mock.patch("deepfellow.workspace.utils.install.run")
+def test_protect_existing_mongo_retries_until_user_is_created(mock_run: Mock, mock_sleep: Mock, tmp_path: Path) -> None:
+    mock_run.side_effect = [None, InstallError("not ready"), None]
+
+    protect_existing_mongo(tmp_path, "secret")
+
+    assert mock_run.call_count == 3
+    assert mock_sleep.call_count == 1
+    assert "secret" not in str(mock_run.call_args.args)
+    assert mock_run.call_args.kwargs["extra_env"] == {"MONGO_PW": "secret"}
+
+
+@mock.patch("deepfellow.workspace.utils.install.time.sleep")
+@mock.patch("deepfellow.workspace.utils.install.run")
+def test_protect_existing_mongo_gives_up_with_install_error(mock_run: Mock, mock_sleep: Mock, tmp_path: Path) -> None:
+    mock_run.side_effect = [None] + [InstallError("no")] * 30
+
+    with pytest.raises(InstallError, match="Could not add the root user"):
+        protect_existing_mongo(tmp_path, "secret")
+
+
+@mock.patch("deepfellow.workspace.utils.install.protect_existing_mongo")
+@mock.patch("deepfellow.workspace.utils.install.run")
+@mock.patch("deepfellow.workspace.utils.install.ensure_network")
+def test_install_over_old_unprotected_mongo_adds_root_user_with_new_password(
+    mock_ensure_network: Mock, mock_run: Mock, mock_protect: Mock, tmp_path: Path
+) -> None:
+    directory = tmp_path / "ws"
+    _old_install(directory)
+
+    env = _install(directory, existing={"APP_SECRET": "abc"}, force=True)
+
+    assert mock_protect.call_count == 1
+    assert mock_protect.call_args == mock.call(directory, env["DF_WORKSPACE_MONGO_PASSWORD"])
+
+
+@mock.patch("deepfellow.workspace.utils.install.protect_existing_mongo")
+@mock.patch("deepfellow.workspace.utils.install.run")
+@mock.patch("deepfellow.workspace.utils.install.ensure_network")
+def test_install_fresh_does_not_touch_mongo_users(
+    mock_ensure_network: Mock, mock_run: Mock, mock_protect: Mock, tmp_path: Path
+) -> None:
+    _install(tmp_path / "ws")
+
+    assert mock_protect.call_count == 0
+
+
+@mock.patch("deepfellow.workspace.utils.install.protect_existing_mongo")
+@mock.patch("deepfellow.workspace.utils.install.run")
+@mock.patch("deepfellow.workspace.utils.install.ensure_network")
+def test_install_failed_mongo_migration_restores_old_env_so_rerun_migrates_again(
+    mock_ensure_network: Mock, mock_run: Mock, mock_protect: Mock, tmp_path: Path
+) -> None:
+    # Arrange
+    directory = tmp_path / "ws"
+    _old_install(directory)
+    (directory / ".env").write_text("APP_SECRET=abc\n")
+    old_env = (directory / ".env").read_text()
+    mock_protect.side_effect = InstallError("no")
+
+    # Act
+    with pytest.raises(InstallError):
+        _install(directory, existing={"APP_SECRET": "abc"}, force=True)
+
+    # Assert
+    assert (directory / ".env").read_text() == old_env
+    assert has_unprotected_mongo(directory, {}) is True
+
+
+@mock.patch("deepfellow.workspace.utils.install.protect_existing_mongo")
+@mock.patch("deepfellow.workspace.utils.install.run")
+@mock.patch("deepfellow.workspace.utils.install.ensure_network")
+def test_install_failed_network_before_mongo_migration_restores_old_env(
+    mock_ensure_network: Mock, mock_run: Mock, mock_protect: Mock, tmp_path: Path
+) -> None:
+    # Arrange
+    directory = tmp_path / "ws"
+    _old_install(directory)
+    (directory / ".env").write_text("APP_SECRET=abc\n")
+    old_env = (directory / ".env").read_text()
+    mock_ensure_network.side_effect = DockerNetworkError("no network")
+
+    # Act
+    with pytest.raises(InstallError):
+        _install(directory, existing={"APP_SECRET": "abc"}, force=True)
+
+    # Assert
+    assert mock_protect.call_count == 0
+    assert (directory / ".env").read_text() == old_env
