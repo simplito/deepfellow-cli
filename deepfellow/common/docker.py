@@ -15,11 +15,18 @@ import typer
 import yaml
 
 from deepfellow.common.config import env_to_dict, read_env_file
-from deepfellow.common.defaults import DOCKER_COMPOSE_CONFIG_FILENAME, UVICORN_SSL_ENVS, ServiceConfig
+from deepfellow.common.defaults import (
+    CA_BUNDLE_FILENAME,
+    CA_TRUST_CONTAINER_DIR,
+    CA_TRUST_DIRNAME,
+    DOCKER_COMPOSE_CONFIG_FILENAME,
+    UVICORN_SSL_ENVS,
+    ServiceConfig,
+)
 from deepfellow.common.echo import echo
-from deepfellow.common.exceptions import DockerNetworkError, DockerSocketNotFoundError
+from deepfellow.common.exceptions import DockerNetworkError, DockerSocketNotFoundError, reraise_if_debug
 from deepfellow.common.system import run
-from deepfellow.common.tls import SSL_FILE_MODES, is_ip_address, local_names, write_ssl_file
+from deepfellow.common.tls import SSL_FILE_MODES, CAError, is_ip_address, local_names, write_ca_bundle, write_ssl_file
 
 
 class DockerError(Exception):
@@ -303,6 +310,65 @@ def add_network_to_service(service: ServiceConfig | dict[str, Any], network_name
     service["networks"] = service.get("networks", [network_name])
     if network_name not in service["networks"]:
         service["networks"].append(network_name)
+
+
+def ca_trust_volume(directory: Path) -> str:
+    """Return the volume that mounts an install's CA trust directory read-only at `CA_TRUST_CONTAINER_DIR`.
+
+    The host path is made absolute: compose reads a relative source without `./` as a named volume.
+
+    Args:
+        directory: Install directory (e.g. `~/.deepfellow/infra`).
+
+    Returns:
+        A compose `volumes` entry: `<absolute trust directory>:<CA_TRUST_CONTAINER_DIR>:ro`.
+    """
+    return f"{(directory / CA_TRUST_DIRNAME).resolve().as_posix()}:{CA_TRUST_CONTAINER_DIR}:ro"
+
+
+def write_ca_trust_bundle(directory: Path) -> None:
+    """Write the CA trust bundle of an install to its `CA_TRUST_DIRNAME` directory.
+
+    Args:
+        directory: Install directory (e.g. `~/.deepfellow/infra`).
+
+    Raises:
+        typer.Exit: If the CA can't be used or the bundle can't be written, after the reason is shown as an
+            error. Under `--debug` the `CAError` is re-raised instead.
+    """
+    try:
+        write_ca_bundle(directory / CA_TRUST_DIRNAME)
+    except CAError as exc:
+        echo.error(str(exc))
+        reraise_if_debug(exc)
+
+
+def refresh_ca_trust_bundle(directory: Path, service: dict[str, Any]) -> None:
+    """Rewrite the CA trust bundle of an install whose `service` mounts it; installs without it are left alone.
+
+    The public CAs come from df-cli's environment and the CA may have changed, so an update rebuilds the bundle.
+    If the CA can't be used or the bundle can't be written, a warning is shown, an existing bundle is left
+    unchanged and the update goes on.
+
+    Args:
+        directory: Install directory (e.g. `~/.deepfellow/infra`).
+        service: The service (`infra`, `server`) as loaded from `compose.yaml`.
+    """
+    if not any(str(volume).endswith(f":{CA_TRUST_CONTAINER_DIR}:ro") for volume in service.get("volumes", [])):
+        return
+    bundle = directory / CA_TRUST_DIRNAME / CA_BUNDLE_FILENAME
+    had_bundle = bundle.is_file()
+    try:
+        write_ca_bundle(directory / CA_TRUST_DIRNAME)
+    except CAError as exc:
+        if had_bundle:
+            echo.warning(f"Couldn't refresh the CA trust bundle, keeping the previous one: {exc}")
+        else:
+            # SSL_CERT_FILE points at the missing file, so httpx clients in the container can't connect at all
+            echo.warning(
+                f"Couldn't write the CA trust bundle {bundle}: {exc} The containers can't make HTTPS connections "
+                "until it exists; fix the CA and run the update again."
+            )
 
 
 def is_all_interfaces(bind_address: str) -> bool:

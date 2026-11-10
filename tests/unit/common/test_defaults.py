@@ -3,7 +3,13 @@
 
 import json
 
-from deepfellow.common.defaults import MONGO_REPLICA_SET, mongo_replica_set_service
+from deepfellow.common.defaults import (
+    DOCKER_COMPOSE_INFRA,
+    DOCKER_COMPOSE_SERVER_BASE_ENVS,
+    MONGO_REPLICA_SET,
+    SSL_CERT_FILE_ENV,
+    mongo_replica_set_service,
+)
 
 
 def test_mongo_replica_set_service_has_no_host_ports() -> None:
@@ -52,3 +58,15 @@ def test_mongo_replica_set_service_two_callers_differ_only_by_name_and_volume() 
     assert first["volumes"] != second["volumes"]
     normalised = json.dumps(second).replace("name-two", "name-one").replace("vol-two", "vol-one")
     assert normalised == json.dumps(first)
+
+
+def test_ssl_cert_file_env_points_at_ca_bundle_in_trust_dir() -> None:
+    assert SSL_CERT_FILE_ENV == "SSL_CERT_FILE=/trust/ca-bundle.pem"
+
+
+def test_docker_compose_infra_environment_contains_ssl_cert_file() -> None:
+    assert SSL_CERT_FILE_ENV in DOCKER_COMPOSE_INFRA["infra"].get("environment", [])
+
+
+def test_docker_compose_server_base_envs_contains_ssl_cert_file() -> None:
+    assert SSL_CERT_FILE_ENV in DOCKER_COMPOSE_SERVER_BASE_ENVS

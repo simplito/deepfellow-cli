@@ -10,6 +10,7 @@ from unittest import mock
 import pytest
 import typer
 
+from deepfellow.common.defaults import SSL_CERT_FILE_ENV
 from deepfellow.common.validation import validate_server
 from deepfellow.infra.ssl_on import ssl_on
 
@@ -148,6 +149,20 @@ def test_ssl_on_does_not_add_volume_when_already_present(
 
     assert len(compose["services"]["infra"]["volumes"]) == 1
     assert mocks.assert_docker.call_count == 1
+
+
+def test_ssl_on_keeps_trust_volume_and_env(mocks: SimpleNamespace, tmp_path: Path, default_ssl_kwargs: dict) -> None:
+    trust_volume = f"{(tmp_path / 'trust').as_posix()}:/trust:ro"
+    compose = {"services": {"infra": {"volumes": [trust_volume], "environment": [SSL_CERT_FILE_ENV]}}}
+    mocks.is_running.return_value = True
+    mocks.load.return_value = compose
+    mocks.env_get.return_value = None
+
+    ssl_on(**default_ssl_kwargs)
+
+    infra_service = compose["services"]["infra"]
+    assert infra_service["volumes"] == [trust_volume, f"{(tmp_path / 'ssl').as_posix()}:/ssl"]
+    assert SSL_CERT_FILE_ENV in infra_service["environment"]
 
 
 def test_ssl_on_saves_compose_twice(

@@ -14,6 +14,7 @@ from deepfellow.common.defaults import (
     DOCKER_COMPOSE_CONFIG_FILENAME,
     INFRA_BIND_ADDRESS,
 )
+from deepfellow.common.tls import CAError
 from deepfellow.infra.update import _resolve_image, update
 
 pytestmark = pytest.mark.usefixtures("_unversioned_cli")
@@ -888,3 +889,127 @@ def test_update_refuses_incompatible_tag_before_changing_anything(
 
     assert mock_load.call_count == 0
     assert mock_save.call_count == 0
+
+
+@mock.patch("deepfellow.infra.update.refresh_ca_trust_bundle")
+@mock.patch("deepfellow.infra.update.get_running_service_image")
+@mock.patch("deepfellow.infra.update.get_newest_image_tag")
+@mock.patch("deepfellow.infra.update.run")
+@mock.patch("deepfellow.infra.update.env_set")
+@mock.patch("deepfellow.infra.update.save_compose_file")
+@mock.patch("deepfellow.infra.update.load_compose_file")
+@mock.patch("deepfellow.infra.update.echo")
+@mock.patch("deepfellow.infra.update.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.update.assert_docker")
+@mock.patch("deepfellow.infra.update.check_infra_directory")
+def test_update_refreshes_ca_bundle_when_already_up_to_date(
+    mock_check_infra_directory: Mock,
+    mock_assert_docker: Mock,
+    mock_read_env_file_to_dict: Mock,
+    mock_echo: Mock,
+    mock_load_compose_file: Mock,
+    mock_save_compose_file: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_get_newest_image_tag: Mock,
+    mock_get_running_service_image: Mock,
+    mock_refresh_ca_trust_bundle: Mock,
+    default_update_kwargs: dict,
+) -> None:
+    current = f"{DF_INFRA_IMAGE_HUB}:v1.2.3"
+    infra_service = {"ports": [f"{INFRA_BIND_ADDRESS}:8086:8086"], "volumes": ["/fake/dir/trust:/trust:ro"]}
+    mock_read_env_file_to_dict.return_value = {"df_infra_image": current}
+    mock_load_compose_file.return_value = {"services": {"infra": infra_service}}
+    mock_get_newest_image_tag.return_value = current
+    mock_get_running_service_image.return_value = current
+
+    update(**default_update_kwargs)
+
+    assert mock_run.call_count == 0
+    assert mock_refresh_ca_trust_bundle.call_count == 1
+    assert mock_refresh_ca_trust_bundle.call_args == mock.call(default_update_kwargs["directory"], infra_service)
+
+
+@mock.patch("deepfellow.common.docker.write_ca_bundle")
+@mock.patch("deepfellow.infra.update.get_running_service_image")
+@mock.patch("deepfellow.infra.update.get_newest_image_tag")
+@mock.patch("deepfellow.infra.update.run")
+@mock.patch("deepfellow.infra.update.env_set")
+@mock.patch("deepfellow.infra.update.save_compose_file")
+@mock.patch("deepfellow.infra.update.load_compose_file")
+@mock.patch("deepfellow.infra.update.echo")
+@mock.patch("deepfellow.infra.update.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.update.assert_docker")
+@mock.patch("deepfellow.infra.update.check_infra_directory")
+def test_update_does_not_add_trust_to_legacy_install(
+    mock_check_infra_directory: Mock,
+    mock_assert_docker: Mock,
+    mock_read_env_file_to_dict: Mock,
+    mock_echo: Mock,
+    mock_load_compose_file: Mock,
+    mock_save_compose_file: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_get_newest_image_tag: Mock,
+    mock_get_running_service_image: Mock,
+    mock_write_ca_bundle: Mock,
+    default_update_kwargs: dict,
+) -> None:
+    current = f"{DF_INFRA_IMAGE_HUB}:v1.2.3"
+    mock_read_env_file_to_dict.return_value = {"df_infra_image": current}
+    mock_load_compose_file.return_value = {
+        "services": {"infra": {"ports": ["8086:8086"], "environment": ["DF_NAME=${DF_NAME}"], "volumes": []}}
+    }
+    mock_get_newest_image_tag.return_value = current
+    mock_get_running_service_image.return_value = current
+
+    update(**default_update_kwargs)
+
+    saved_infra = mock_save_compose_file.call_args.args[0]["services"]["infra"]
+    assert mock_write_ca_bundle.call_count == 0
+    assert saved_infra["volumes"] == []
+    assert saved_infra["environment"] == ["DF_NAME=${DF_NAME}"]
+
+
+@mock.patch("deepfellow.common.docker.echo")
+@mock.patch("deepfellow.common.docker.write_ca_bundle")
+@mock.patch("deepfellow.infra.update.get_newest_image_tag")
+@mock.patch("deepfellow.infra.update.run")
+@mock.patch("deepfellow.infra.update.env_set")
+@mock.patch("deepfellow.infra.update.save_compose_file")
+@mock.patch("deepfellow.infra.update.load_compose_file")
+@mock.patch("deepfellow.infra.update.echo")
+@mock.patch("deepfellow.infra.update.read_env_file_to_dict")
+@mock.patch("deepfellow.infra.update.assert_docker")
+@mock.patch("deepfellow.infra.update.check_infra_directory")
+def test_update_warns_on_ca_error_and_still_pulls_and_offers_restart(
+    mock_check_infra_directory: Mock,
+    mock_assert_docker: Mock,
+    mock_read_env_file_to_dict: Mock,
+    mock_echo: Mock,
+    mock_load_compose_file: Mock,
+    mock_save_compose_file: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_get_newest_image_tag: Mock,
+    mock_write_ca_bundle: Mock,
+    mock_docker_echo: Mock,
+    default_update_kwargs: dict,
+) -> None:
+    newest = f"{DF_INFRA_IMAGE_HUB}:v1.2.4"
+    directory = default_update_kwargs["directory"]
+    infra_service = {"ports": [f"{INFRA_BIND_ADDRESS}:8086:8086"], "volumes": [f"{directory}/trust:/trust:ro"]}
+    mock_read_env_file_to_dict.return_value = {"df_infra_image": f"{DF_INFRA_IMAGE_HUB}:v1.2.3"}
+    mock_load_compose_file.return_value = {"services": {"infra": infra_service}}
+    mock_get_newest_image_tag.return_value = newest
+    mock_write_ca_bundle.side_effect = CAError("The CA certificate is malformed.")
+    mock_echo.confirm.return_value = False
+
+    update(**default_update_kwargs)
+
+    assert mock_write_ca_bundle.call_count == 1
+    assert mock_write_ca_bundle.call_args == mock.call(directory / "trust")
+    assert mock_docker_echo.warning.call_count == 1
+    assert "The CA certificate is malformed." in mock_docker_echo.warning.call_args.args[0]
+    assert mock_run.call_args == mock.call(["docker", "pull", newest], cwd=directory)
+    assert mock_echo.confirm.call_args == mock.call("Do you want to restart?", default=True)

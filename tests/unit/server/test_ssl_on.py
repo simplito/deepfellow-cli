@@ -10,6 +10,7 @@ from unittest.mock import Mock
 import pytest
 import typer
 
+from deepfellow.common.defaults import SSL_CERT_FILE_ENV
 from deepfellow.common.validation import validate_server
 from deepfellow.server.ssl_on import ssl_on
 
@@ -260,6 +261,46 @@ def test_ssl_on_adds_ssl_volume_when_missing(
     volumes = docker_config["services"]["server"]["volumes"]
     assert f"{(DIRECTORY / 'ssl').as_posix()}:/ssl" in volumes
     assert mock_assert_docker.call_count == 1
+
+
+@mock.patch("deepfellow.server.ssl_on.make_request")
+@mock.patch("deepfellow.server.ssl_on.http_get", return_value={"server_url": "http://localhost:8000"})
+@mock.patch("deepfellow.server.ssl_on.get_token", return_value="token")
+@mock.patch("deepfellow.server.ssl_on.echo")
+@mock.patch("deepfellow.server.ssl_on.run")
+@mock.patch("deepfellow.server.ssl_on.env_set")
+@mock.patch("deepfellow.server.ssl_on.env_get", return_value=None)
+@mock.patch("deepfellow.server.ssl_on.save_compose_file")
+@mock.patch("deepfellow.server.ssl_on.load_install_compose_file")
+@mock.patch("deepfellow.server.ssl_on.is_service_running", return_value=True)
+@mock.patch("deepfellow.server.ssl_on.copy_ssl_files_from_paths")
+@mock.patch("deepfellow.server.ssl_on.Path.mkdir")
+@mock.patch("deepfellow.server.ssl_on.assert_docker")
+def test_ssl_on_keeps_trust_volume_and_env(
+    mock_assert_docker: Mock,
+    mock_mkdir: Mock,
+    mock_copy_ssl_files_from_paths: Mock,
+    mock_is_service_running: Mock,
+    mock_load_compose_file: Mock,
+    mock_save_compose_file: Mock,
+    mock_env_get: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_echo: Mock,
+    mock_get_token: Mock,
+    mock_http_get: Mock,
+    mock_make_request: Mock,
+) -> None:
+    trust_volume = f"{(DIRECTORY / 'trust').as_posix()}:/trust:ro"
+    compose = {"services": {"server": {"volumes": [trust_volume], "environment": [SSL_CERT_FILE_ENV]}}}
+    mock_load_compose_file.return_value = compose
+    mock_echo.prompt_until_valid.side_effect = _accept_default_url
+
+    ssl_on(directory=DIRECTORY, ssl_key_path="my-key.pem", ssl_cert_path="my-cert.pem", port=None, server=None)
+
+    server_service = compose["services"]["server"]
+    assert server_service["volumes"] == [trust_volume, f"{(DIRECTORY / 'ssl').as_posix()}:/ssl"]
+    assert SSL_CERT_FILE_ENV in server_service["environment"]
 
 
 @mock.patch("deepfellow.server.ssl_on.make_request")
