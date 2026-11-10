@@ -27,3 +27,10 @@ def test_workspace_install_rejects_short_mcp_auth_token() -> None:
     result = runner.invoke(app, ["workspace", "install", "--mcp-auth-token", "short"])
 
     assert result.exit_code == 2
+
+
+def test_workspace_install_rejects_invalid_trusted_origin() -> None:
+    result = runner.invoke(app, ["workspace", "install", "--trusted-origins", "https://a.example.com,not-an-origin"])
+
+    assert result.exit_code == 2
+    assert "not-an-origin" in result.output

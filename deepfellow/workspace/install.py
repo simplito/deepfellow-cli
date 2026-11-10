@@ -22,6 +22,7 @@ from deepfellow.common.validation import (
     validate_email,
     validate_mongo_url,
     validate_origin,
+    validate_origins,
     validate_password,
     validate_redis_url,
     validate_url,
@@ -35,6 +36,7 @@ from deepfellow.workspace.utils.install import (
 )
 from deepfellow.workspace.utils.install import install as install_util
 from deepfellow.workspace.utils.options import directory_option
+from deepfellow.workspace.utils.public_url import apply_https_settings, insecure_context_warning, resolve_public_url
 from deepfellow.workspace.utils.server import list_server_models, resolve_server_ids, server_lookup_failed
 
 app = typer.Typer()
@@ -309,6 +311,20 @@ def _collect_required_values(passed: dict[str, str | None], existing: dict[str, 
             echo.info(f"{label}: {shown} (kept from the existing installation)")
 
 
+def _resolve_address(passed: dict[str, str | None], existing: dict[str, str], port: int) -> None:
+    """Choose the Workspace address, warn when the browser will block features on it, and set up https.
+
+    Args:
+        passed: Values collected so far; updated in place.
+        existing: Values kept from a previous installation.
+        port: Published Workspace port, for the default address.
+    """
+    public_url = resolve_public_url(passed, existing, port)
+    if warning := insecure_context_warning(public_url):
+        echo.warning(warning)
+    apply_https_settings(passed, existing, public_url)
+
+
 @app.command()
 def install(
     directory: Path = directory_option(),
@@ -343,8 +359,10 @@ def install(
         None,
         envvar="DF_WORKSPACE_PUBLIC_URL",
         callback=validate_origin,
-        help="Origin browsers reach Workspace at. Default: http://localhost:<port>; a reinstall keeps the "
-        "previous value unless this is given.",
+        help="Origin browsers reach Workspace at; asked for when not given (unless --yes or --non-interactive). "
+        "Default: http://localhost:<port>; a reinstall keeps the previous value unless this is given. Over http, "
+        "use localhost: on other hosts browsers block e.g. copying and attachments. An https origin assumes a "
+        "TLS-terminating reverse proxy and enables --trusted-proxy (see there).",
     ),
     df_server_url: str | None = typer.Option(
         None,
@@ -428,7 +446,16 @@ def install(
         None,
         "--trusted-proxy/--no-trusted-proxy",
         envvar="DF_WORKSPACE_TRUSTED_PROXY_ENABLED",
-        help="Trust X-Forwarded-For / X-Real-IP; enable only behind a reverse proxy that sets them.",
+        help="Trust X-Forwarded-For / X-Real-IP; enable only behind a reverse proxy that sets them. "
+        "Default: on for an https --public-url, unless a previous install was run with --no-trusted-proxy.",
+    ),
+    trusted_origins: str | None = typer.Option(
+        None,
+        envvar="DF_WORKSPACE_TRUSTED_ORIGINS",
+        callback=validate_origins,
+        help="Other origins Workspace trusts besides --public-url, comma-separated (e.g. more addresses of the "
+        "reverse proxy). Asked for with an https --public-url (unless --yes or --non-interactive); a reinstall "
+        "keeps the previous value unless this is given.",
     ),
     mcp_auth_token: str | None = typer.Option(
         None,
@@ -473,6 +500,7 @@ def install(
         "MONGO_DB_NAME": mongodb_database_name,
         "REDIS_URL": redis_url,
         "TRUSTED_PROXY_ENABLED": _flag(trusted_proxy),
+        "TRUSTED_ORIGINS": trusted_origins,
         "MCP_AUTH_TOKEN": mcp_auth_token,
     }
     reset = _reset_keys(local_mongodb, local_redis, no_smtp)
@@ -490,6 +518,7 @@ def install(
             if not overwrite:
                 raise typer.Exit(1)
         _collect_required_values(passed, existing)
+        _resolve_address(passed, existing, port)
         prompt_optional_settings(passed, existing)
         env = install_util(
             directory=directory,

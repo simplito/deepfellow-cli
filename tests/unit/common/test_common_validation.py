@@ -18,6 +18,7 @@ from deepfellow.common.validation import (
     validate_hhmm,
     validate_mongo_url,
     validate_origin,
+    validate_origins,
     validate_password,
     validate_port,
     validate_rabbitmq_credential,
@@ -444,11 +445,16 @@ def test_validate_optional_value_none_returns_none(validator: Callable[[Any], An
 
 
 @pytest.mark.parametrize(
-    "value",
-    ["http://localhost", "https://example.com", "https://example.com:8443", "http://example.com/"],
+    ("value", "expected"),
+    [
+        ("http://localhost", "http://localhost"),
+        ("https://example.com", "https://example.com"),
+        ("https://example.com:8443", "https://example.com:8443"),
+        ("http://example.com/", "http://example.com"),
+    ],
 )
-def test_validate_origin_accepts_origins(value: str) -> None:
-    assert validate_origin(value) == value
+def test_validate_origin_accepts_origins(value: str, expected: str) -> None:
+    assert validate_origin(value) == expected
 
 
 @pytest.mark.parametrize(
@@ -468,3 +474,32 @@ def test_validate_origin_accepts_origins(value: str) -> None:
 def test_validate_origin_rejects_invalid_values(value: str) -> None:
     with pytest.raises(typer.BadParameter):
         validate_origin(value)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("https://a.example.com", "https://a.example.com"),
+        ("https://a.example.com, https://b.example.com:8443", "https://a.example.com,https://b.example.com:8443"),
+        (" https://a.example.com ,, http://localhost:3000 ,", "https://a.example.com,http://localhost:3000"),
+        ("https://a.example.com/, https://b.example.com:8443/", "https://a.example.com,https://b.example.com:8443"),
+    ],
+)
+def test_validate_origins_returns_normalized_list(value: str, expected: str) -> None:
+    result = validate_origins(value)
+
+    assert result == expected
+
+
+@pytest.mark.parametrize("value", [None, "", " , ,"])
+def test_validate_origins_empty_returns_none(value: str | None) -> None:
+    result = validate_origins(value)
+
+    assert result is None
+
+
+def test_validate_origins_rejects_invalid_entry_by_name() -> None:
+    with pytest.raises(typer.BadParameter) as exc_info:
+        validate_origins("https://a.example.com,not-an-origin")
+
+    assert "'not-an-origin'" in str(exc_info.value)
