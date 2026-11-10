@@ -22,6 +22,7 @@ from deepfellow.common.config import (
     save_env_file,
 )
 from deepfellow.common.defaults import (
+    CA_TRUST_CONTAINER_DIR,
     DEFAULT_NIGHTSHIFT_MODE,
     DEFAULT_VECTOR_DATABASE,
     DEFAULT_VECTOR_DATABASE_TYPE,
@@ -59,10 +60,12 @@ from deepfellow.common.defaults import (
 from deepfellow.common.docker import (
     DockerError,
     add_network_to_service,
+    ca_trust_volume,
     ensure_network,
     is_all_interfaces,
     local_url,
     save_compose_file,
+    write_ca_trust_bundle,
 )
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get, env_set
@@ -871,7 +874,8 @@ def build_nightshift_service(server_service: dict[str, Any]) -> dict[str, Any]:
 
     Nightshift runs the server image with the server's environment (plus its metrics host) so the
     two can't drift apart - both create config.json from their env on first boot. It mounts only
-    the server's storage (files to process, the doc-chunker cache, config.json), never plugins.
+    the server's storage (files to process, the doc-chunker cache, config.json) and CA trust bundle,
+    never plugins or the server's TLS key in `/ssl`.
 
     Args:
         server_service: The `server` service as it is (or will be) written to compose.yaml.
@@ -881,7 +885,11 @@ def build_nightshift_service(server_service: dict[str, Any]) -> dict[str, Any]:
     """
     nightshift: dict[str, Any] = deepcopy(DOCKER_COMPOSE_NIGHTSHIFT["nightshift"])
     nightshift["environment"] = [*server_service.get("environment", []), *nightshift["environment"]]
-    nightshift["volumes"] = [volume for volume in server_service.get("volumes", []) if volume.endswith(":/app/storage")]
+    nightshift["volumes"] = [
+        volume
+        for volume in server_service.get("volumes", [])
+        if volume.endswith((":/app/storage", f":{CA_TRUST_CONTAINER_DIR}:ro"))
+    ]
     if "networks" in server_service:
         nightshift["networks"] = deepcopy(server_service["networks"])
     depends_on = {
@@ -1032,6 +1040,9 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
             template with post_start_actions) - changes the success message so it doesn't tell
             the user to run `server start` when that's about to happen automatically.
     """
+    # First, so an unusable CA stops the install before anything else is written
+    write_ca_trust_bundle(config.directory)
+
     # Create the network if needed
     ensure_network(config.docker_network)
 
@@ -1168,7 +1179,11 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:  # noqa
         DF_SERVER_STORAGE_DIRECTORY.mkdir(parents=True, exist_ok=True)
 
     storage_volume = f"{DF_SERVER_STORAGE_DIRECTORY}:/app/storage"
-    services["server"]["volumes"] = [storage_volume, f"{plugins_directory.as_posix()}:/app/plugins"]
+    services["server"]["volumes"] = [
+        storage_volume,
+        f"{plugins_directory.as_posix()}:/app/plugins",
+        ca_trust_volume(config.directory),
+    ]
     # Built last, from the finished server service (env, storage mount, network, depends_on,
     # pull_policy) - the same builder `server update` uses to add Nightshift to an older install.
     services["nightshift"] = build_nightshift_service(services["server"])

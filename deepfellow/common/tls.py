@@ -14,6 +14,7 @@ from itertools import pairwise
 from pathlib import Path
 from typing import TypeVar
 
+import certifi
 from cryptography import x509
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
@@ -27,7 +28,7 @@ from cryptography.hazmat.primitives.serialization import (
 )
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-from deepfellow.common.defaults import DF_DEEPFELLOW_DIRECTORY
+from deepfellow.common.defaults import CA_BUNDLE_FILENAME, DF_DEEPFELLOW_DIRECTORY
 from deepfellow.common.echo import echo
 
 CA_DIR = DF_DEEPFELLOW_DIRECTORY / "ca"
@@ -181,6 +182,47 @@ def issue_certificate(out_dir: Path, names: Sequence[str], password: str | None 
             "cert.pem": (cert.public_bytes(Encoding.PEM) + chain_pem, SSL_FILE_MODES["cert.pem"]),
             "ca.pem": (chain_pem, SSL_FILE_MODES["cert.pem"]),
         },
+    )
+
+
+def write_ca_bundle(out_dir: Path, ca_dir: Path = CA_DIR) -> None:
+    """Write `ca-bundle.pem` to `out_dir`: the public CAs followed by the CA chain from `ca_dir`, if there is one.
+
+    Clients that load only the file `SSL_CERT_FILE` points at (httpx, LiteLLM) then trust both public sites
+    and components with certificates from the CA. Without a CA (no `ca.pem`) the bundle holds only the public CAs.
+
+    Args:
+        out_dir: Directory to save `ca-bundle.pem` in.
+        ca_dir: Directory with the CA; only its certificate is read, never its key.
+
+    Raises:
+        CAError: If `ca.pem` can't be read, holds no PEM certificate (e.g. is empty) or holds a private key,
+            or the bundle can't be written.
+    """
+    ca_pem = ca_dir / "ca.pem"
+    try:
+        chain_pem = ca_pem.read_bytes()
+    except FileNotFoundError:
+        echo.debug(f"No CA in {ca_dir}; the CA trust bundle holds only public CAs.")
+        chain_pem = None
+    except OSError as exc:
+        raise CAError(f"Can't read {ca_pem}: {exc.strerror}.") from exc
+    if chain_pem is not None:
+        # The bundle is world-readable and mounted into containers; the PEM parser would skip a key block
+        if b"PRIVATE KEY" in chain_pem:
+            raise CAError(f"The CA certificate {ca_pem} contains a private key; keep the key in ca.key only.")
+        try:
+            x509.load_pem_x509_certificates(chain_pem)
+        except ValueError as exc:
+            raise CAError(f"The CA certificate {ca_pem} is not a PEM certificate or is malformed.") from exc
+    public_pem = certifi.contents().encode()
+    if not public_pem.endswith(b"\n"):
+        public_pem += b"\n"
+    # Containers may run as a non-root user, so the directory must not keep a restrictive umask's mode
+    _write_files(
+        out_dir,
+        {CA_BUNDLE_FILENAME: (public_pem + (chain_pem or b""), SSL_FILE_MODES["cert.pem"])},
+        dir_mode=0o755,
     )
 
 

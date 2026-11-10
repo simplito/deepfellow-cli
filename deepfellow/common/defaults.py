@@ -47,6 +47,15 @@ DF_SERVER_STORAGE_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / DF_SERVER_DIRECTORY / "s
 
 UVICORN_SSL_ENVS = {"UVICORN_SSL_KEYFILE": "/ssl/key.pem", "UVICORN_SSL_CERTFILE": "/ssl/cert.pem"}
 
+# CA trust: a bundle of public CAs plus the internal CA chain, written to `<install dir>/trust/ca-bundle.pem` and
+# mounted read-only at `/trust`. `SSL_CERT_FILE` points Python TLS clients at it: httpx and LiteLLM load only this
+# file; aiohttp, websockets and urllib load it in place of the default CA file and still search the system CA
+# directory. Clients with their own CA source (e.g. `requests`) ignore it.
+CA_BUNDLE_FILENAME = "ca-bundle.pem"
+CA_TRUST_DIRNAME = "trust"
+CA_TRUST_CONTAINER_DIR = "/trust"
+SSL_CERT_FILE_ENV = f"SSL_CERT_FILE={CA_TRUST_CONTAINER_DIR}/{CA_BUNDLE_FILENAME}"
+
 DF_MONGO_URL = "mongo:27017"
 DF_MONGO_PORT = 27017
 DF_MONGO_DB = "deepfellow"
@@ -142,6 +151,7 @@ DOCKER_COMPOSE_INFRA: dict[str, ServiceConfig] = {
             "DF_METRICS_USERNAME=${DF_METRICS_USERNAME}",
             "DF_METRICS_PASSWORD=${DF_METRICS_PASSWORD}",
             "DOCKER_HOST=unix:///var/run/docker.sock",
+            SSL_CERT_FILE_ENV,
         ],
         "restart": "unless-stopped",
         "healthcheck": {
@@ -173,6 +183,7 @@ DOCKER_COMPOSE_SERVER_BASE_ENVS = [
     "DF_LOG_LEVEL=${DF_LOG_LEVEL}",
     "DF_PLUGINS_SETUP=${DF_PLUGINS_SETUP}",
     "DF_VECTOR_DATABASE__PROVIDER__ACTIVE=${DF_VECTOR_DATABASE__PROVIDER__ACTIVE}",
+    SSL_CERT_FILE_ENV,
 ]
 
 SERVER_CONTAINER_NAME = "server"

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: LicenseRef-DeepFellow-Free
 # SPDX-FileCopyrightText: 2026 Simplito sp. z o.o.
 
+from collections.abc import Iterator
 from pathlib import Path
 from unittest import mock
 
@@ -30,3 +31,13 @@ def no_real_config_json():
         mock.patch("deepfellow.server.utils.install.config_json_exists", return_value=False),
     ):
         yield
+
+
+@pytest.fixture(autouse=True)
+def mock_write_ca_trust_bundle() -> Iterator[mock.MagicMock]:
+    """Isolate install tests from the machine's real CA (`~/.deepfellow/ca`) and from writing a trust bundle.
+
+    Tests that check the bundle is written request this fixture by name and assert on the mock.
+    """
+    with mock.patch("deepfellow.server.utils.install.write_ca_trust_bundle") as mock_write:
+        yield mock_write

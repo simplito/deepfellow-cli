@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Install progress shows the downloaded and total size, transfer speed and time remaining when Infra reports download bytes
 - `suite install` names the detected NVIDIA GPU and its VRAM next to the VRAM estimate
 - `--skip-version-check` on install and update commands, for development
+- New Infra and Server installs trust the DeepFellow internal CA from `~/.deepfellow/ca` alongside public CAs; `infra update` and `server update` refresh it
 
 ### Changed
 - Self-signed certificates from `infra ssl-on` and `server ssl-on` are also valid for `::1`

@@ -17,7 +17,13 @@ from deepfellow.common.defaults import (
     DOCKER_COMPOSE_CONFIG_FILENAME,
     INFRA_BIND_ADDRESS,
 )
-from deepfellow.common.docker import bind_port_mappings, get_running_service_image, load_compose_file, save_compose_file
+from deepfellow.common.docker import (
+    bind_port_mappings,
+    get_running_service_image,
+    load_compose_file,
+    refresh_ca_trust_bundle,
+    save_compose_file,
+)
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
 from deepfellow.common.install import assert_docker
@@ -112,6 +118,9 @@ def update(
             compose,
             directory / DOCKER_COMPOSE_CONFIG_FILENAME,
         )
+
+    # Also when the image is up to date: the bundle's public CAs come from this CLI, and the CA may have changed
+    refresh_ca_trust_bundle(directory, infra_service)
 
     # Trust the running container, not .env alone: .env may point at an image that failed to pull
     # or was pulled but never started (restart declined).

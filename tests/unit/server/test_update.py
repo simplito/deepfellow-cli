@@ -1993,3 +1993,141 @@ def test_update_refuses_incompatible_tag_before_asking_or_changing_anything(
     assert mock_resolve_nightshift_addition.call_count == 0
     assert mock_sync_pull_policy.call_count == 0
     assert mock_migrate_port_bindings.call_count == 0
+
+
+@mock.patch("deepfellow.server.update.refresh_ca_trust_bundle")
+@mock.patch("deepfellow.server.update.migrate_port_bindings", return_value=False)
+@mock.patch("deepfellow.server.update.is_legacy_mongo_install", return_value=False)
+@mock.patch("deepfellow.server.update.get_running_service_image")
+@mock.patch("deepfellow.server.update.get_newest_image_tag")
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition", return_value=None)
+@mock.patch("deepfellow.server.update.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.update.run")
+@mock.patch("deepfellow.server.update.env_set")
+@mock.patch("deepfellow.server.update.save_compose_file")
+@mock.patch("deepfellow.server.update.load_compose_file")
+@mock.patch("deepfellow.server.update.echo")
+@mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
+@mock.patch("deepfellow.server.update.check_server_directory")
+def test_update_refreshes_ca_bundle_when_already_up_to_date(
+    mock_check_server_directory: Mock,
+    mock_assert_docker: Mock,
+    mock_read_env_file_to_dict: Mock,
+    mock_echo: Mock,
+    mock_load_compose_file: Mock,
+    mock_save_compose_file: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_has_nightshift_service: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_get_newest_image_tag: Mock,
+    mock_get_running_service_image: Mock,
+    mock_is_legacy_mongo_install: Mock,
+    mock_migrate_port_bindings: Mock,
+    mock_refresh_ca_trust_bundle: Mock,
+    default_update_kwargs: dict,
+) -> None:
+    newest = f"{DF_SERVER_IMAGE_HUB}:v1.2.4"
+    server_service = {"volumes": ["/fake/dir/trust:/trust:ro"]}
+    mock_read_env_file_to_dict.return_value = {"df_server_image": newest}
+    mock_load_compose_file.return_value = {"services": {"server": server_service}}
+    mock_get_newest_image_tag.return_value = newest
+    mock_get_running_service_image.return_value = newest
+
+    update(**default_update_kwargs)
+
+    assert mock_echo.success.call_args == mock.call("DeepFellow Server is already up to date (v1.2.4).")
+    assert mock_refresh_ca_trust_bundle.call_count == 1
+    assert mock_refresh_ca_trust_bundle.call_args == mock.call(default_update_kwargs["directory"], server_service)
+
+
+@mock.patch("deepfellow.common.docker.write_ca_bundle")
+@mock.patch("deepfellow.server.update.migrate_port_bindings", return_value=False)
+@mock.patch("deepfellow.server.update.is_legacy_mongo_install", return_value=False)
+@mock.patch("deepfellow.server.update.get_running_service_image")
+@mock.patch("deepfellow.server.update.get_newest_image_tag")
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition", return_value=None)
+@mock.patch("deepfellow.server.update.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.update.run")
+@mock.patch("deepfellow.server.update.env_set")
+@mock.patch("deepfellow.server.update.save_compose_file")
+@mock.patch("deepfellow.server.update.load_compose_file")
+@mock.patch("deepfellow.server.update.echo")
+@mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
+@mock.patch("deepfellow.server.update.check_server_directory")
+def test_update_does_not_add_trust_to_legacy_install(
+    mock_check_server_directory: Mock,
+    mock_assert_docker: Mock,
+    mock_read_env_file_to_dict: Mock,
+    mock_echo: Mock,
+    mock_load_compose_file: Mock,
+    mock_save_compose_file: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_has_nightshift_service: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_get_newest_image_tag: Mock,
+    mock_get_running_service_image: Mock,
+    mock_is_legacy_mongo_install: Mock,
+    mock_migrate_port_bindings: Mock,
+    mock_write_ca_bundle: Mock,
+    default_update_kwargs: dict,
+) -> None:
+    newest = f"{DF_SERVER_IMAGE_HUB}:v1.2.4"
+    mock_read_env_file_to_dict.return_value = {"df_server_image": newest}
+    mock_load_compose_file.return_value = {
+        "services": {"server": {"environment": ["DF_LOG_LEVEL=${DF_LOG_LEVEL}"], "volumes": []}}
+    }
+    mock_get_newest_image_tag.return_value = newest
+    mock_get_running_service_image.return_value = newest
+
+    update(**default_update_kwargs)
+
+    assert mock_write_ca_bundle.call_count == 0
+    assert mock_save_compose_file.call_count == 0
+
+
+@mock.patch("deepfellow.server.update.refresh_ca_trust_bundle")
+@mock.patch("deepfellow.server.update.migrate_port_bindings", return_value=False)
+@mock.patch("deepfellow.server.update.is_legacy_mongo_install", return_value=False)
+@mock.patch("deepfellow.server.update.get_newest_image_tag")
+@mock.patch("deepfellow.server.update.resolve_nightshift_addition", return_value=None)
+@mock.patch("deepfellow.server.update.has_nightshift_service", return_value=True)
+@mock.patch("deepfellow.server.update.run")
+@mock.patch("deepfellow.server.update.env_set")
+@mock.patch("deepfellow.server.update.load_compose_file")
+@mock.patch("deepfellow.server.update.echo")
+@mock.patch("deepfellow.server.update.read_env_file_to_dict")
+@mock.patch("deepfellow.server.update.assert_docker")
+@mock.patch("deepfellow.server.update.check_server_directory")
+def test_update_refreshes_ca_bundle_when_pulling_newer_image(
+    mock_check_server_directory: Mock,
+    mock_assert_docker: Mock,
+    mock_read_env_file_to_dict: Mock,
+    mock_echo: Mock,
+    mock_load_compose_file: Mock,
+    mock_env_set: Mock,
+    mock_run: Mock,
+    mock_has_nightshift_service: Mock,
+    mock_resolve_nightshift_addition: Mock,
+    mock_get_newest_image_tag: Mock,
+    mock_is_legacy_mongo_install: Mock,
+    mock_migrate_port_bindings: Mock,
+    mock_refresh_ca_trust_bundle: Mock,
+    default_update_kwargs: dict,
+) -> None:
+    newest = f"{DF_SERVER_IMAGE_HUB}:v1.2.4"
+    directory = default_update_kwargs["directory"]
+    server_service = {"volumes": [f"{directory}/trust:/trust:ro"]}
+    mock_read_env_file_to_dict.return_value = {"df_server_image": f"{DF_SERVER_IMAGE_HUB}:v1.2.3"}
+    mock_load_compose_file.return_value = {"services": {"server": server_service}}
+    mock_get_newest_image_tag.return_value = newest
+    mock_echo.confirm.return_value = False
+
+    update(**default_update_kwargs)
+
+    assert mock_refresh_ca_trust_bundle.call_count == 1
+    assert mock_refresh_ca_trust_bundle.call_args == mock.call(directory, server_service)
+    assert mock.call(["docker", "pull", newest], cwd=directory) in mock_run.call_args_list

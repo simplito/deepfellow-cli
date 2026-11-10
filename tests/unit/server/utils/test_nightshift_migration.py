@@ -14,6 +14,7 @@ from deepfellow.common.defaults import (
     DOCKER_COMPOSE_RABBITMQ,
     DOCKER_COMPOSE_SERVER_RABBITMQ_ENVS,
     NIGHTSHIFT_FEATURES,
+    SSL_CERT_FILE_ENV,
 )
 from deepfellow.common.docker import load_compose_file, save_compose_file
 from deepfellow.common.state import state
@@ -602,6 +603,26 @@ def test_add_nightshift_to_install_external_adds_no_rabbitmq_service(
     assert "rabbitmq" not in services["nightshift"]["depends_on"]
     assert read_env_file(install_directory / ".env")["DF_RABBITMQ_URL"] == "mq.example:5672"
     assert "mq.example:5672" in mock_echo.success.call_args.args[0]
+
+
+@mock.patch("deepfellow.server.utils.nightshift_migration.reconcile_nightshift_schedule")
+@mock.patch("deepfellow.server.utils.nightshift_migration.echo")
+def test_add_nightshift_to_install_gives_nightshift_the_server_ca_trust(
+    mock_echo: mock.MagicMock, mock_reconcile_nightshift_schedule: mock.MagicMock, tmp_path: Path
+) -> None:
+    server = _old_server_service(
+        environment=[*SERVER_BASE_ENVS, SSL_CERT_FILE_ENV],
+        volumes=["/home/u/.deepfellow/server/storage:/app/storage", f"{tmp_path / 'trust'}:/trust:ro"],
+    )
+    save_compose_file({"services": {"server": server}}, tmp_path / DOCKER_COMPOSE_CONFIG_FILENAME)
+    save_env_file(tmp_path / ".env", {"DF_SERVER_PORT": "8000"})
+    config = NightshiftConfig(envs={"DF_NIGHTSHIFT_MODE": "always", **EXTERNAL_RABBITMQ.envs}, docker_compose={})
+
+    add_nightshift_to_install(tmp_path, config)
+
+    nightshift = load_compose_file(tmp_path / DOCKER_COMPOSE_CONFIG_FILENAME)["services"]["nightshift"]
+    assert f"{tmp_path / 'trust'}:/trust:ro" in nightshift["volumes"]
+    assert SSL_CERT_FILE_ENV in nightshift["environment"]
 
 
 @mock.patch("deepfellow.server.utils.nightshift_migration.reconcile_nightshift_schedule")

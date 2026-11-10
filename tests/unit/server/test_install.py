@@ -41,6 +41,7 @@ from deepfellow.common.defaults import (
     DOCKER_COMPOSE_SERVER_RABBITMQ_ENVS,
     MILVUS_DATABASE_URL,
     MONGO_DB_INIT_SH,
+    SSL_CERT_FILE_ENV,
     VectorDBTypeChoice,
 )
 from deepfellow.common.docker import DockerError
@@ -3712,6 +3713,17 @@ def test_build_nightshift_service_mounts_only_storage() -> None:
     assert nightshift["volumes"] == ["/srv/storage:/app/storage"]
 
 
+def test_build_nightshift_service_copies_trust_volume_but_not_ssl() -> None:
+    server = {
+        **SERVER_SERVICE,
+        "volumes": ["/srv/storage:/app/storage", "/srv/plugins:/app/plugins", "/srv/ssl:/ssl", "/srv/trust:/trust:ro"],
+    }
+
+    nightshift = build_nightshift_service(server)
+
+    assert nightshift["volumes"] == ["/srv/storage:/app/storage", "/srv/trust:/trust:ro"]
+
+
 def test_build_nightshift_service_copies_server_networks() -> None:
     server = {**SERVER_SERVICE, "networks": ["deepfellow-infra-net"]}
 
@@ -3890,7 +3902,7 @@ def test_apply_skips_local_rabbitmq_but_still_adds_nightshift_worker_when_extern
 @mock.patch("deepfellow.server.utils.install.ensure_network")
 @mock.patch("deepfellow.server.utils.install.save_env_file")
 @mock.patch("deepfellow.server.utils.install.echo")
-def test_apply_mounts_only_storage_volume_in_nightshift(
+def test_apply_mounts_storage_and_ca_trust_but_not_plugins_in_nightshift(
     mock_echo: Mock,
     mock_save_env_file: Mock,
     mock_ensure_network: Mock,
@@ -3904,11 +3916,60 @@ def test_apply_mounts_only_storage_volume_in_nightshift(
 
     assert mock_save_compose_file.call_count == 1
     services = mock_save_compose_file.call_args[0][0]["services"]
-    assert services["nightshift"]["volumes"] == [f"{server_storage_directory}:/app/storage"]
+    trust_volume = f"{install_config.directory / 'trust'}:/trust:ro"
+    assert services["nightshift"]["volumes"] == [f"{server_storage_directory}:/app/storage", trust_volume]
     assert services["server"]["volumes"] == [
         f"{server_storage_directory}:/app/storage",
         f"{install_config.directory / 'plugins'}:/app/plugins",
+        trust_volume,
     ]
+    assert SSL_CERT_FILE_ENV in services["server"]["environment"]
+    assert SSL_CERT_FILE_ENV in services["nightshift"]["environment"]
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+def test_apply_writes_ca_bundle_before_anything_else(
+    mock_echo: Mock,
+    mock_save_env_file: Mock,
+    mock_ensure_network: Mock,
+    mock_save_compose_file: Mock,
+    mock_run: Mock,
+    mock_write_ca_trust_bundle: Mock,
+    install_config: InstallConfig,
+) -> None:
+    apply(install_config)
+
+    assert mock_write_ca_trust_bundle.call_count == 1
+    assert mock_write_ca_trust_bundle.call_args == mock.call(install_config.directory)
+
+
+@mock.patch("deepfellow.server.utils.install.run")
+@mock.patch("deepfellow.server.utils.install.save_compose_file")
+@mock.patch("deepfellow.server.utils.install.ensure_network")
+@mock.patch("deepfellow.server.utils.install.save_env_file")
+@mock.patch("deepfellow.server.utils.install.echo")
+def test_apply_exits_before_writing_files_when_ca_bundle_fails(
+    mock_echo: Mock,
+    mock_save_env_file: Mock,
+    mock_ensure_network: Mock,
+    mock_save_compose_file: Mock,
+    mock_run: Mock,
+    mock_write_ca_trust_bundle: Mock,
+    install_config: InstallConfig,
+) -> None:
+    mock_write_ca_trust_bundle.side_effect = typer.Exit(1)
+
+    with pytest.raises(typer.Exit):
+        apply(install_config)
+
+    assert mock_ensure_network.call_count == 0
+    assert mock_save_env_file.call_count == 0
+    assert mock_save_compose_file.call_count == 0
+    assert mock_run.call_count == 0
 
 
 @pytest.mark.parametrize(

@@ -17,6 +17,7 @@ from deepfellow.common.docker import (
     _is_rootful_socket,
     add_network_to_service,
     bind_port_mappings,
+    ca_trust_volume,
     copy_ssl_files_from_paths,
     copy_ssl_files_from_service,
     create_network,
@@ -45,6 +46,7 @@ from deepfellow.common.docker import (
     parse_docker_compose_ps,
     parse_docker_compose_usage,
     print_docker_status,
+    refresh_ca_trust_bundle,
     remove_volume,
     resolve_compose_volume_name,
     save_compose_file,
@@ -53,8 +55,10 @@ from deepfellow.common.docker import (
     to_https,
     volume_exists,
     volume_exists_or_raise,
+    write_ca_trust_bundle,
 )
 from deepfellow.common.exceptions import DockerNetworkError, DockerSocketNotFoundError
+from deepfellow.common.tls import CAError
 
 
 @pytest.fixture
@@ -691,6 +695,105 @@ def test_add_network_to_service_appends_when_other_networks_present() -> None:
     add_network_to_service(service, "deepfellow-net")
 
     assert service == {"networks": ["other-net", "deepfellow-net"]}
+
+
+def test_ca_trust_volume_mounts_trust_dir_read_only() -> None:
+    result = ca_trust_volume(Path("/x/infra"))
+
+    assert result == "/x/infra/trust:/trust:ro"
+
+
+def test_ca_trust_volume_makes_relative_directory_absolute(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    result = ca_trust_volume(Path("myinfra"))
+
+    assert result == f"{tmp_path.resolve() / 'myinfra' / 'trust'}:/trust:ro"
+
+
+@mock.patch("deepfellow.common.docker.write_ca_bundle")
+def test_write_ca_trust_bundle_writes_bundle_to_trust_dir(mock_write_ca_bundle: mock.MagicMock) -> None:
+    write_ca_trust_bundle(Path("/x/infra"))
+
+    assert mock_write_ca_bundle.call_count == 1
+    assert mock_write_ca_bundle.call_args == mock.call(Path("/x/infra/trust"))
+
+
+@mock.patch("deepfellow.common.docker.echo")
+@mock.patch("deepfellow.common.docker.write_ca_bundle")
+def test_write_ca_trust_bundle_shows_error_and_exits_on_ca_error(
+    mock_write_ca_bundle: mock.MagicMock, mock_echo: mock.MagicMock
+) -> None:
+    mock_write_ca_bundle.side_effect = CAError("The CA certificate is malformed.")
+
+    with pytest.raises(typer.Exit):
+        write_ca_trust_bundle(Path("/x/infra"))
+
+    assert mock_echo.error.call_count == 1
+    assert mock_echo.error.call_args == mock.call("The CA certificate is malformed.")
+
+
+@mock.patch("deepfellow.common.docker.write_ca_bundle")
+def test_refresh_ca_trust_bundle_writes_when_trust_mounted(mock_write_ca_bundle: mock.MagicMock) -> None:
+    service = {"volumes": ["/x/infra/storage:/storage", "/x/infra/trust:/trust:ro"]}
+
+    refresh_ca_trust_bundle(Path("/x/infra"), service)
+
+    assert mock_write_ca_bundle.call_count == 1
+    assert mock_write_ca_bundle.call_args == mock.call(Path("/x/infra/trust"))
+
+
+@pytest.mark.parametrize(
+    "service",
+    [
+        {},
+        {"volumes": ["/x/infra/storage:/storage"]},
+        {"volumes": ["/x/infra/ssl:/ssl"]},
+    ],
+)
+@mock.patch("deepfellow.common.docker.write_ca_bundle")
+def test_refresh_ca_trust_bundle_skips_when_not_mounted(
+    mock_write_ca_bundle: mock.MagicMock, service: dict[str, list[str]], tmp_path: Path
+) -> None:
+    refresh_ca_trust_bundle(tmp_path, service)
+
+    assert mock_write_ca_bundle.call_count == 0
+    assert not (tmp_path / "trust").exists()
+
+
+@mock.patch("deepfellow.common.docker.echo")
+@mock.patch("deepfellow.common.docker.write_ca_bundle")
+def test_refresh_ca_trust_bundle_warns_and_keeps_existing_bundle_on_ca_error(
+    mock_write_ca_bundle: mock.MagicMock, mock_echo: mock.MagicMock, tmp_path: Path
+) -> None:
+    (tmp_path / "trust").mkdir()
+    (tmp_path / "trust" / "ca-bundle.pem").write_bytes(b"old bundle")
+    mock_write_ca_bundle.side_effect = CAError("The CA certificate is malformed.")
+
+    refresh_ca_trust_bundle(tmp_path, {"volumes": [f"{tmp_path}/trust:/trust:ro"]})
+
+    assert mock_echo.warning.call_count == 1
+    assert mock_echo.warning.call_args == mock.call(
+        "Couldn't refresh the CA trust bundle, keeping the previous one: The CA certificate is malformed."
+    )
+    assert mock_echo.error.call_count == 0
+
+
+@mock.patch("deepfellow.common.docker.echo")
+@mock.patch("deepfellow.common.docker.write_ca_bundle")
+def test_refresh_ca_trust_bundle_warns_that_https_fails_when_no_bundle_to_keep(
+    mock_write_ca_bundle: mock.MagicMock, mock_echo: mock.MagicMock, tmp_path: Path
+) -> None:
+    mock_write_ca_bundle.side_effect = CAError("The CA certificate is malformed.")
+
+    refresh_ca_trust_bundle(tmp_path, {"volumes": [f"{tmp_path}/trust:/trust:ro"]})
+
+    assert mock_echo.warning.call_count == 1
+    message = mock_echo.warning.call_args.args[0]
+    assert message.startswith(f"Couldn't write the CA trust bundle {tmp_path / 'trust' / 'ca-bundle.pem'}: ")
+    assert "The CA certificate is malformed." in message
+    assert "can't make HTTPS connections" in message
+    assert "keeping the previous one" not in message
 
 
 @pytest.mark.parametrize(

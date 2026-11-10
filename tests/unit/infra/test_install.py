@@ -24,6 +24,7 @@ from deepfellow.common.defaults import (
     DF_INFRA_STORAGE_DIR,
     DF_INFRA_URL,
     DOCKER_COMPOSE_CONFIG_FILENAME,
+    SSL_CERT_FILE_ENV,
 )
 from deepfellow.common.docker import DockerError
 from deepfellow.common.exceptions import DockerNetworkError, InstallError
@@ -3242,6 +3243,63 @@ def test_apply_raises_exit_when_docker_config_write_fails(
     assert mock_echo.error.call_args == mock.call("disk full")
     assert mock_ensure_network.call_count == 0
     assert mock_save_env.call_count == 0
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_apply_writes_ca_bundle_and_mounts_trust(
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    mock_save_env_file: Mock,
+    mock_ensure_network: Mock,
+    mock_save_compose_file: Mock,
+    mock_run: Mock,
+    mock_write_ca_trust_bundle: Mock,
+    install_config: InstallConfig,
+    directory: Path,
+) -> None:
+    apply(install_config)
+
+    infra_service = mock_save_compose_file.call_args.args[0]["services"]["infra"]
+    assert mock_write_ca_trust_bundle.call_count == 1
+    assert mock_write_ca_trust_bundle.call_args == mock.call(directory)
+    assert "/fake/dir/trust:/trust:ro" in infra_service["volumes"]
+    assert SSL_CERT_FILE_ENV in infra_service["environment"]
+
+
+@mock.patch("deepfellow.infra.utils.install.run")
+@mock.patch("deepfellow.infra.utils.install.save_compose_file")
+@mock.patch("deepfellow.infra.utils.install.ensure_network")
+@mock.patch("deepfellow.infra.utils.install.save_env_file")
+@mock.patch("deepfellow.infra.utils.install.env_set")
+@mock.patch("deepfellow.infra.utils.install.echo")
+def test_apply_exits_before_writing_files_when_ca_bundle_fails(
+    mock_echo: Mock,
+    mock_env_set: Mock,
+    mock_save_env_file: Mock,
+    mock_ensure_network: Mock,
+    mock_save_compose_file: Mock,
+    mock_run: Mock,
+    mock_write_ca_trust_bundle: Mock,
+    install_config: InstallConfig,
+    docker_config: Mock,
+) -> None:
+    docker_config.is_file.return_value = False
+    mock_write_ca_trust_bundle.side_effect = typer.Exit(1)
+
+    with pytest.raises(typer.Exit):
+        apply(install_config)
+
+    assert docker_config.write_text.call_count == 0
+    assert mock_ensure_network.call_count == 0
+    assert mock_save_env_file.call_count == 0
+    assert mock_env_set.call_count == 0
+    assert mock_save_compose_file.call_count == 0
+    assert mock_run.call_count == 0
 
 
 @mock.patch("deepfellow.infra.utils.install.run")

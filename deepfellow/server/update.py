@@ -10,7 +10,12 @@ import typer
 
 from deepfellow.common.config import read_env_file_to_dict
 from deepfellow.common.defaults import DF_SERVER_IMAGE, DF_SERVER_IMAGE_HUB, DOCKER_COMPOSE_CONFIG_FILENAME
-from deepfellow.common.docker import get_running_service_image, load_compose_file, save_compose_file
+from deepfellow.common.docker import (
+    get_running_service_image,
+    load_compose_file,
+    refresh_ca_trust_bundle,
+    save_compose_file,
+)
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_set
 from deepfellow.common.install import assert_docker
@@ -183,6 +188,9 @@ def update(
 
     _sync_pull_policy(directory, local_image)
     ports_restricted = migrate_port_bindings(directory)
+    # Also when the image is up to date: the bundle's public CAs come from this CLI, and the CA may have changed
+    server_service = load_compose_file(directory / DOCKER_COMPOSE_CONFIG_FILENAME)["services"].get("server", {})
+    refresh_ca_trust_bundle(directory, server_service)
 
     if (
         track_registry

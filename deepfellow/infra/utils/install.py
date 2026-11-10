@@ -38,11 +38,13 @@ from deepfellow.common.defaults import (
 from deepfellow.common.docker import (
     DockerError,
     add_network_to_service,
+    ca_trust_volume,
     ensure_network,
     get_socket,
     is_all_interfaces,
     local_url,
     save_compose_file,
+    write_ca_trust_bundle,
 )
 from deepfellow.common.echo import echo
 from deepfellow.common.env import env_get, env_set
@@ -560,6 +562,9 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:
     config_file = state.cli_config_file
     secrets_file = state.cli_secrets_file
 
+    # First, so an unusable CA stops the install before anything else is written
+    write_ca_trust_bundle(config.directory)
+
     # Create empty docker config if needed
     if not config.docker_config.is_file():
         try:
@@ -609,6 +614,7 @@ def apply(config: InstallConfig, will_auto_start: bool = False) -> None:
     volumes.append(f"{config.docker_socket}:/run/docker.sock")
     volumes.append(f"{config.docker_socket}:/var/run/docker.sock")
     volumes.append("${DF_INFRA_STORAGE_DIR}:${DF_INFRA_STORAGE_DIR}")
+    volumes.append(ca_trust_volume(config.directory))
 
     if config.local_image:
         infra_service["pull_policy"] = "never"

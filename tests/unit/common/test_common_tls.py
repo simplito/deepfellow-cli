@@ -1,13 +1,16 @@
 # SPDX-License-Identifier: LicenseRef-DeepFellow-Free
 # SPDX-FileCopyrightText: 2026 Simplito sp. z o.o.
 
+import os
 import re
+import ssl
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta, timezone
 from ipaddress import ip_address
 from pathlib import Path
 from unittest import mock
 
+import certifi
 import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
@@ -22,6 +25,7 @@ from cryptography.hazmat.primitives.serialization import (
 )
 from cryptography.x509.oid import ExtendedKeyUsageOID, ExtensionOID, NameOID
 
+from deepfellow.common.defaults import CA_BUNDLE_FILENAME
 from deepfellow.common.tls import (
     CAError,
     CAExistsError,
@@ -29,6 +33,7 @@ from deepfellow.common.tls import (
     import_ca,
     issue_certificate,
     local_names,
+    write_ca_bundle,
     write_ssl_file,
 )
 
@@ -152,6 +157,25 @@ def _write_then_fail(path: Path, content: bytes, mode: int) -> None:
 
 def _load_certs(path: Path) -> list[x509.Certificate]:
     return x509.load_pem_x509_certificates(path.read_bytes())
+
+
+def _tls_handshake(client_context: ssl.SSLContext, server_context: ssl.SSLContext, server_hostname: str) -> None:
+    """Run a TLS handshake in memory; raises `ssl.SSLCertVerificationError` if the client rejects the server."""
+    client_in, client_out, server_in, server_out = ssl.MemoryBIO(), ssl.MemoryBIO(), ssl.MemoryBIO(), ssl.MemoryBIO()
+    client = client_context.wrap_bio(client_in, client_out, server_hostname=server_hostname)
+    server = server_context.wrap_bio(server_in, server_out, server_side=True)
+    pending = {"client": True, "server": True}
+    while any(pending.values()):
+        for name, side, side_out, peer_in in (
+            ("client", client, client_out, server_in),
+            ("server", server, server_out, client_in),
+        ):
+            try:
+                side.do_handshake()
+                pending[name] = False
+            except ssl.SSLWantReadError:
+                pass
+            peer_in.write(side_out.read())
 
 
 @pytest.fixture
@@ -839,3 +863,156 @@ def test_local_names_uses_given_host(mock_gethostname: mock.MagicMock) -> None:
 
     assert result == ["server", "localhost", "127.0.0.1", "::1", "df.example.com"]
     assert mock_gethostname.call_count == 0
+
+
+def test_write_ca_bundle_contains_public_cas_and_generated_ca(ca_dir: Path, out_dir: Path) -> None:
+    generate_ca(ca_dir)
+
+    write_ca_bundle(out_dir, ca_dir=ca_dir)
+
+    bundle = (out_dir / CA_BUNDLE_FILENAME).read_bytes()
+    assert bundle == certifi.contents().encode() + (ca_dir / "ca.pem").read_bytes()
+
+
+def test_write_ca_bundle_keeps_client_chain_order(tmp_path: Path, ca_dir: Path, out_dir: Path) -> None:
+    root_key, intermediate_key = _rsa_key(), _rsa_key()
+    root = _ca_cert(root_key, name="Root", path_length=1)
+    intermediate = _ca_cert(intermediate_key, name="Intermediate", issuer=(root, root_key), path_length=0)
+    import_ca(*_write_ca(tmp_path, [intermediate, root], intermediate_key), ca_dir=ca_dir)
+
+    write_ca_bundle(out_dir, ca_dir=ca_dir)
+
+    chain_pem = b"".join(cert.public_bytes(Encoding.PEM) for cert in (intermediate, root))
+    assert (out_dir / CA_BUNDLE_FILENAME).read_bytes().endswith(chain_pem)
+
+
+@pytest.mark.parametrize("ca_dir_exists", [False, True])
+def test_write_ca_bundle_writes_public_cas_only_when_no_ca(ca_dir: Path, out_dir: Path, ca_dir_exists: bool) -> None:
+    if ca_dir_exists:
+        ca_dir.mkdir()
+        (ca_dir / "ca.key").write_bytes(b"orphaned key")
+
+    write_ca_bundle(out_dir, ca_dir=ca_dir)
+
+    bundle_path = out_dir / CA_BUNDLE_FILENAME
+    assert bundle_path.read_bytes() == certifi.contents().encode()
+    assert bundle_path.stat().st_mode & 0o777 == 0o644
+
+
+@pytest.mark.parametrize("out_dir_exists", [False, True])
+def test_write_ca_bundle_makes_directory_readable_by_containers_despite_umask(
+    ca_dir: Path, out_dir: Path, out_dir_exists: bool
+) -> None:
+    if out_dir_exists:
+        out_dir.mkdir(mode=0o700)
+    old_umask = os.umask(0o077)
+
+    try:
+        write_ca_bundle(out_dir, ca_dir=ca_dir)
+    finally:
+        os.umask(old_umask)
+
+    assert out_dir.stat().st_mode & 0o777 == 0o755
+    assert (out_dir / CA_BUNDLE_FILENAME).stat().st_mode & 0o777 == 0o644
+
+
+@mock.patch("deepfellow.common.tls.certifi.contents")
+def test_write_ca_bundle_separates_public_cas_without_trailing_newline(
+    mock_contents: mock.MagicMock, ca_dir: Path, out_dir: Path
+) -> None:
+    mock_contents.return_value = "-----END CERTIFICATE-----"
+    generate_ca(ca_dir)
+
+    write_ca_bundle(out_dir, ca_dir=ca_dir)
+
+    bundle = (out_dir / CA_BUNDLE_FILENAME).read_bytes()
+    assert bundle == b"-----END CERTIFICATE-----\n" + (ca_dir / "ca.pem").read_bytes()
+
+
+def test_write_ca_bundle_never_contains_private_key(ca_dir: Path, out_dir: Path) -> None:
+    generate_ca(ca_dir)
+
+    write_ca_bundle(out_dir, ca_dir=ca_dir)
+
+    assert b"PRIVATE KEY" not in (out_dir / CA_BUNDLE_FILENAME).read_bytes()
+    assert [path.name for path in out_dir.iterdir()] == [CA_BUNDLE_FILENAME]
+
+
+def test_write_ca_bundle_replaces_existing_bundle(ca_dir: Path, out_dir: Path) -> None:
+    out_dir.mkdir()
+    (out_dir / CA_BUNDLE_FILENAME).write_bytes(b"old bundle")
+    generate_ca(ca_dir)
+
+    write_ca_bundle(out_dir, ca_dir=ca_dir)
+
+    assert (out_dir / CA_BUNDLE_FILENAME).read_bytes().endswith((ca_dir / "ca.pem").read_bytes())
+
+
+@pytest.mark.parametrize("ca_pem", [b"not a certificate", b""])
+def test_write_ca_bundle_raises_ca_error_for_malformed_ca_pem(ca_dir: Path, out_dir: Path, ca_pem: bytes) -> None:
+    ca_dir.mkdir()
+    (ca_dir / "ca.pem").write_bytes(ca_pem)
+    out_dir.mkdir()
+    (out_dir / CA_BUNDLE_FILENAME).write_bytes(b"old bundle")
+
+    with pytest.raises(CAError, match="is not a PEM certificate"):
+        write_ca_bundle(out_dir, ca_dir=ca_dir)
+
+    assert (out_dir / CA_BUNDLE_FILENAME).read_bytes() == b"old bundle"
+
+
+@pytest.mark.parametrize("key_first", [True, False])
+def test_write_ca_bundle_rejects_ca_pem_with_private_key(ca_dir: Path, out_dir: Path, key_first: bool) -> None:
+    generate_ca(ca_dir)
+    cert_pem, key_pem = (ca_dir / "ca.pem").read_bytes(), (ca_dir / "ca.key").read_bytes()
+    (ca_dir / "ca.pem").write_bytes(key_pem + cert_pem if key_first else cert_pem + key_pem)
+
+    with pytest.raises(CAError, match="contains a private key"):
+        write_ca_bundle(out_dir, ca_dir=ca_dir)
+
+    assert not (out_dir / CA_BUNDLE_FILENAME).exists()
+
+
+@mock.patch("deepfellow.common.tls.Path.read_bytes")
+def test_write_ca_bundle_raises_ca_error_when_ca_pem_unreadable(
+    mock_read_bytes: mock.MagicMock, ca_dir: Path, out_dir: Path
+) -> None:
+    mock_read_bytes.side_effect = PermissionError(13, "Permission denied")
+
+    with pytest.raises(CAError, match=f"Can't read {re.escape(str(ca_dir / 'ca.pem'))}: Permission denied"):
+        write_ca_bundle(out_dir, ca_dir=ca_dir)
+
+    assert not out_dir.exists()
+
+
+@mock.patch("deepfellow.common.tls.write_ssl_file")
+def test_write_ca_bundle_keeps_previous_bundle_when_write_fails(
+    mock_write_ssl_file: mock.MagicMock, ca_dir: Path, out_dir: Path
+) -> None:
+    key = _ec_key()
+    _place_ca(ca_dir, _ca_cert(key), key)
+    out_dir.mkdir()
+    (out_dir / CA_BUNDLE_FILENAME).write_bytes(b"old bundle")
+    mock_write_ssl_file.side_effect = PermissionError(13, "Permission denied")
+
+    with pytest.raises(CAError, match=f"Can't write {re.escape(str(out_dir / CA_BUNDLE_FILENAME))}"):
+        write_ca_bundle(out_dir, ca_dir=ca_dir)
+
+    assert {path.name: path.read_bytes() for path in out_dir.iterdir()} == {CA_BUNDLE_FILENAME: b"old bundle"}
+
+
+def test_write_ca_bundle_lets_tls_client_trust_ca_issued_and_public_certificates(
+    tmp_path: Path, ca_dir: Path, out_dir: Path
+) -> None:
+    generate_ca(ca_dir)
+    issue_certificate(tmp_path / "server", ["server"], ca_dir=ca_dir)
+    server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_context.load_cert_chain(tmp_path / "server" / "cert.pem", tmp_path / "server" / "key.pem")
+
+    write_ca_bundle(out_dir, ca_dir=ca_dir)
+
+    client_context = ssl.create_default_context(cafile=out_dir / CA_BUNDLE_FILENAME)
+    assert client_context.cert_store_stats()["x509_ca"] == certifi.contents().count("BEGIN CERTIFICATE") + 1
+    _tls_handshake(client_context, server_context, "server")
+    with pytest.raises(ssl.SSLCertVerificationError):
+        _tls_handshake(ssl.create_default_context(cafile=certifi.where()), server_context, "server")
