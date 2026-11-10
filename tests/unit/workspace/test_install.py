@@ -28,6 +28,7 @@ _OPTIONAL_FLAGS = (
     "mongodb_database_name",
     "redis_url",
     "trusted_proxy",
+    "trusted_origins",
     "mcp_auth_token",
 )
 
@@ -35,6 +36,13 @@ _OPTIONAL_FLAGS = (
 @pytest.fixture(autouse=True)
 def mock_prompt_optional() -> Iterator[Mock]:
     with mock.patch("deepfellow.workspace.install.prompt_optional_settings") as mocked:
+        yield mocked
+
+
+@pytest.fixture(autouse=True)
+def mock_address_interactive() -> Iterator[Mock]:
+    """Keep the address questions quiet; tests that need them set `return_value = True`."""
+    with mock.patch("deepfellow.workspace.utils.public_url.is_interactive", return_value=False) as mocked:
         yield mocked
 
 
@@ -108,6 +116,7 @@ def test_install_passes_values_to_util_and_reports_stored_url(
             "MONGO_DB_NAME": None,
             "REDIS_URL": None,
             "TRUSTED_PROXY_ENABLED": None,
+            "TRUSTED_ORIGINS": None,
             "MCP_AUTH_TOKEN": None,
         },
         "force_install": False,
@@ -936,3 +945,217 @@ def test_install_non_interactive_reinstall_keeps_small_model_offered_by_new_api_
 
     assert mock_list_server_models.call_count == 1
     assert "SMALL_MODEL" not in {k for k, v in mock_util.call_args.kwargs["passed"].items() if v}
+
+
+@mock.patch("deepfellow.workspace.install.assert_docker")
+@mock.patch("deepfellow.workspace.install.echo")
+@mock.patch("deepfellow.workspace.install.install_util", return_value={"PUBLIC_URL": "u"})
+def test_install_http_lan_address_warns_and_installs(
+    mock_util: Mock, mock_echo: Mock, mock_assert_docker: Mock, tmp_path: Path
+) -> None:
+    _call(tmp_path / "ws", public_url="http://192.168.1.10:3000")
+
+    assert mock_echo.warning.call_count == 1
+    assert "http://192.168.1.10:3000" in mock_echo.warning.call_args.args[0]
+    assert mock_util.call_count == 1
+    assert mock_util.call_args.kwargs["passed"]["TRUSTED_PROXY_ENABLED"] is None
+
+
+@mock.patch("deepfellow.workspace.install.assert_docker")
+@mock.patch("deepfellow.workspace.install.echo")
+@mock.patch("deepfellow.workspace.install.install_util", return_value={"PUBLIC_URL": "u"})
+def test_install_default_address_does_not_warn(
+    mock_util: Mock, mock_echo: Mock, mock_assert_docker: Mock, tmp_path: Path
+) -> None:
+    _call(tmp_path / "ws")
+
+    assert mock_echo.warning.call_count == 0
+    assert mock_util.call_args.kwargs["passed"]["PUBLIC_URL"] is None
+
+
+@mock.patch("deepfellow.workspace.install.assert_docker")
+@mock.patch("deepfellow.workspace.install.echo")
+@mock.patch("deepfellow.workspace.install.install_util", return_value={"PUBLIC_URL": "u"})
+def test_install_https_address_enables_trusted_proxy(
+    mock_util: Mock, mock_echo: Mock, mock_assert_docker: Mock, tmp_path: Path
+) -> None:
+    _call(tmp_path / "ws", public_url="https://ws.example.com", trusted_origins="https://a.example.com")
+
+    passed = mock_util.call_args.kwargs["passed"]
+    assert mock_echo.warning.call_count == 0
+    assert passed["TRUSTED_PROXY_ENABLED"] == "true"
+    assert passed["TRUSTED_ORIGINS"] == "https://a.example.com"
+
+
+@mock.patch("deepfellow.workspace.install.assert_docker")
+@mock.patch("deepfellow.workspace.install.echo")
+@mock.patch("deepfellow.workspace.install.install_util", return_value={"PUBLIC_URL": "u"})
+def test_install_https_address_keeps_explicit_no_trusted_proxy(
+    mock_util: Mock, mock_echo: Mock, mock_assert_docker: Mock, tmp_path: Path
+) -> None:
+    _call(tmp_path / "ws", public_url="https://ws.example.com", trusted_proxy=False)
+
+    assert mock_util.call_args.kwargs["passed"]["TRUSTED_PROXY_ENABLED"] == "false"
+
+
+@mock.patch("deepfellow.workspace.install.confirm_overwrite", return_value=True)
+@mock.patch("deepfellow.workspace.install.assert_docker")
+@mock.patch("deepfellow.workspace.install.echo")
+@mock.patch("deepfellow.workspace.install.install_util", return_value={"PUBLIC_URL": "u"})
+def test_install_reinstall_kept_http_lan_address_warns(
+    mock_util: Mock, mock_echo: Mock, mock_assert_docker: Mock, mock_confirm: Mock, tmp_path: Path
+) -> None:
+    (tmp_path / ".env").write_text("PUBLIC_URL=http://10.0.0.5:3000\n")
+
+    _call(tmp_path)
+
+    assert mock_echo.warning.call_count == 1
+    assert "http://10.0.0.5:3000" in mock_echo.warning.call_args.args[0]
+    assert mock_util.call_count == 1
+
+
+@mock.patch("deepfellow.workspace.utils.public_url.echo")
+@mock.patch("deepfellow.workspace.install.assert_docker")
+@mock.patch("deepfellow.workspace.install.echo")
+@mock.patch("deepfellow.workspace.install.install_util", return_value={"PUBLIC_URL": "u"})
+def test_install_interactive_asks_for_address_and_extra_origins(
+    mock_util: Mock,
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_address_echo: Mock,
+    mock_address_interactive: Mock,
+    tmp_path: Path,
+) -> None:
+    mock_address_interactive.return_value = True
+    mock_address_echo.prompt_until_valid.side_effect = ["https://ws.example.com", "https://a.example.com"]
+
+    _call(tmp_path / "ws")
+
+    passed = mock_util.call_args.kwargs["passed"]
+    assert mock_address_echo.prompt_until_valid.call_count == 2
+    assert passed["PUBLIC_URL"] == "https://ws.example.com"
+    assert passed["TRUSTED_PROXY_ENABLED"] == "true"
+    assert passed["TRUSTED_ORIGINS"] == "https://a.example.com"
+
+
+@mock.patch("deepfellow.workspace.utils.public_url.state")
+@mock.patch("deepfellow.workspace.utils.public_url.echo")
+@mock.patch("deepfellow.workspace.install.confirm_overwrite", return_value=True)
+@mock.patch("deepfellow.workspace.install.assert_docker")
+@mock.patch("deepfellow.workspace.install.echo")
+@mock.patch("deepfellow.workspace.install.install_util", return_value={"PUBLIC_URL": "u"})
+def test_install_yes_reinstall_over_https_keeps_settings_without_asking(
+    mock_util: Mock,
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_confirm: Mock,
+    mock_address_echo: Mock,
+    mock_state: Mock,
+    mock_address_interactive: Mock,
+    tmp_path: Path,
+) -> None:
+    mock_address_interactive.return_value = True
+    mock_state.yes = True
+    (tmp_path / ".env").write_text(
+        "PUBLIC_URL=https://ws.example.com\nTRUSTED_PROXY_ENABLED=false\nTRUSTED_ORIGINS=https://a.example.com\n"
+    )
+
+    _call(tmp_path)
+
+    passed = mock_util.call_args.kwargs["passed"]
+    assert mock_address_echo.prompt_until_valid.call_count == 0
+    assert mock_echo.warning.call_count == 0
+    assert passed["PUBLIC_URL"] is None
+    assert passed["TRUSTED_PROXY_ENABLED"] is None
+    assert passed["TRUSTED_ORIGINS"] is None
+
+
+@mock.patch("deepfellow.workspace.utils.public_url.echo")
+@mock.patch("deepfellow.workspace.install.confirm_overwrite", return_value=True)
+@mock.patch("deepfellow.workspace.install.assert_docker")
+@mock.patch("deepfellow.workspace.install.echo")
+@mock.patch("deepfellow.workspace.install.install_util", return_value={"PUBLIC_URL": "u"})
+def test_install_interactive_reinstall_offers_previous_address_and_origins(
+    mock_util: Mock,
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_confirm: Mock,
+    mock_address_echo: Mock,
+    mock_address_interactive: Mock,
+    tmp_path: Path,
+) -> None:
+    mock_address_interactive.return_value = True
+    mock_address_echo.prompt_until_valid.side_effect = ["https://ws.example.com", "https://a.example.com"]
+    (tmp_path / ".env").write_text("PUBLIC_URL=https://ws.example.com\nTRUSTED_ORIGINS=https://a.example.com\n")
+
+    _call(tmp_path)
+
+    calls = mock_address_echo.prompt_until_valid.call_args_list
+    assert len(calls) == 2
+    assert calls[0].kwargs["default"] == "https://ws.example.com"
+    assert calls[1].kwargs["default"] == "https://a.example.com"
+    assert mock_util.call_args.kwargs["passed"]["TRUSTED_PROXY_ENABLED"] == "true"
+
+
+@mock.patch("deepfellow.workspace.install.confirm_overwrite", return_value=True)
+@mock.patch("deepfellow.workspace.install.assert_docker")
+@mock.patch("deepfellow.workspace.install.echo")
+@mock.patch("deepfellow.workspace.install.install_util")
+def test_install_invalid_kept_address_reports_error_and_exits(
+    mock_util: Mock, mock_echo: Mock, mock_assert_docker: Mock, mock_confirm: Mock, tmp_path: Path
+) -> None:
+    (tmp_path / ".env").write_text("PUBLIC_URL=not-a-url\n")
+
+    with pytest.raises(typer.Exit):
+        _call(tmp_path)
+
+    assert mock_util.call_count == 0
+    assert "PUBLIC_URL" in mock_echo.error.call_args.args[0]
+
+
+@mock.patch("deepfellow.workspace.utils.public_url.echo")
+@mock.patch("deepfellow.workspace.install.confirm_overwrite", return_value=True)
+@mock.patch("deepfellow.workspace.install.assert_docker")
+@mock.patch("deepfellow.workspace.install.echo")
+@mock.patch("deepfellow.workspace.install.install_util", return_value={"PUBLIC_URL": "u"})
+def test_install_non_interactive_reinstall_over_https_keeps_proxy_trust_off(
+    mock_util: Mock,
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_confirm: Mock,
+    mock_address_echo: Mock,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".env").write_text("PUBLIC_URL=https://ws.example.com\nTRUSTED_PROXY_ENABLED=false\n")
+
+    _call(tmp_path)
+
+    passed = mock_util.call_args.kwargs["passed"]
+    assert mock_address_echo.prompt_until_valid.call_count == 0
+    assert passed["PUBLIC_URL"] is None
+    assert passed["TRUSTED_PROXY_ENABLED"] is None
+
+
+@mock.patch("deepfellow.common.echo.Prompt.ask")
+@mock.patch("deepfellow.workspace.install.confirm_overwrite", return_value=True)
+@mock.patch("deepfellow.workspace.install.assert_docker")
+@mock.patch("deepfellow.workspace.install.echo")
+@mock.patch("deepfellow.workspace.install.install_util", return_value={"PUBLIC_URL": "u"})
+def test_install_interactive_reinstall_blank_origins_answer_keeps_previous_list(
+    mock_util: Mock,
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_confirm: Mock,
+    mock_ask: Mock,
+    mock_address_interactive: Mock,
+    tmp_path: Path,
+) -> None:
+    # TRUSTED_ORIGINS cannot be cleared by a blank answer: it maps to "not given", which keeps the previous list.
+    mock_address_interactive.return_value = True
+    mock_ask.side_effect = ["https://ws.example.com", " , "]
+    (tmp_path / ".env").write_text("PUBLIC_URL=https://ws.example.com\nTRUSTED_ORIGINS=https://a.example.com\n")
+
+    _call(tmp_path)
+
+    assert mock_ask.call_count == 2
+    assert mock_util.call_args.kwargs["passed"]["TRUSTED_ORIGINS"] is None

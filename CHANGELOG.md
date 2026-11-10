@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - `workspace install` and `workspace uninstall` set up and remove DeepFellow Workspace with its own Mongo and Redis; the organization and project ids and the small model are picked from DeepFellow Server when it supports it
+- `workspace install` asks for the address Workspace is opened at and warns when it is `http://` on a host other than localhost, where browsers block copying and adding attachments; for an `https://` address it trusts the reverse proxy and accepts other trusted origins with `--trusted-origins`
 - `workspace start`, `stop`, `restart`, `status` and `logs` manage a running DeepFellow Workspace;
 - `workspace start` and `workspace restart` recreate a missing Docker network and ask before going on when DeepFellow Server, local or at its configured URL, is not running
 - `workspace install` adds the root user to an existing Workspace Mongo created without a password, so reinstalling over an older Workspace keeps its data

@@ -176,6 +176,22 @@ def test_build_env_explicit_public_url_replaces_existing() -> None:
     assert env["PUBLIC_URL"] == "https://new.example.com"
 
 
+def test_build_env_empty_existing_public_url_uses_default() -> None:
+    env = build_env({"PUBLIC_URL": ""}, PASSED, 3000)
+
+    assert env["PUBLIC_URL"] == "http://localhost:3000"
+
+
+def test_build_env_trusted_origins_passed_replaces_and_missing_keeps_existing() -> None:
+    existing = {"TRUSTED_ORIGINS": "https://a.example.com"}
+
+    kept = build_env(existing, {"TRUSTED_ORIGINS": None}, 3000)
+    replaced = build_env(existing, {"TRUSTED_ORIGINS": "https://b.example.com"}, 3000)
+
+    assert kept["TRUSTED_ORIGINS"] == "https://a.example.com"
+    assert replaced["TRUSTED_ORIGINS"] == "https://b.example.com"
+
+
 def test_build_env_keeps_unrelated_existing_keys() -> None:
     env = build_env({"SMTP_HOST": "smtp.example.com"}, PASSED, 3000)
 

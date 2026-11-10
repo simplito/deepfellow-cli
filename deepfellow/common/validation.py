@@ -90,7 +90,20 @@ def validate_redis_url(value: str | None) -> str | None:
 
 
 def validate_origin(value: str | None) -> str | None:
-    """Validate a browser origin: http(s)://<host>[:port], without credentials, path, query or fragment."""
+    """Validate a browser origin: http(s)://<host>[:port], without credentials, path, query or fragment.
+
+    A trailing `/` is removed: browsers send the `Origin` header without it, and an app comparing origins as
+    strings would never match a value that has one.
+
+    Args:
+        value: The origin, or `None`.
+
+    Returns:
+        The origin without a trailing `/`, or `None`.
+
+    Raises:
+        typer.BadParameter: When the value is not a valid origin.
+    """
     if value is None:
         return None
 
@@ -106,7 +119,36 @@ def validate_origin(value: str | None) -> str | None:
     ):
         raise typer.BadParameter("Invalid origin - expected http(s)://<host>[:port], no path, query or credentials")
 
-    return value
+    return value.rstrip("/")
+
+
+def validate_origins(value: str | None) -> str | None:
+    """Validate a comma-separated list of browser origins (see `validate_origin`).
+
+    Whitespace around entries and empty entries are dropped, and each entry is normalized by `validate_origin`.
+
+    Args:
+        value: Comma-separated origins, or `None`.
+
+    Returns:
+        The entries joined with commas, or `None` when there are none.
+
+    Raises:
+        typer.BadParameter: When an entry is not a valid origin; the message names it.
+    """
+    if value is None:
+        return None
+    origins: list[str] = []
+    for entry in value.split(","):
+        if not (origin := entry.strip()):
+            continue
+        try:
+            origins.append(validate_origin(origin) or origin)
+        except typer.BadParameter:
+            raise typer.BadParameter(
+                f"Invalid origin {origin!r} - expected http(s)://<host>[:port], no path, query or credentials"
+            ) from None
+    return ",".join(origins) or None
 
 
 def validate_connection_string(value: str | None) -> str | None:

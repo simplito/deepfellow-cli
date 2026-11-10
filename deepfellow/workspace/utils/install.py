@@ -3,7 +3,6 @@
 
 """Workspace install logic."""
 
-import re
 import time
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -34,6 +33,7 @@ from deepfellow.common.install import ensure_directory
 from deepfellow.common.system import run
 from deepfellow.common.validation import validate_bind_address
 from deepfellow.workspace.utils.configure import ADMIN_KEYS, SMTP_REQUIRED_KEYS, SMTP_TRIGGER_KEYS
+from deepfellow.workspace.utils.public_url import DEFAULT_PUBLIC_URL_PATTERN
 
 MONGO_USER = "workspace"
 MONGO_PASSWORD_KEY = "DF_WORKSPACE_MONGO_PASSWORD"
@@ -42,7 +42,6 @@ MONGO_PASSWORD_LENGTH = 32
 MONGO_KEY_LENGTH = 64
 APP_SECRET_LENGTH = 48
 MCP_AUTH_TOKEN_LENGTH = 48
-_DEFAULT_PUBLIC_URL = re.compile(r"http://localhost:\d+")
 
 # Values the app cannot start without that the user (not the CLI) supplies.
 REQUIRED_VALUES = {
@@ -163,7 +162,7 @@ def build_env(
         env[MONGO_PASSWORD_KEY] = existing.get(MONGO_PASSWORD_KEY) or generate_password(MONGO_PASSWORD_LENGTH)
         env[MONGO_KEY_KEY] = existing.get(MONGO_KEY_KEY) or generate_password(MONGO_KEY_LENGTH)
     current = env.get("PUBLIC_URL")
-    if not passed.get("PUBLIC_URL") and (current is None or _DEFAULT_PUBLIC_URL.fullmatch(current)):
+    if not passed.get("PUBLIC_URL") and (not current or DEFAULT_PUBLIC_URL_PATTERN.fullmatch(current)):
         env["PUBLIC_URL"] = f"http://localhost:{port}"
     return env
 
