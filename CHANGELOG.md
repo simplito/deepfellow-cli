@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `workspace start`, `stop`, `restart`, `status` and `logs` manage a running DeepFellow Workspace;
 - `workspace start` and `workspace restart` recreate a missing Docker network and ask before going on when DeepFellow Server, local or at its configured URL, is not running
 - `workspace install` adds the root user to an existing Workspace Mongo created without a password, so reinstalling over an older Workspace keeps its data
+- `workspace update` moves Workspace to the version pinned in the CLI (or `--image`/`--tag`), keeping its secrets and settings
+- `workspace update` asks before changing the Mongo major version, which may not start on existing data
+- `workspace env info` and `workspace env set` show and change Workspace settings; secrets are hidden unless `--secret`
+- `workspace env set` switches Mongo and Redis between the bundled and an external one
+- `workspace info` shows a summary of the Workspace installation
 - Install progress shows the downloaded and total size, transfer speed and time remaining when Infra reports download bytes
 - `suite install` names the detected NVIDIA GPU and its VRAM next to the VRAM estimate
 - `--skip-version-check` on install and update commands, for development

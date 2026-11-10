@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import typer
+import yaml
 
 from deepfellow.common.config import read_env_file, save_env_file
 from deepfellow.common.defaults import (
@@ -59,6 +60,8 @@ BIND_ADDRESS_KEY = "DF_WORKSPACE_BIND_ADDRESS"
 DOCKER_NETWORK_KEY = "DF_WORKSPACE_DOCKER_NETWORK"
 MONGO_MIGRATION_ATTEMPTS = 30
 MONGO_MIGRATION_DELAY = 2.0
+# Services of the stack's own Mongo and Redis, whose images `env set` keeps and `update` may change.
+_IMAGE_PINNED_SERVICES = (WORKSPACE_MONGO_SERVICE, WORKSPACE_REDIS_SERVICE)
 
 
 def resolve_stack_settings(
@@ -120,6 +123,30 @@ def read_existing_env(directory: Path) -> dict[str, str]:
     if not env_file.is_file():
         return {}
     return {key: value.replace("$$", "$") for key, value in read_env_file(env_file).items()}
+
+
+def read_installed_env(directory: Path) -> dict[str, str]:
+    """Read the .env of an existing installation, exiting when there is none or it cannot be read.
+
+    Args:
+        directory: Install directory.
+
+    Returns:
+        The parsed .env.
+
+    Raises:
+        typer.Exit: When the .env is missing, empty or unreadable.
+    """
+    env_file = directory / ".env"
+    try:
+        env = read_existing_env(directory)
+    except (OSError, UnicodeDecodeError) as exc:
+        echo.error(f"Cannot read {env_file}: {exc}")
+        raise typer.Exit(1) from exc
+    if not env:
+        echo.error(f"No settings in {env_file}. Run 'workspace install' first.")
+        raise typer.Exit(1)
+    return env
 
 
 def build_env(
@@ -347,6 +374,121 @@ def protect_existing_mongo(directory: Path, password: str) -> None:
             return
 
 
+def current_service_images(directory: Path) -> dict[str, str]:
+    """Read the images of the stack's own Mongo and Redis from the existing compose.yaml.
+
+    Args:
+        directory: Install directory.
+
+    Returns:
+        Image per service name, only for the services present (none for an external Mongo or Redis).
+
+    Raises:
+        InstallError: When compose.yaml cannot be read.
+    """
+    compose_file = directory / DOCKER_COMPOSE_CONFIG_FILENAME
+    if not compose_file.is_file():
+        return {}
+    try:
+        compose = load_compose_file(compose_file)
+    except (yaml.YAMLError, OSError, UnicodeDecodeError) as exc:
+        raise InstallError(f"Cannot read {compose_file}: {exc}") from exc
+    services = compose.get("services") if isinstance(compose, dict) else None
+    if not isinstance(services, dict):
+        return {}
+    images = {}
+    for name in _IMAGE_PINNED_SERVICES:
+        service = services.get(name)
+        if isinstance(service, dict) and service.get("image"):
+            images[name] = str(service["image"])
+    return images
+
+
+def apply_service_images(compose: dict[str, Any], images: Mapping[str, str]) -> dict[str, Any]:
+    """Set the image of the services in `images` that `compose` has; others are left alone.
+
+    Args:
+        compose: The compose dict, changed in place.
+        images: Image per service name.
+
+    Returns:
+        The same compose dict.
+    """
+    services = compose.get("services", {})
+    for name, image in images.items():
+        if name in services:
+            services[name]["image"] = image
+    return compose
+
+
+def build_stack_compose(env: Mapping[str, str], images: Mapping[str, str] | None = None) -> dict[str, Any]:
+    """Build the compose dict from the settings kept in `.env`.
+
+    Args:
+        env: The .env content, with the stack settings (image, port, bind address, Docker network).
+        images: Images of the stack's own Mongo and Redis to use instead of the ones pinned in the CLI.
+
+    Returns:
+        The compose dict.
+
+    Raises:
+        InstallError: When a stack setting in `env` is invalid.
+    """
+    image, port, bind_address, docker_network = resolve_stack_settings(env, None, None, None, None)
+    compose = build_compose(
+        image,
+        port,
+        bind_address,
+        docker_network,
+        local_mongo=not env.get("MONGO_DB_URL"),
+        local_redis=not env.get("REDIS_URL"),
+    )
+    return apply_service_images(compose, images or {})
+
+
+def write_stack(
+    directory: Path, env: Mapping[str, str], reset: Iterable[str] = (), images: Mapping[str, str] | None = None
+) -> None:
+    """Write `.env` and the compose.yaml built from it.
+
+    Args:
+        directory: Install directory.
+        env: The .env content.
+        reset: Keys to drop from an existing `.env`.
+        images: Images of the stack's own Mongo and Redis to use instead of the ones pinned in the CLI.
+
+    Raises:
+        InstallError: When a stack setting in `env` is invalid or a file cannot be written.
+    """
+    compose = build_stack_compose(env, images)
+    # Compose interpolates `$` in `env_file` values, so a literal `$` has to be written as `$$`.
+    compose_env = {key: value.replace("$", "$$") for key, value in env.items()}
+    try:
+        save_env_file(directory / ".env", compose_env, docker_note=False, quiet=True, remove=reset, always_quote=True)
+        save_compose_file(compose, directory / DOCKER_COMPOSE_CONFIG_FILENAME)
+    except OSError as exc:
+        raise InstallError(f"Could not write the configuration in {directory}: {exc}") from exc
+
+
+def validate_env(env: Mapping[str, str]) -> list[str]:
+    """Check the settings the app needs, leaving the decision about incomplete groups to the caller.
+
+    Args:
+        env: The .env content.
+
+    Returns:
+        One message per settings group that is only partly given (see `incomplete_groups`).
+
+    Raises:
+        InstallError: When a required value is missing.
+    """
+    if missing := missing_values(env):
+        raise InstallError(
+            "Missing required values: " + ", ".join(f"{REQUIRED_VALUES[key]} ({key})" for key in missing)
+        )
+    return incomplete_groups(env)
+
+
 def confirm_overwrite(directory: Path) -> bool:
     """Ask whether to reinstall over an existing directory, without suggesting to delete it.
 
@@ -397,11 +539,7 @@ def install(
     """
     resets = tuple(reset)
     env = build_env(existing, passed, port, resets)
-    if missing := missing_values(env):
-        raise InstallError(
-            "Missing required values: " + ", ".join(f"{REQUIRED_VALUES[key]} ({key})" for key in missing)
-        )
-    if problems := incomplete_groups(env):
+    if problems := validate_env(env):
         raise InstallError("; ".join(problems) + ".")
     env |= {
         IMAGE_KEY: image,
@@ -419,13 +557,7 @@ def install(
     migrate_mongo = local_mongo and has_unprotected_mongo(directory, existing)
     env_file = directory / ".env"
     previous_env = env_file.read_text() if env_file.is_file() else None
-    # Compose interpolates `$` in `env_file` values, so a literal `$` has to be written as `$$`.
-    compose_env = {key: value.replace("$", "$$") for key, value in env.items()}
-    save_env_file(directory / ".env", compose_env, docker_note=False, quiet=True, remove=resets, always_quote=True)
-    save_compose_file(
-        build_compose(image, port, bind_address, docker_network, local_mongo, local_redis=not env.get("REDIS_URL")),
-        directory / DOCKER_COMPOSE_CONFIG_FILENAME,
-    )
+    write_stack(directory, env, resets)
 
     try:
         try:

@@ -460,7 +460,8 @@ def mongo_replica_set_service(name: str, volume: str, user: str, password_var: s
 
 
 DF_WORKSPACE_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / "workspace"
-DF_WORKSPACE_IMAGE = "hub.simplito.com/deepfellow/deepfellow-workspace:v0.7.1"
+DF_WORKSPACE_IMAGE_HUB = "hub.simplito.com/deepfellow/deepfellow-workspace"
+DF_WORKSPACE_IMAGE = f"{DF_WORKSPACE_IMAGE_HUB}:v0.7.1"
 DF_WORKSPACE_PORT = 3000
 DF_WORKSPACE_MONGO_DB = "workspace_db"
 DF_WORKSPACE_SMALL_MODEL = "gemma4:e4b"

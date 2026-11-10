@@ -7,8 +7,13 @@ from pathlib import Path
 
 import typer
 
-from deepfellow.common.defaults import DF_INFRA_DOCKER_NETWORK, DF_WORKSPACE_PORT, SERVER_CONTAINER_NAME
-from deepfellow.common.docker import DockerError, ensure_network, local_url
+from deepfellow.common.defaults import (
+    DF_INFRA_DOCKER_NETWORK,
+    DF_WORKSPACE_PORT,
+    SERVER_CONTAINER_NAME,
+    WORKSPACE_APP_SERVICE,
+)
+from deepfellow.common.docker import DockerError, ensure_network, is_service_running_or_raise, local_url
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import DockerNetworkError
 from deepfellow.common.system import run
@@ -114,3 +119,46 @@ def stop_workspace(directory: Path) -> None:
         directory: Workspace install directory.
     """
     run(["docker", "compose", "stop"], cwd=directory)
+
+
+def workspace_running(directory: Path) -> bool | None:
+    """Tell whether the Workspace app container is running.
+
+    Args:
+        directory: Workspace install directory.
+
+    Returns:
+        Whether it runs, or `None` when Docker cannot be asked.
+    """
+    try:
+        return is_service_running_or_raise(WORKSPACE_APP_SERVICE, directory)
+    except DockerError:
+        return None
+
+
+def offer_restart(directory: Path, change: str, no_restart: bool = False) -> None:
+    """Restart a running Workspace when the user agrees, so a change of its configuration applies.
+
+    A stopped Workspace is left stopped, since the change applies on its next start.
+
+    Args:
+        directory: Workspace install directory.
+        change: What is applied, for the messages (e.g. "change", "update").
+        no_restart: Do not restart; only tell how to apply the change.
+    """
+    running = workspace_running(directory)
+    if running is None:
+        echo.warning(
+            f"Could not check whether DeepFellow Workspace is running; run 'workspace restart' to apply the {change}."
+        )
+        return
+    if not running:
+        echo.info(f"DeepFellow Workspace is not running; the {change} applies on the next 'workspace start'.")
+        return
+    if no_restart or not echo.confirm(f"Restart DeepFellow Workspace now to apply the {change}?", default=True):
+        echo.info(f"Run 'workspace restart' to apply the {change}.")
+        return
+    confirm_server_running(directory)
+    stop_workspace(directory)
+    start_workspace(directory)
+    echo.info(f"DeepFellow Workspace restarted on {workspace_url(directory)}")

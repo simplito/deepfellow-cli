@@ -38,10 +38,10 @@ from deepfellow.workspace.utils.install import install as install_util
 from deepfellow.workspace.utils.options import directory_option
 from deepfellow.workspace.utils.public_url import apply_https_settings, insecure_context_warning, resolve_public_url
 from deepfellow.workspace.utils.server import list_server_models, resolve_server_ids, server_lookup_failed
+from deepfellow.workspace.utils.validation import validate_mcp_auth_token
 
 app = typer.Typer()
 
-_MCP_AUTH_TOKEN_MIN_LENGTH = 16
 _SERVER_ID_KEYS = ("DF_SERVER_ORGANIZATION_ID", "DF_SERVER_PROJECT_ID")
 _SMALL_MODEL_CHOICE_LIMIT = 10
 _SMALL_MODEL_EXPLANATION = (
@@ -56,16 +56,6 @@ def _not_empty(value: str) -> str:
     if not value.strip():
         raise typer.BadParameter("A value is required.")
     return value.strip()
-
-
-def _validate_mcp_auth_token(value: str | None) -> str | None:
-    """Validate the MCP bearer token length the app requires."""
-    if value is None:
-        return None
-    value = value.strip()
-    if len(value) < _MCP_AUTH_TOKEN_MIN_LENGTH:
-        raise typer.BadParameter(f"Token must be at least {_MCP_AUTH_TOKEN_MIN_LENGTH} characters.")
-    return value
 
 
 def _reset_keys(local_mongodb: bool, local_redis: bool, no_smtp: bool) -> tuple[str, ...]:
@@ -460,7 +450,7 @@ def install(
     mcp_auth_token: str | None = typer.Option(
         None,
         envvar="DF_WORKSPACE_MCP_AUTH_TOKEN",
-        callback=_validate_mcp_auth_token,
+        callback=validate_mcp_auth_token,
         help="Require this bearer token (min 16 characters) on the /mcp endpoint.",
     ),
     local_mongodb: bool = typer.Option(
