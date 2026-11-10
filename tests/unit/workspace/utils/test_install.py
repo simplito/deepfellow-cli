@@ -9,18 +9,30 @@ from unittest.mock import Mock
 import pytest
 import typer
 
-from deepfellow.common.defaults import DF_WORKSPACE_IMAGE
+from deepfellow.common.defaults import (
+    DF_WORKSPACE_IMAGE,
+    MONGO_IMAGE,
+    WORKSPACE_MONGO_SERVICE,
+    WORKSPACE_REDIS_IMAGE,
+    WORKSPACE_REDIS_SERVICE,
+)
+from deepfellow.common.docker import load_compose_file
 from deepfellow.common.exceptions import DockerNetworkError, InstallError
 from deepfellow.workspace.utils.install import (
+    apply_service_images,
     build_compose,
     build_env,
+    current_service_images,
     has_unprotected_mongo,
     incomplete_groups,
     install,
     missing_values,
     protect_existing_mongo,
     read_existing_env,
+    read_installed_env,
     resolve_stack_settings,
+    validate_env,
+    write_stack,
 )
 
 PASSED: dict[str, str | None] = {
@@ -29,6 +41,14 @@ PASSED: dict[str, str | None] = {
     "DF_SERVER_ORGANIZATION_ID": "org",
     "DF_SERVER_PROJECT_ID": "proj",
     "SMALL_MODEL": "small",
+}
+
+STACK_ENV: dict[str, str] = {
+    **{key: value for key, value in PASSED.items() if value},
+    "DF_WORKSPACE_IMAGE": "img:2",
+    "DF_WORKSPACE_PORT": "3001",
+    "DF_WORKSPACE_BIND_ADDRESS": "127.0.0.1",
+    "DF_WORKSPACE_DOCKER_NETWORK": "net",
 }
 
 
@@ -652,3 +672,155 @@ def test_install_failed_network_before_mongo_migration_restores_old_env(
     # Assert
     assert mock_protect.call_count == 0
     assert (directory / ".env").read_text() == old_env
+
+
+def test_write_stack_round_trips_dollar_hash_and_quotes(tmp_path: Path):
+    env = {**STACK_ENV, "SMTP_PASSWORD": 'a$b #c "d"'}
+
+    write_stack(tmp_path, env)
+
+    assert read_existing_env(tmp_path)["SMTP_PASSWORD"] == 'a$b #c "d"'
+
+
+def test_write_stack_compose_has_local_services_when_urls_empty(tmp_path: Path):
+    env = {**STACK_ENV, "MONGO_DB_URL": "", "REDIS_URL": ""}
+
+    write_stack(tmp_path, env)
+
+    services = load_compose_file(tmp_path / "compose.yaml")["services"]
+    assert WORKSPACE_MONGO_SERVICE in services
+    assert WORKSPACE_REDIS_SERVICE in services
+
+
+def test_write_stack_compose_drops_mongo_for_external_url(tmp_path: Path):
+    env = {**STACK_ENV, "MONGO_DB_URL": "mongodb://db:27017/?replicaSet=rs0"}
+
+    write_stack(tmp_path, env)
+
+    compose = load_compose_file(tmp_path / "compose.yaml")
+    assert WORKSPACE_MONGO_SERVICE not in compose["services"]
+    assert "volumes" not in compose
+
+
+def test_write_stack_compose_uses_env_image_and_port(tmp_path: Path):
+    write_stack(tmp_path, STACK_ENV)
+
+    app = load_compose_file(tmp_path / "compose.yaml")["services"]["workspace"]
+    assert app["image"] == "img:2"
+    assert app["ports"] == ["127.0.0.1:3001:3000"]
+    assert app["networks"] == ["default", "net"]
+
+
+def test_write_stack_applies_given_service_images(tmp_path: Path):
+    images = {WORKSPACE_MONGO_SERVICE: "mongo:old", WORKSPACE_REDIS_SERVICE: "redis:old"}
+
+    write_stack(tmp_path, STACK_ENV, images=images)
+
+    assert current_service_images(tmp_path) == images
+
+
+def test_write_stack_without_images_uses_cli_images(tmp_path: Path):
+    write_stack(tmp_path, STACK_ENV)
+
+    assert current_service_images(tmp_path) == {
+        WORKSPACE_MONGO_SERVICE: MONGO_IMAGE,
+        WORKSPACE_REDIS_SERVICE: WORKSPACE_REDIS_IMAGE,
+    }
+
+
+def test_current_service_images_skips_missing_services(tmp_path: Path):
+    write_stack(tmp_path, {**STACK_ENV, "REDIS_URL": "redis://cache:6379"})
+
+    result = current_service_images(tmp_path)
+
+    assert result == {WORKSPACE_MONGO_SERVICE: MONGO_IMAGE}
+
+
+def test_current_service_images_without_compose_returns_empty(tmp_path: Path):
+    result = current_service_images(tmp_path)
+
+    assert result == {}
+
+
+def test_apply_service_images_ignores_service_not_in_compose():
+    compose = build_compose("img:1", 3000, "", "net", local_redis=False)
+
+    apply_service_images(compose, {WORKSPACE_REDIS_SERVICE: "redis:old", WORKSPACE_MONGO_SERVICE: "mongo:old"})
+
+    assert WORKSPACE_REDIS_SERVICE not in compose["services"]
+    assert compose["services"][WORKSPACE_MONGO_SERVICE]["image"] == "mongo:old"
+
+
+def test_validate_env_raises_on_missing_required():
+    env = {key: value for key, value in STACK_ENV.items() if key != "SMALL_MODEL"}
+
+    with pytest.raises(InstallError, match="SMALL_MODEL"):
+        validate_env(env)
+
+
+def test_validate_env_treats_empty_required_value_as_missing():
+    env = {**STACK_ENV, "DF_SERVER_URL": ""}
+
+    with pytest.raises(InstallError, match="DF_SERVER_URL"):
+        validate_env(env)
+
+
+def test_validate_env_returns_incomplete_smtp_group():
+    env = {**STACK_ENV, "SMTP_HOST": "smtp.example.com"}
+
+    result = validate_env(env)
+
+    assert len(result) == 1
+    assert "SMTP_USERNAME" in result[0]
+
+
+@mock.patch("deepfellow.workspace.utils.install.echo")
+def test_read_installed_env_returns_settings(mock_echo: Mock, tmp_path: Path):
+    write_stack(tmp_path, STACK_ENV)
+
+    result = read_installed_env(tmp_path)
+
+    assert result["SMALL_MODEL"] == "small"
+
+
+@mock.patch("deepfellow.workspace.utils.install.echo")
+def test_read_installed_env_without_file_exits(mock_echo: Mock, tmp_path: Path):
+    with pytest.raises(typer.Exit) as exc_info:
+        read_installed_env(tmp_path)
+
+    assert exc_info.value.exit_code == 1
+    assert "workspace install" in str(mock_echo.error.call_args.args[0])
+
+
+@mock.patch("deepfellow.workspace.utils.install.read_env_file", side_effect=PermissionError("denied"))
+@mock.patch("deepfellow.workspace.utils.install.echo")
+def test_read_installed_env_unreadable_file_exits(mock_echo: Mock, mock_read_env_file: Mock, tmp_path: Path):
+    (tmp_path / ".env").write_text("A=1\n")
+
+    with pytest.raises(typer.Exit) as exc_info:
+        read_installed_env(tmp_path)
+
+    assert exc_info.value.exit_code == 1
+    assert "Cannot read" in str(mock_echo.error.call_args.args[0])
+
+
+@pytest.mark.parametrize("content", ["", "services: [a, b]\n", "- just a list\n"])
+def test_current_service_images_ignores_compose_without_services_mapping(content: str, tmp_path: Path):
+    (tmp_path / "compose.yaml").write_text(content)
+
+    result = current_service_images(tmp_path)
+
+    assert result == {}
+
+
+def test_current_service_images_invalid_yaml_raises(tmp_path: Path):
+    (tmp_path / "compose.yaml").write_text("services: [unclosed")
+
+    with pytest.raises(InstallError, match="Cannot read"):
+        current_service_images(tmp_path)
+
+
+@mock.patch("deepfellow.workspace.utils.install.save_compose_file", side_effect=OSError("disk full"))
+def test_write_stack_write_failure_raises_install_error(mock_save_compose_file: Mock, tmp_path: Path):
+    with pytest.raises(InstallError, match="disk full"):
+        write_stack(tmp_path, STACK_ENV)

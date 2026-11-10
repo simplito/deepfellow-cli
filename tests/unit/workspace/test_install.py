@@ -11,7 +11,7 @@ import pytest
 import typer
 
 from deepfellow.common.exceptions import InstallError
-from deepfellow.workspace.install import _not_empty, _validate_mcp_auth_token, install
+from deepfellow.workspace.install import _not_empty, install
 
 _OPTIONAL_FLAGS = (
     "admin_name",
@@ -326,21 +326,6 @@ def test_install_optional_flags_are_passed_as_env_values(
     assert passed["MONGO_DB_URL"] == "mongodb://db:27017/?replicaSet=rs0"
     assert passed["REDIS_URL"] == "redis://cache:6379"
     assert mock_prompt_optional.call_args == mock.call(passed, {})
-
-
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [(None, None), ("x" * 16, "x" * 16), ("  " + "x" * 16 + "  ", "x" * 16)],
-    ids=["none", "long_enough", "stripped"],
-)
-def test_install_validate_mcp_auth_token_returns_value(value: str | None, expected: str | None) -> None:
-    assert _validate_mcp_auth_token(value) == expected
-
-
-@pytest.mark.parametrize("value", ["short", " " * 5 + "x" * 15], ids=["short", "short_after_stripping"])
-def test_install_validate_mcp_auth_token_rejects_short_token(value: str) -> None:
-    with pytest.raises(typer.BadParameter):
-        _validate_mcp_auth_token(value)
 
 
 @mock.patch("deepfellow.workspace.install.is_interactive", return_value=False)
