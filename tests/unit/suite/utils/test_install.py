@@ -62,19 +62,17 @@ PLAINTEXT_WARNING = (
     "if you abandon this run, remove it yourself."
 )
 
-# The default "workspace" template's real, production-defined post-start actions - derived from
+# The default "suite" template's real, production-defined post-start actions - derived from
 # production's own BUILTIN_TEMPLATES rather than retyped, so these constants can't silently drift
-# from what install()'s own (unmocked, pure-for-a-built-in-name) infra_resolve_template("workspace")/
-# server_resolve_template("workspace") calls actually resolve in every test below that doesn't
+# from what install()'s own (unmocked, pure-for-a-built-in-name) infra_resolve_template("suite")/
+# server_resolve_template("suite") calls actually resolve in every test below that doesn't
 # override `template`.
-_WORKSPACE_POST_START_ACTIONS: list[PostStartAction] = INFRA_BUILTIN_TEMPLATES["workspace"]["post_start_actions"]
-_SERVER_WORKSPACE_POST_START_ACTIONS: list[PostStartAction] = SERVER_BUILTIN_TEMPLATES["workspace"][
-    "post_start_actions"
-]
+_SUITE_POST_START_ACTIONS: list[PostStartAction] = INFRA_BUILTIN_TEMPLATES["suite"]["post_start_actions"]
+_SERVER_SUITE_POST_START_ACTIONS: list[PostStartAction] = SERVER_BUILTIN_TEMPLATES["suite"]["post_start_actions"]
 # Kept as `STEPS`/`TOTAL_STEPS` (test-local, not imported from production - see _build_steps() -
 # these no longer exist as production module constants since the step list is template-dependent)
 # so every existing STEPS/TOTAL_STEPS usage below needs no further change.
-STEPS = _build_steps(_WORKSPACE_POST_START_ACTIONS, _SERVER_WORKSPACE_POST_START_ACTIONS)
+STEPS = _build_steps(_SUITE_POST_START_ACTIONS, _SERVER_SUITE_POST_START_ACTIONS)
 TOTAL_STEPS = len(STEPS)
 
 
@@ -297,7 +295,7 @@ def test_install_success_calls_all_steps_in_order(
         docker_config=None,
         storage=DF_INFRA_STORAGE_DIR,
         docker_network=DF_INFRA_DOCKER_NETWORK,
-        template="workspace",
+        template="suite",
         explicitly_provided=set(),
         allow_rootful=False,
         docker_socket=DOCKER_SOCKET,
@@ -309,10 +307,10 @@ def test_install_success_calls_all_steps_in_order(
     assert mock_infra_install_apply.call_count == 1
     assert mock_infra_install_apply.call_args == _infra_install_apply_call()
     assert mock_infra_start.call_count == 1
-    assert mock_infra_post_start_action.call_count == len(_WORKSPACE_POST_START_ACTIONS)
+    assert mock_infra_post_start_action.call_count == len(_SUITE_POST_START_ACTIONS)
     # Fresh (non --resume) run: "Updated config/secrets" stays visible - only --resume quiets it.
     assert mock_infra_post_start_action.call_args_list == [
-        mock.call(action, DF_INFRA_DIRECTORY, False) for action in _WORKSPACE_POST_START_ACTIONS
+        mock.call(action, DF_INFRA_DIRECTORY, False) for action in _SUITE_POST_START_ACTIONS
     ]
     assert mock_server_install_apply.call_count == 1
     assert mock_server_install_apply.call_args == _server_install_apply_call()
@@ -750,7 +748,7 @@ def test_install_bare_rerun_declining_discard_continues_previous_install(
     # post-start-action calls must be quieted the same way a real --resume run's are - not left
     # noisy just because the local `resume` flag itself was never passed.
     assert mock_infra_post_start_action.call_args_list[0] == mock.call(
-        _WORKSPACE_POST_START_ACTIONS[0], DF_INFRA_DIRECTORY, True
+        _SUITE_POST_START_ACTIONS[0], DF_INFRA_DIRECTORY, True
     )
     assert any(call == mock.call("Continuing the previous install instead.") for call in mock_echo.info.call_args_list)
     # No "state discarded" warning (nothing was discarded) - just the unconditional plaintext-
@@ -817,11 +815,11 @@ def test_install_resume_skips_already_completed_steps_still_live(
     assert mock_server_config.call_count == 0
     assert mock_infra_install_apply.call_count == 0
     assert mock_infra_start.call_count == 0
-    assert mock_infra_post_start_action.call_count == len(_WORKSPACE_POST_START_ACTIONS)
+    assert mock_infra_post_start_action.call_count == len(_SUITE_POST_START_ACTIONS)
     # A --resume run repeats these calls (once per action) against the exact same, already-confirmed
     # connection - "Updated config/secrets" would just be noise, so it's quieted here.
     assert mock_infra_post_start_action.call_args_list == [
-        mock.call(action, DF_INFRA_DIRECTORY, True) for action in _WORKSPACE_POST_START_ACTIONS
+        mock.call(action, DF_INFRA_DIRECTORY, True) for action in _SUITE_POST_START_ACTIONS
     ]
     assert mock_server_install_apply.call_count == 1
     assert mock_server_start.call_count == 1
@@ -912,7 +910,7 @@ def test_install_infra_start_reruns_when_container_no_longer_running_despite_com
     assert mock_infra_install_apply.call_count == 0
     assert mock_infra_start.call_count == 1
     assert mock_is_service_running.call_args_list[0] == mock.call("infra", cwd=DF_INFRA_DIRECTORY)
-    assert mock_infra_post_start_action.call_count == len(_WORKSPACE_POST_START_ACTIONS)
+    assert mock_infra_post_start_action.call_count == len(_SUITE_POST_START_ACTIONS)
     warning_messages = [call.args[0] for call in mock_echo.warning.call_args_list]
     assert (
         f"Step 4/{TOTAL_STEPS}: infra start... was marked complete previously, but is no longer detected as up; "
@@ -1330,7 +1328,7 @@ def test_install_resume_with_empty_completed_steps_does_not_force(
         docker_config=None,
         storage=DF_INFRA_STORAGE_DIR,
         docker_network=DF_INFRA_DOCKER_NETWORK,
-        template="workspace",
+        template="suite",
         explicitly_provided=set(),
         allow_rootful=False,
         docker_socket=DOCKER_SOCKET,
@@ -1847,7 +1845,7 @@ def test_install_resume_reuses_persisted_admin_without_prompting(
     # override: _server_post_start_action() would otherwise warn about a no-op that was actually
     # expected (the same admin as before, not a value the user just supplied this run).
     assert mock_server_post_start_action.call_args == mock.call(
-        _SERVER_WORKSPACE_POST_START_ACTIONS[0],
+        _SERVER_SUITE_POST_START_ACTIONS[0],
         DF_SERVER_DIRECTORY,
         "Persisted Admin",
         "persisted@example.com",
@@ -2271,7 +2269,7 @@ def test_infra_config_forwards_allow_rootful_and_docker_socket(
         docker_config=None,
         storage=DF_INFRA_STORAGE_DIR,
         docker_network=DF_INFRA_DOCKER_NETWORK,
-        template="workspace",
+        template="suite",
         explicitly_provided=set(),
         allow_rootful=True,
         docker_socket="/run/user/1000/docker.sock",
@@ -2540,7 +2538,7 @@ def test_install_prompted_credentials_are_reused_for_server_config_and_login(
     # scenario in the !311 review: a mistyped password at this exact prompt led to a confusing,
     # unrelated login failure two steps later instead of a clear warning here).
     assert mock_server_post_start_action.call_args == mock.call(
-        _SERVER_WORKSPACE_POST_START_ACTIONS[0],
+        _SERVER_SUITE_POST_START_ACTIONS[0],
         DF_SERVER_DIRECTORY,
         "Prompted Admin",
         "prompted@example.com",
@@ -2992,12 +2990,12 @@ def test_install_forwards_custom_infra_and_server_directories(
     assert mock_infra_config.call_args.kwargs["directory"] == custom_infra_directory
     assert mock_infra_start.call_args == mock.call(custom_infra_directory)
     assert mock_infra_post_start_action.call_args_list[0] == mock.call(
-        _WORKSPACE_POST_START_ACTIONS[0], custom_infra_directory, False
+        _SUITE_POST_START_ACTIONS[0], custom_infra_directory, False
     )
     assert mock_server_config.call_args.kwargs["directory"] == custom_server_directory
     assert mock_server_start.call_args == mock.call(custom_server_directory)
     assert mock_server_post_start_action.call_args == mock.call(
-        _SERVER_WORKSPACE_POST_START_ACTIONS[0],
+        _SERVER_SUITE_POST_START_ACTIONS[0],
         custom_server_directory,
         "Admin",
         "admin@example.com",
@@ -3359,7 +3357,7 @@ def test_warn_config_flags_ignored_no_warning_when_nothing_overridden(mock_echo:
 @mock.patch("deepfellow.suite.utils.install.infra_inspect")
 def test_infra_config_forwards_the_given_template(mock_infra_inspect: Mock, mock_infra_resolve: Mock) -> None:
     """The `template` argument must be forwarded through, not hardcoded - proven by passing a value
-    other than the default "workspace" and asserting infra_inspect() received that exact value."""
+    other than the default "suite" and asserting infra_inspect() received that exact value."""
     from deepfellow.suite.utils.install import _infra_config
 
     _infra_config(
@@ -3398,7 +3396,7 @@ def test_infra_config_forwards_bind_address(mock_infra_inspect: Mock, mock_infra
         docker_config=None,
         storage=DF_INFRA_STORAGE_DIR,
         docker_network=DF_INFRA_DOCKER_NETWORK,
-        template="workspace",
+        template="suite",
         explicitly_provided=set(),
         allow_rootful=False,
         docker_socket=DOCKER_SOCKET,
@@ -3421,7 +3419,7 @@ def test_infra_config_returns_resolve_result(mock_infra_inspect: Mock, mock_infr
         docker_config=None,
         storage=DF_INFRA_STORAGE_DIR,
         docker_network=DF_INFRA_DOCKER_NETWORK,
-        template="workspace",
+        template="suite",
         explicitly_provided=set(),
         allow_rootful=False,
         docker_socket=DOCKER_SOCKET,
@@ -3451,7 +3449,7 @@ def test_infra_config_translates_bad_parameter_to_install_error(mock_infra_inspe
             docker_config=None,
             storage=DF_INFRA_STORAGE_DIR,
             docker_network=DF_INFRA_DOCKER_NETWORK,
-            template="workspace",
+            template="suite",
             explicitly_provided=set(),
             allow_rootful=False,
             docker_socket=DOCKER_SOCKET,
@@ -3475,7 +3473,7 @@ def test_infra_config_translates_os_error_to_install_error(mock_infra_inspect: M
             docker_config=None,
             storage=DF_INFRA_STORAGE_DIR,
             docker_network=DF_INFRA_DOCKER_NETWORK,
-            template="workspace",
+            template="suite",
             explicitly_provided=set(),
             allow_rootful=False,
             docker_socket=DOCKER_SOCKET,
@@ -3539,7 +3537,7 @@ def test_infra_post_start_action_dispatches_a_service_install_action_with_localh
     from deepfellow.suite.utils.install import _infra_post_start_action
 
     mock_env_get.side_effect = ["9999", ""]
-    service_action = _WORKSPACE_POST_START_ACTIONS[0]
+    service_action = _SUITE_POST_START_ACTIONS[0]
 
     _infra_post_start_action(service_action, DF_INFRA_DIRECTORY, quiet=True)
 
@@ -3554,7 +3552,7 @@ def test_infra_post_start_action_dispatches_with_bind_address_url(mock_dispatch:
     from deepfellow.suite.utils.install import _infra_post_start_action
 
     mock_env_get.side_effect = ["9999", "10.0.0.5"]
-    service_action = _WORKSPACE_POST_START_ACTIONS[0]
+    service_action = _SUITE_POST_START_ACTIONS[0]
 
     _infra_post_start_action(service_action, DF_INFRA_DIRECTORY, quiet=True)
 
@@ -3567,7 +3565,7 @@ def test_infra_post_start_action_dispatches_a_model_install_action(mock_dispatch
     from deepfellow.suite.utils.install import _infra_post_start_action
 
     mock_env_get.return_value = None
-    model_action = _WORKSPACE_POST_START_ACTIONS[1]
+    model_action = _SUITE_POST_START_ACTIONS[1]
 
     _infra_post_start_action(model_action, DF_INFRA_DIRECTORY, quiet=False)
 
@@ -3597,7 +3595,7 @@ def _server_config_kwargs(**overrides: object) -> dict:
         "rabbitmq_username": "",
         "rabbitmq_password": "",
         "otel_local": False,
-        "template": "workspace",
+        "template": "suite",
         "explicitly_provided": set(),
     }
     base.update(overrides)
@@ -3610,7 +3608,7 @@ def test_server_config_forwards_the_given_template_and_infra_api_key(
     mock_server_inspect: Mock, mock_server_resolve: Mock
 ) -> None:
     """`template` must be forwarded through, not hardcoded - proven by passing a value other than
-    the default "workspace" and asserting server_inspect() received that exact value."""
+    the default "suite" and asserting server_inspect() received that exact value."""
     from deepfellow.suite.utils.install import _server_config
 
     infra_config = _make_infra_config(api_key="infra-api-key")
@@ -3742,7 +3740,7 @@ def test_server_start_reraises_original_error_in_debug_mode(mock_start_server: M
         _server_start(DF_SERVER_DIRECTORY)
 
 
-_SERVER_CREATE_ADMIN_ACTION: PostStartAction = _SERVER_WORKSPACE_POST_START_ACTIONS[0]
+_SERVER_CREATE_ADMIN_ACTION: PostStartAction = _SERVER_SUITE_POST_START_ACTIONS[0]
 
 
 @mock.patch("deepfellow.suite.utils.install.create_admin_util")
@@ -3838,7 +3836,7 @@ def test_server_post_start_action_dispatches_a_non_admin_action_unmodified(
 
 
 def test_validate_template_accepts_a_known_builtin_name() -> None:
-    _validate_template("workspace")
+    _validate_template("suite")
 
 
 def test_validate_template_raises_on_unknown_name() -> None:
@@ -3851,19 +3849,19 @@ def test_resolve_effective_template_adopts_given_template_for_a_fresh_state() ->
     invocation's own --template, with nothing to warn about."""
     install_state = SuiteInstallState()
 
-    result = _resolve_effective_template(install_state, "workspace")
+    result = _resolve_effective_template(install_state, "suite")
 
-    assert result == "workspace"
-    assert install_state.template == "workspace"
+    assert result == "suite"
+    assert install_state.template == "suite"
 
 
 @mock.patch("deepfellow.suite.utils.install.echo")
 def test_resolve_effective_template_reuses_matching_persisted_template_without_warning(mock_echo: Mock) -> None:
-    install_state = SuiteInstallState(template="workspace")
+    install_state = SuiteInstallState(template="suite")
 
-    result = _resolve_effective_template(install_state, "workspace")
+    result = _resolve_effective_template(install_state, "suite")
 
-    assert result == "workspace"
+    assert result == "suite"
     assert mock_echo.warning.call_count == 0
 
 
@@ -3872,16 +3870,16 @@ def test_resolve_effective_template_warns_and_reuses_persisted_template_on_misma
     """The core DFCLI-14 follow-up guarantee: a persisted template from a run being continued
     always wins over this invocation's own --template - which would otherwise silently mix one
     template's infra/server configuration with another template's installed services/models."""
-    install_state = SuiteInstallState(template="workspace")
+    install_state = SuiteInstallState(template="suite")
 
     result = _resolve_effective_template(install_state, "other")
 
-    assert result == "workspace"
-    assert install_state.template == "workspace"
+    assert result == "suite"
+    assert install_state.template == "suite"
     assert mock_echo.warning.call_count == 1
     message = mock_echo.warning.call_args.args[0]
     assert "'other'" in message
-    assert "'workspace'" in message
+    assert "'suite'" in message
 
 
 @mock.patch("deepfellow.suite.utils.install.assert_docker")
@@ -4064,7 +4062,7 @@ def test_install_skips_doc_chunker_only_models_when_granting_model_access(
 
 @mock.patch("deepfellow.suite.utils.install.server_resolve_template")
 @mock.patch("deepfellow.suite.utils.install.infra_resolve_template")
-@mock.patch("deepfellow.suite.utils.install._SUITE_BUILTIN_TEMPLATES", frozenset({"workspace", "other"}))
+@mock.patch("deepfellow.suite.utils.install._SUITE_BUILTIN_TEMPLATES", frozenset({"suite", "other"}))
 @_patch_all_steps
 def test_install_resume_with_different_template_warns_and_reuses_persisted_one(
     mock_server_config_to_dict: Mock,
@@ -4095,24 +4093,24 @@ def test_install_resume_with_different_template_warns_and_reuses_persisted_one(
     mock_server_resolve_template: Mock,
 ) -> None:
     """The core review-finding guarantee: --resume with a --template different from (or simply
-    omitting, defaulting back to "workspace") the one the previous run persisted must not silently
+    omitting, defaulting back to "suite") the one the previous run persisted must not silently
     mix the two - infra/server stay configured for the persisted template, and the services/models
     this run installs and grants access to must come from that SAME persisted template, not this
     invocation's --template.
 
-    "other" isn't a real built-in template (only "workspace" is, in production) - only
+    "other" isn't a real built-in template (only "suite" is, in production) - only
     `_SUITE_BUILTIN_TEMPLATES` is patched to accept it as a name for this test, so
     `infra_resolve_template()`/`server_resolve_template()` are stubbed to resolve it to some other
-    (fake) template's actions, distinguishable from "workspace"'s real ones.
+    (fake) template's actions, distinguishable from "suite"'s real ones.
     """
     mock_infra_resolve_template.side_effect = lambda name: (
-        INFRA_BUILTIN_TEMPLATES["workspace"] if name == "workspace" else _FAKE_TWO_ACTION_TEMPLATE
+        INFRA_BUILTIN_TEMPLATES["suite"] if name == "suite" else _FAKE_TWO_ACTION_TEMPLATE
     )
     mock_server_resolve_template.side_effect = lambda name: (
-        SERVER_BUILTIN_TEMPLATES["workspace"] if name == "workspace" else _FAKE_TWO_ACTION_TEMPLATE
+        SERVER_BUILTIN_TEMPLATES["suite"] if name == "suite" else _FAKE_TWO_ACTION_TEMPLATE
     )
     mock_load_state.return_value = SuiteInstallState(
-        completed_steps=["infra_config", "server_config"], template="workspace"
+        completed_steps=["infra_config", "server_config"], template="suite"
     )
     mock_get_token_from_login.return_value = "token"
     workspace = _make_workspace()
@@ -4127,21 +4125,21 @@ def test_install_resume_with_different_template_warns_and_reuses_persisted_one(
     )
 
     warning_messages = [call.args[0] for call in mock_echo.warning.call_args_list]
-    assert any("'other'" in msg and "'workspace'" in msg for msg in warning_messages)
-    # The persisted "workspace" template's real post-start actions/models were used - not "other"'s.
+    assert any("'other'" in msg and "'suite'" in msg for msg in warning_messages)
+    # The persisted "suite" template's real post-start actions/models were used - not "other"'s.
     assert mock_infra_post_start_action.call_args_list == [
-        mock.call(action, DF_INFRA_DIRECTORY, True) for action in _WORKSPACE_POST_START_ACTIONS
+        mock.call(action, DF_INFRA_DIRECTORY, True) for action in _SUITE_POST_START_ACTIONS
     ]
     assert mock_server_post_start_action.call_args_list == [
         mock.call(action, DF_SERVER_DIRECTORY, "Admin", "admin@example.com", "Sup3r$ecret!", True)
-        for action in _SERVER_WORKSPACE_POST_START_ACTIONS
+        for action in _SERVER_SUITE_POST_START_ACTIONS
     ]
     assert mock_update_project.call_args.args[2:] == (
         workspace.organization.id,
         workspace.project.id,
         {"models": ["gemma4:e4b", "mxbai-embed-large"]},
     )
-    assert mock_save_state.call_args.args[0].template == "workspace"
+    assert mock_save_state.call_args.args[0].template == "suite"
 
 
 @_patch_all_steps
@@ -4190,7 +4188,7 @@ def test_install_resume_ignores_leftover_old_post_start_action_step_ids(
 
     install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", resume=True)
 
-    assert mock_infra_post_start_action.call_count == len(_WORKSPACE_POST_START_ACTIONS)
+    assert mock_infra_post_start_action.call_count == len(_SUITE_POST_START_ACTIONS)
 
 
 @mock.patch("deepfellow.suite.utils.install.print_vram_estimate")
@@ -4233,14 +4231,14 @@ def test_install_prints_vram_estimate_of_template_actions_before_admin_prompts(
     install(admin_name=None, admin_email=None, admin_password=None)
 
     assert mock_print_vram_estimate.call_count == 1
-    assert mock_print_vram_estimate.call_args == mock.call(_WORKSPACE_POST_START_ACTIONS)
+    assert mock_print_vram_estimate.call_args == mock.call(_SUITE_POST_START_ACTIONS)
     assert [name for name, _, _ in _mock_manager.mock_calls[:2]] == ["print_vram_estimate", "prompt_until_valid"]
 
 
 @mock.patch("deepfellow.suite.utils.install.print_vram_estimate")
 @mock.patch("deepfellow.suite.utils.install.server_resolve_template")
 @mock.patch("deepfellow.suite.utils.install.infra_resolve_template")
-@mock.patch("deepfellow.suite.utils.install._SUITE_BUILTIN_TEMPLATES", frozenset({"workspace", "other"}))
+@mock.patch("deepfellow.suite.utils.install._SUITE_BUILTIN_TEMPLATES", frozenset({"suite", "other"}))
 @_patch_all_steps
 def test_install_resume_prints_vram_estimate_of_persisted_template_not_passed_one(
     mock_server_config_to_dict: Mock,
@@ -4272,13 +4270,13 @@ def test_install_resume_prints_vram_estimate_of_persisted_template_not_passed_on
     mock_print_vram_estimate: Mock,
 ) -> None:
     mock_infra_resolve_template.side_effect = lambda name: (
-        INFRA_BUILTIN_TEMPLATES["workspace"] if name == "workspace" else _FAKE_TWO_ACTION_TEMPLATE
+        INFRA_BUILTIN_TEMPLATES["suite"] if name == "suite" else _FAKE_TWO_ACTION_TEMPLATE
     )
     mock_server_resolve_template.side_effect = lambda name: (
-        SERVER_BUILTIN_TEMPLATES["workspace"] if name == "workspace" else _FAKE_TWO_ACTION_TEMPLATE
+        SERVER_BUILTIN_TEMPLATES["suite"] if name == "suite" else _FAKE_TWO_ACTION_TEMPLATE
     )
     mock_load_state.return_value = SuiteInstallState(
-        completed_steps=["infra_config", "server_config"], template="workspace"
+        completed_steps=["infra_config", "server_config"], template="suite"
     )
     mock_get_token_from_login.return_value = "token"
     mock_create_workspace.return_value = _make_workspace()
@@ -4292,7 +4290,7 @@ def test_install_resume_prints_vram_estimate_of_persisted_template_not_passed_on
     )
 
     assert mock_print_vram_estimate.call_count == 1
-    assert mock_print_vram_estimate.call_args == mock.call(_WORKSPACE_POST_START_ACTIONS)
+    assert mock_print_vram_estimate.call_args == mock.call(_SUITE_POST_START_ACTIONS)
 
 
 @mock.patch("deepfellow.suite.utils.vram.echo")

@@ -22,7 +22,7 @@ from deepfellow.infra.utils.templates import (
 if TYPE_CHECKING:
     from deepfellow.common.templates import PostStartAction
 
-_WORKSPACE_OLLAMA_SPEC = {
+_SUITE_OLLAMA_SPEC = {
     "hardware": "GPU",
     "keep_alive": "-1",
     "is_flash_attention": True,
@@ -50,19 +50,19 @@ def test_dispatch_post_start_action_calls_registered_function_with_kwargs() -> N
 @mock.patch(
     "deepfellow.infra.utils.service_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
 )
-def test_dispatch_post_start_action_installs_ollama_service_from_builtin_workspace_template(
+def test_dispatch_post_start_action_installs_ollama_service_from_builtin_suite_template(
     mock_resolve: Mock,
     mock_install_with_progress: Mock,
     mock_persist: Mock,
 ) -> None:
     mock_install_with_progress.return_value = {"status": "OK"}
-    action = BUILTIN_TEMPLATES["workspace"]["post_start_actions"][0]
+    action = BUILTIN_TEMPLATES["suite"]["post_start_actions"][0]
 
     dispatch_post_start_action(action)
 
     assert mock_install_with_progress.call_count == 1
     call_kwargs = mock_install_with_progress.call_args[1]
-    assert call_kwargs["data"] == {"spec": _WORKSPACE_OLLAMA_SPEC}
+    assert call_kwargs["data"] == {"spec": _SUITE_OLLAMA_SPEC}
     assert mock_resolve.call_count == 1
     assert mock_resolve.call_args == mock.call(None)
     assert mock_persist.call_count == 1
@@ -73,13 +73,13 @@ def test_dispatch_post_start_action_installs_ollama_service_from_builtin_workspa
 @mock.patch(
     "deepfellow.infra.utils.model_install.resolve_infra_connection", return_value=("http://infra:8086", "test-key")
 )
-def test_dispatch_post_start_action_installs_chat_model_from_builtin_workspace_template(
+def test_dispatch_post_start_action_installs_chat_model_from_builtin_suite_template(
     mock_resolve: Mock,
     mock_install_with_progress: Mock,
     mock_persist: Mock,
 ) -> None:
     mock_install_with_progress.return_value = {"status": "OK"}
-    action = BUILTIN_TEMPLATES["workspace"]["post_start_actions"][1]
+    action = BUILTIN_TEMPLATES["suite"]["post_start_actions"][1]
 
     dispatch_post_start_action(action)
 
@@ -89,49 +89,48 @@ def test_dispatch_post_start_action_installs_chat_model_from_builtin_workspace_t
     assert mock_persist.call_count == 1
 
 
-def test_builtin_workspace_ollama_spec_is_json_serialized_for_service_install() -> None:
-    action = BUILTIN_TEMPLATES["workspace"]["post_start_actions"][0]
+def test_builtin_suite_ollama_spec_is_json_serialized_for_service_install() -> None:
+    action = BUILTIN_TEMPLATES["suite"]["post_start_actions"][0]
 
-    assert json.loads(action["kwargs"]["spec"]) == _WORKSPACE_OLLAMA_SPEC
+    assert json.loads(action["kwargs"]["spec"]) == _SUITE_OLLAMA_SPEC
 
 
-def test_builtin_workspace_post_start_actions_leave_server_for_install_to_inject() -> None:
+def test_builtin_suite_post_start_actions_leave_server_for_install_to_inject() -> None:
     # install() fills in "server" from the port it actually resolved, after infra is started - not
     # from this module, which has no way to know that port at template-definition time.
-    actions = BUILTIN_TEMPLATES["workspace"]["post_start_actions"]
+    actions = BUILTIN_TEMPLATES["suite"]["post_start_actions"]
 
     assert len(actions) == 7
     assert all("server" not in action["kwargs"] for action in actions)
 
 
 def test_resolve_template_returns_builtin_template_when_value_matches_known_name() -> None:
-    result = resolve_template("workspace")
+    result = resolve_template("suite")
 
-    assert result == BUILTIN_TEMPLATES["workspace"]
+    assert result == BUILTIN_TEMPLATES["suite"]
 
 
 def test_resolve_template_returns_a_copy_of_the_builtin_template_not_a_live_reference() -> None:
-    result = resolve_template("workspace")
+    result = resolve_template("suite")
 
-    assert result is not BUILTIN_TEMPLATES["workspace"]
-    assert result["config"] is not BUILTIN_TEMPLATES["workspace"]["config"]
+    assert result is not BUILTIN_TEMPLATES["suite"]
+    assert result["config"] is not BUILTIN_TEMPLATES["suite"]["config"]
 
     result["config"]["extra_key"] = "mutated"
 
-    assert "extra_key" not in BUILTIN_TEMPLATES["workspace"]["config"]
+    assert "extra_key" not in BUILTIN_TEMPLATES["suite"]["config"]
 
 
 def test_resolve_template_post_start_action_kwargs_are_not_a_live_reference() -> None:
-    result = resolve_template("workspace")
+    result = resolve_template("suite")
 
     assert (
-        result["post_start_actions"][0]["kwargs"]
-        is not BUILTIN_TEMPLATES["workspace"]["post_start_actions"][0]["kwargs"]
+        result["post_start_actions"][0]["kwargs"] is not BUILTIN_TEMPLATES["suite"]["post_start_actions"][0]["kwargs"]
     )
 
     result["post_start_actions"][0]["kwargs"]["extra_key"] = "mutated"
 
-    assert "extra_key" not in BUILTIN_TEMPLATES["workspace"]["post_start_actions"][0]["kwargs"]
+    assert "extra_key" not in BUILTIN_TEMPLATES["suite"]["post_start_actions"][0]["kwargs"]
 
 
 def test_resolve_template_loads_yaml_file_when_value_is_a_path(tmp_path: Path) -> None:
@@ -337,8 +336,8 @@ def test_resolve_template_action_kwargs_and_config_type_coercion_errors_both_app
     assert message.index(action_kwargs_error) < message.index(config_type_error)
 
 
-def test_builtin_workspace_installs_doc_chunker_with_single_worker() -> None:
-    actions = BUILTIN_TEMPLATES["workspace"]["post_start_actions"]
+def test_builtin_suite_installs_doc_chunker_with_single_worker() -> None:
+    actions = BUILTIN_TEMPLATES["suite"]["post_start_actions"]
 
     doc_chunker = next(action for action in actions if action["kwargs"].get("model_name") == "doc_chunker")
 
@@ -346,8 +345,8 @@ def test_builtin_workspace_installs_doc_chunker_with_single_worker() -> None:
     assert json.loads(doc_chunker["kwargs"]["spec"]) == {"max_concurrent": 1}
 
 
-def test_builtin_workspace_installs_doc_chunker_stt_model() -> None:
-    actions = BUILTIN_TEMPLATES["workspace"]["post_start_actions"]
+def test_builtin_suite_installs_doc_chunker_stt_model() -> None:
+    actions = BUILTIN_TEMPLATES["suite"]["post_start_actions"]
 
     model_installs = [
         (action["kwargs"]["service_name"], action["kwargs"]["model_name"])

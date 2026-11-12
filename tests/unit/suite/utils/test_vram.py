@@ -135,10 +135,10 @@ def test_print_vram_estimate_prints_nothing_without_a_known_model(
 
 @mock.patch("deepfellow.suite.utils.vram.detect_gpus", return_value=[])
 @mock.patch("deepfellow.suite.utils.vram.echo")
-def test_print_vram_estimate_workspace_template_lists_every_model(
+def test_print_vram_estimate_suite_template_lists_every_model(
     mock_echo: mock.MagicMock, mock_detect_gpus: mock.MagicMock
 ):
-    actions = BUILTIN_TEMPLATES["workspace"]["post_start_actions"]
+    actions = BUILTIN_TEMPLATES["suite"]["post_start_actions"]
 
     print_vram_estimate(actions)
 
@@ -148,8 +148,8 @@ def test_print_vram_estimate_workspace_template_lists_every_model(
     assert "No estimate for" not in message
 
 
-def test_model_estimated_vram_covers_every_model_the_workspace_template_installs():
-    actions = BUILTIN_TEMPLATES["workspace"]["post_start_actions"]
+def test_model_estimated_vram_covers_every_model_the_suite_template_installs():
+    actions = BUILTIN_TEMPLATES["suite"]["post_start_actions"]
     models = {
         action["kwargs"]["model_name"]
         for action in actions

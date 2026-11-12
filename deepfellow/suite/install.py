@@ -122,7 +122,7 @@ def install(
     resume: bool = typer.Option(
         False, "--resume", help="Continue a previous, incomplete `suite install` run instead of starting fresh."
     ),
-    template: str = typer.Option("workspace", help=_TEMPLATE_HELP),
+    template: str = typer.Option("suite", help=_TEMPLATE_HELP),
     infra_port: int = typer.Option(
         DF_INFRA_PORT, envvar="DF_INFRA_PORT", help="Published port to serve the DeepFellow Infra from."
     ),
@@ -197,12 +197,12 @@ def install(
     otel_local: bool = typer.Option(False, "--otel-local", help="Install a local debug-only OpenTelemetry collector."),
     allow_rootful: bool = typer.Option(False, help="Allow rootful Docker without asking user for permission"),
 ) -> None:
-    """Provision a complete DeepFellow workspace: Infra, Server, admin user, and a ready-to-use workspace.
+    """Provision a complete DeepFellow suite: Infra, Server, admin user, and a ready-to-use workspace.
 
     Runs a sequence of granular steps, in order: infra configuration, server configuration, infra
     install, infra start, one step per service/model the resolved `--template` installs (the
-    "workspace" template installs the Ollama service and 3 models), server install, server start, one
-    step per post-start action the resolved `--template` runs on server (the "workspace" template
+    "suite" template installs the Ollama service and 3 models), server install, server start, one
+    step per post-start action the resolved `--template` runs on server (the "suite" template
     creates the admin account), server login, one call to the server's atomic workspace-creation endpoint
     (organization "Workspace", project "Default", API key "app"), and a follow-up call granting the
     created project access to exactly the models the resolved template installed. The two
@@ -212,7 +212,7 @@ def install(
     through a long-running install.
 
     `--template <name>` selects the built-in template forwarded to both infra's and server's own
-    configuration/post-start-action resolution (default `workspace`); unlike `infra install`'s/
+    configuration/post-start-action resolution (default `suite`); unlike `infra install`'s/
     `server install`'s own `--template`, only a built-in name is accepted, not a path to a custom
     template file. A `--resume` (or a declined discard) always reuses the template the run being
     continued was originally started with, warning if `--template` was passed with a different

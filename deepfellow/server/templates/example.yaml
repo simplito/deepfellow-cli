@@ -12,7 +12,7 @@ config:
   infra_url: "http://infra:8086"
 
   # Infra API key. Omit this key entirely if it's generated at infra install time and not
-  # known ahead of install (as the built-in "workspace" template does).
+  # known ahead of install (as the built-in "suite" template does).
   infra_api_key: "your-infra-api-key"
 
   # Docker network shared with the infra stack.

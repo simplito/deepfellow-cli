@@ -1293,7 +1293,7 @@ def _run_post_start_actions(
     apply_phases: list[Callable[[], Any]] = []
     for index, action in enumerate(post_start_actions, start=1):
         # A server.create_admin action's "directory" kwarg must target the directory actually
-        # installed to, not whatever a template guessed (the built-in "workspace" template bakes
+        # installed to, not whatever a template guessed (the built-in "suite" template bakes
         # it to the default DF_SERVER_DIRECTORY, which is wrong whenever --directory overrides
         # it). Scoped to server.create_admin, like _coerce_directory() and
         # _validate_non_interactive_post_start_actions(), so a future action type without a

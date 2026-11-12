@@ -210,7 +210,7 @@ def test_load_defaults_template_when_absent(tmp_path: Path) -> None:
 
 def test_save_then_load_round_trips_template(tmp_path: Path) -> None:
     state_file = tmp_path / "suite_install_state.json"
-    install_state = SuiteInstallState(completed_steps=["infra_config"], template="workspace")
+    install_state = SuiteInstallState(completed_steps=["infra_config"], template="suite")
 
     save(install_state, state_file)
     result = load(state_file)
