@@ -47,6 +47,12 @@ def mock_address_interactive() -> Iterator[Mock]:
 
 
 @pytest.fixture(autouse=True)
+def mock_configure_webhook() -> Iterator[Mock]:
+    with mock.patch("deepfellow.workspace.install.configure_webhook") as mocked:
+        yield mocked
+
+
+@pytest.fixture(autouse=True)
 def mock_resolve_server_ids() -> Iterator[Mock]:
     with mock.patch("deepfellow.workspace.install.resolve_server_ids", return_value=None) as mocked:
         yield mocked
@@ -75,6 +81,7 @@ def _call(directory: Path, **overrides: Any) -> None:
         "local_mongodb": False,
         "local_redis": False,
         "no_smtp": False,
+        "no_server_webhook": False,
     } | dict.fromkeys(_OPTIONAL_FLAGS)
     install(**(kwargs | overrides))
 
@@ -1144,3 +1151,39 @@ def test_install_interactive_reinstall_blank_origins_answer_keeps_previous_list(
 
     assert mock_ask.call_count == 2
     assert mock_util.call_args.kwargs["passed"]["TRUSTED_ORIGINS"] is None
+
+
+@mock.patch("deepfellow.workspace.install.confirm_overwrite", return_value=True)
+@mock.patch("deepfellow.workspace.install.assert_docker")
+@mock.patch("deepfellow.workspace.install.echo")
+@mock.patch("deepfellow.workspace.install.install_util", return_value={"PUBLIC_URL": "https://ws.example.com"})
+def test_install_sets_up_webhook_for_the_chosen_address(
+    mock_util: Mock,
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_confirm: Mock,
+    mock_configure_webhook: Mock,
+    tmp_path: Path,
+) -> None:
+    _call(tmp_path, public_url="https://ws.example.com")
+
+    assert mock_configure_webhook.call_count == 1
+    assert mock_configure_webhook.call_args.args[2] == "https://ws.example.com"
+
+
+@mock.patch("deepfellow.workspace.install.confirm_overwrite", return_value=True)
+@mock.patch("deepfellow.workspace.install.assert_docker")
+@mock.patch("deepfellow.workspace.install.echo")
+@mock.patch("deepfellow.workspace.install.install_util", return_value={"PUBLIC_URL": "https://ws.example.com"})
+def test_install_skips_webhook_setup_with_no_server_webhook(
+    mock_util: Mock,
+    mock_echo: Mock,
+    mock_assert_docker: Mock,
+    mock_confirm: Mock,
+    mock_configure_webhook: Mock,
+    tmp_path: Path,
+) -> None:
+    _call(tmp_path, public_url="https://ws.example.com", no_server_webhook=True)
+
+    assert mock_configure_webhook.call_count == 0
+    assert mock_util.call_count == 1

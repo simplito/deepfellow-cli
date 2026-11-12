@@ -14,6 +14,15 @@ from deepfellow.common.env import env_set
 from deepfellow.common.state import state
 from deepfellow.common.validation import validate_server
 
+_SENSITIVE_KEYS = ("secret", "password", "token", "api_key")
+
+
+def _mask_sensitive(data: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of `data` with the values of sensitive keys hidden, safe for debug logs."""
+    return {
+        key: "*****" if any(word in key.lower() for word in _SENSITIVE_KEYS) else value for key, value in data.items()
+    }
+
 
 def get_server_url(server: str | None) -> str:
     """Return server URL. Repeat until a valid URL is provided."""
@@ -118,7 +127,7 @@ def post(
     headers = headers or {}
     item_name = item_name or "Item"
     data = data or {}
-    echo.debug(f"POST {url} {headers=} {data=}")
+    echo.debug(f"POST {url} {headers=} data={_mask_sensitive(data)}")
     try:
         response = httpx.post(
             url,
@@ -162,7 +171,7 @@ def make_request(
     """POST request on url using data."""
     headers = headers or {}
     data = data or {}
-    echo.debug(f"{method} {url} {headers=} {data=}")
+    echo.debug(f"{method} {url} {headers=} data={_mask_sensitive(data)}")
     try:
         response = httpx.request(
             method=method,
