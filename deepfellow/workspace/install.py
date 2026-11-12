@@ -39,6 +39,7 @@ from deepfellow.workspace.utils.options import directory_option
 from deepfellow.workspace.utils.public_url import apply_https_settings, insecure_context_warning, resolve_public_url
 from deepfellow.workspace.utils.server import list_server_models, resolve_server_ids, server_lookup_failed
 from deepfellow.workspace.utils.validation import validate_mcp_auth_token
+from deepfellow.workspace.utils.webhook import configure_webhook
 
 app = typer.Typer()
 
@@ -301,18 +302,25 @@ def _collect_required_values(passed: dict[str, str | None], existing: dict[str, 
             echo.info(f"{label}: {shown} (kept from the existing installation)")
 
 
-def _resolve_address(passed: dict[str, str | None], existing: dict[str, str], port: int) -> None:
-    """Choose the Workspace address, warn when the browser will block features on it, and set up https.
+def _resolve_address(
+    passed: dict[str, str | None], existing: dict[str, str], port: int, no_server_webhook: bool = False
+) -> None:
+    """Choose the Workspace address, warn when the browser will block features on it, and set up https and webhook.
 
     Args:
         passed: Values collected so far; updated in place.
         existing: Values kept from a previous installation.
         port: Published Workspace port, for the default address.
+        no_server_webhook: Do not set up DeepFellow Server notifications (and skip the admin login they need).
     """
     public_url = resolve_public_url(passed, existing, port)
     if warning := insecure_context_warning(public_url):
         echo.warning(warning)
     apply_https_settings(passed, existing, public_url)
+    if no_server_webhook:
+        echo.info("Skipping the DeepFellow Server notifications setup (--no-server-webhook).")
+    else:
+        configure_webhook(passed, existing, public_url)
 
 
 @app.command()
@@ -464,6 +472,11 @@ def install(
         help="On a reinstall, go back to the Redis installed with Workspace instead of an external one.",
     ),
     no_smtp: bool = typer.Option(False, "--no-smtp", help="On a reinstall, forget the SMTP and sender settings."),
+    no_server_webhook: bool = typer.Option(
+        False,
+        "--no-server-webhook",
+        help="Do not set up DeepFellow Server notifications for Workspace (no admin login is asked for).",
+    ),
     force_install: bool = typer.Option(
         False, help="Skip the question about overwriting an existing directory (e.g. one kept by uninstall)."
     ),
@@ -508,7 +521,7 @@ def install(
             if not overwrite:
                 raise typer.Exit(1)
         _collect_required_values(passed, existing)
-        _resolve_address(passed, existing, port)
+        _resolve_address(passed, existing, port, no_server_webhook)
         prompt_optional_settings(passed, existing)
         env = install_util(
             directory=directory,

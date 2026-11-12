@@ -486,3 +486,26 @@ def test_check_health_unknown_exception_raises_exit_with_unknown_error_message(
         check_health("http://example.com")
 
     assert mock_error.call_args == mock.call("Unknown error when requesting http://example.com/health/health")
+
+
+@mock.patch("deepfellow.common.rest.echo")
+@mock.patch("deepfellow.common.rest.httpx.post")
+def test_post_keeps_secret_out_of_debug_output(mock_post: mock.Mock, mock_echo: mock.Mock):
+    mock_post.return_value = _mock_response(200, {})
+
+    post(URL, TOKEN, data={"url": "https://x.example.com", "secret": "s3cr3t"})
+
+    logged = " ".join(call.args[0] for call in mock_echo.debug.call_args_list)
+    assert "s3cr3t" not in logged
+    assert "https://x.example.com" in logged
+
+
+@mock.patch("deepfellow.common.rest.echo")
+@mock.patch("deepfellow.common.rest.httpx.request")
+def test_make_request_keeps_secret_out_of_debug_output(mock_request: mock.Mock, mock_echo: mock.Mock):
+    mock_request.return_value = _mock_response(200, {})
+
+    make_request("PUT", URL, TOKEN, data={"secret": "s3cr3t"})
+
+    logged = " ".join(call.args[0] for call in mock_echo.debug.call_args_list)
+    assert "s3cr3t" not in logged
