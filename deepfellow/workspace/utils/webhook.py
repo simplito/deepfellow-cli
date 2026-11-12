@@ -214,3 +214,39 @@ def configure_webhook(passed: Passed, existing: Mapping[str, str], public_url: s
             _remove_old_endpoint(server, token, organization_id, project_id, webhook_url(old_public_url))
         except (typer.Exit, ValueError, KeyError):
             echo.warning("The endpoint for the previous address was not removed; remove it in DeepFellow Server.")
+
+
+def remove_webhook(env: Mapping[str, str]) -> None:
+    """Delete the DeepFellow Server webhook endpoint that notifies this Workspace, if there is one.
+
+    Needs an organization admin of DeepFellow Server (the CLI login is used). A failure is reported, but does not
+    stop the caller: the endpoint can be removed in DeepFellow Server by hand.
+
+    Args:
+        env: The .env of the Workspace being removed.
+    """
+    public_url = env.get("PUBLIC_URL")
+    organization_id = env.get(_ORGANIZATION_ID_KEY)
+    project_id = env.get(_PROJECT_ID_KEY)
+    if not public_url or not is_public_https(public_url) or not organization_id or not project_id:
+        return
+    url = webhook_url(public_url)
+    echo.info("Removing the DeepFellow Server notifications for Workspace (requires an organization admin login).")
+    try:
+        server = get_server_url(None)
+        token = get_token(state.cli_secrets_file, server)
+        headers = {"OpenAI-Organization": organization_id}
+        endpoint_id = _find_endpoint(server, token, headers, project_id, url)
+        if endpoint_id is None:
+            echo.info(f"DeepFellow Server has no webhook endpoint for {url}.")
+            return
+        delete(
+            f"{server}/v1/organization/projects/{project_id}/webhooks/{endpoint_id}",
+            token,
+            headers=headers,
+            item_name="webhook endpoint",
+        )
+    except typer.Exit:
+        echo.warning(f"The webhook endpoint {url} was not removed; remove it in DeepFellow Server.")
+        return
+    echo.info(f"DeepFellow Server no longer notifies {url}.")

@@ -8,10 +8,17 @@ from pathlib import Path
 import typer
 
 from deepfellow.cli.utils.command_resolver import PACKAGE_NAME, resolve_cli_command
-from deepfellow.common.defaults import DF_DEEPFELLOW_DIRECTORY, DF_INFRA_DIRECTORY, DF_SERVER_DIRECTORY
+from deepfellow.common.defaults import (
+    DF_DEEPFELLOW_DIRECTORY,
+    DF_INFRA_DIRECTORY,
+    DF_SERVER_DIRECTORY,
+    DF_WORKSPACE_DIRECTORY,
+)
 from deepfellow.common.echo import echo
 from deepfellow.common.state import state
 from deepfellow.common.system import is_command_available, rmtree, run
+from deepfellow.workspace.utils.install import read_existing_env
+from deepfellow.workspace.utils.webhook import remove_webhook
 
 app = typer.Typer()
 
@@ -60,7 +67,8 @@ def _resolve_prune(prune: bool) -> bool:
         # Opting in to data removal needs an explicit answer or --prune; --yes must not imply it,
         # and must not stall a scripted run on this question either, so it skips it (no pruning).
         do_prune = echo.confirm(
-            "Also remove all DeepFellow data (infra and server containers, volumes, and files)?", ignore_yes=True
+            "Also remove all DeepFellow data (workspace, infra and server containers, volumes, and files)?",
+            ignore_yes=True,
         )
     if do_prune and not echo.confirm("All DeepFellow data will be permanently deleted. Are you sure?"):
         raise typer.Exit(0)
@@ -72,7 +80,7 @@ def uninstall(
     prune: bool = typer.Option(
         False,
         "--prune",
-        help="Also remove all DeepFellow data (infra and server containers, volumes, and files).",
+        help="Also remove all DeepFellow data (workspace, infra and server containers, volumes, and files).",
     ),
 ) -> None:
     """Uninstall DeepFellow CLI."""
@@ -91,6 +99,14 @@ def uninstall(
             echo.info("Pruning DeepFellow Infra...")
             _down_docker_compose(DF_INFRA_DIRECTORY)
             echo.success("DeepFellow Infra containers removed.")
+
+        if DF_WORKSPACE_DIRECTORY.exists():
+            # Before Server: removing the webhook endpoint needs a running Server.
+            echo.info("Pruning DeepFellow Workspace...")
+            env = read_existing_env(DF_WORKSPACE_DIRECTORY)
+            _down_docker_compose(DF_WORKSPACE_DIRECTORY)
+            remove_webhook(env)
+            echo.success("DeepFellow Workspace containers removed.")
 
         if DF_SERVER_DIRECTORY.exists():
             echo.info("Pruning DeepFellow Server...")

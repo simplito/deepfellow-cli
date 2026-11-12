@@ -9,10 +9,12 @@ import typer
 
 from deepfellow.cli.uninstall import _build_uninstall_command, _down_docker_compose
 from deepfellow.cli.utils.command_resolver import resolve_cli_command
-from deepfellow.common.defaults import DF_DEEPFELLOW_DIRECTORY, DF_INFRA_DIRECTORY
+from deepfellow.common.defaults import DF_DEEPFELLOW_DIRECTORY, DF_INFRA_DIRECTORY, DF_WORKSPACE_DIRECTORY
 from deepfellow.common.echo import echo
 from deepfellow.common.system import rmtree, run
 from deepfellow.server.utils.options import get_default_server_directory
+from deepfellow.workspace.utils.install import read_existing_env
+from deepfellow.workspace.utils.webhook import remove_webhook
 
 app = typer.Typer()
 
@@ -36,9 +38,25 @@ def _prune_service(name: str, directory: Path) -> None:
     echo.success(f"DeepFellow {name} removed.")
 
 
+def _prune_workspace(directory: Path) -> None:
+    """Tear Workspace down like any other service, then remove its Server webhook.
+
+    The webhook is removed only after the stack is stopped, so a failed teardown does not leave Workspace running
+    without Server notifications. Must run before Server is pruned: removing the webhook endpoint needs a running
+    Server.
+
+    Args:
+        directory: Workspace installation directory.
+    """
+    env = read_existing_env(directory) if directory.is_dir() else None
+    _prune_service("Workspace", directory)
+    if env is not None:
+        remove_webhook(env)
+
+
 @app.command()
 def prune() -> None:
-    """Remove everything: DeepFellow Server, Infra, the CLI, and ~/.deepfellow/.
+    """Remove everything: DeepFellow Workspace, Server, Infra, the CLI, and ~/.deepfellow/.
 
     Resolves the uninstall command and configured server directory up front, before
     the steps that wipe the config holding them. Package removal runs last because it
@@ -51,6 +69,7 @@ def prune() -> None:
 
     server_directory = get_default_server_directory()
 
+    _prune_workspace(DF_WORKSPACE_DIRECTORY)
     _prune_service("Server", server_directory)
     _prune_service("Infra", DF_INFRA_DIRECTORY)
 
