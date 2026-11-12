@@ -25,6 +25,7 @@ def deepfellow_directories(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr("deepfellow.cli.uninstall.DF_DEEPFELLOW_DIRECTORY", tmp_path / ".deepfellow")
     monkeypatch.setattr("deepfellow.cli.uninstall.DF_INFRA_DIRECTORY", tmp_path / ".deepfellow" / "infra")
     monkeypatch.setattr("deepfellow.cli.uninstall.DF_SERVER_DIRECTORY", tmp_path / ".deepfellow" / "server")
+    monkeypatch.setattr("deepfellow.cli.uninstall.DF_WORKSPACE_DIRECTORY", tmp_path / ".deepfellow" / "workspace")
 
 
 @mock.patch("deepfellow.cli.uninstall.run", return_value="deepfellow-cli 0.4.0")
@@ -167,6 +168,48 @@ def test_uninstall_prune_removes_data_when_prune_flag_set(
     assert mock_down.call_count == 2
     assert mock_rmtree.call_count == 1
     assert mock_rmtree.call_args == mock.call(mock_deepfellow_dir)
+
+
+@mock.patch("deepfellow.cli.uninstall.remove_webhook")
+@mock.patch("deepfellow.cli.uninstall.read_existing_env", return_value={"PUBLIC_URL": "https://ws.example.com"})
+@mock.patch("deepfellow.cli.uninstall.DF_DEEPFELLOW_DIRECTORY")
+@mock.patch("deepfellow.cli.uninstall.DF_WORKSPACE_DIRECTORY")
+@mock.patch("deepfellow.cli.uninstall.DF_SERVER_DIRECTORY")
+@mock.patch("deepfellow.cli.uninstall.DF_INFRA_DIRECTORY")
+@mock.patch("deepfellow.cli.uninstall.rmtree")
+@mock.patch("deepfellow.cli.uninstall._down_docker_compose")
+@mock.patch("deepfellow.cli.uninstall.echo")
+@mock.patch("deepfellow.cli.uninstall.run", return_value="ok")
+@mock.patch("deepfellow.cli.uninstall.resolve_cli_command", return_value=_UV_UNINSTALL_CMD)
+def test_uninstall_prune_stops_workspace_before_server_and_removes_webhook_after_stop(
+    mock_resolve: Mock,
+    mock_run: Mock,
+    mock_echo: Mock,
+    mock_down: Mock,
+    mock_rmtree: Mock,
+    mock_infra_dir: Mock,
+    mock_server_dir: Mock,
+    mock_workspace_dir: Mock,
+    mock_deepfellow_dir: Mock,
+    mock_read_env: Mock,
+    mock_remove_webhook: Mock,
+) -> None:
+    mock_infra_dir.exists.return_value = True
+    mock_server_dir.exists.return_value = True
+    mock_workspace_dir.exists.return_value = True
+    mock_deepfellow_dir.exists.return_value = True
+    calls = Mock()
+    calls.attach_mock(mock_down, "down")
+    calls.attach_mock(mock_remove_webhook, "remove_webhook")
+
+    uninstall(prune=True)
+
+    assert calls.mock_calls == [
+        mock.call.down(mock_infra_dir),
+        mock.call.down(mock_workspace_dir),
+        mock.call.remove_webhook({"PUBLIC_URL": "https://ws.example.com"}),
+        mock.call.down(mock_server_dir),
+    ]
 
 
 @mock.patch("deepfellow.cli.uninstall.DF_DEEPFELLOW_DIRECTORY")

@@ -13,7 +13,7 @@ def test_workspace_help_lists_all_commands() -> None:
 
     assert result.exit_code == 0
     assert "install" in result.output
-    for name in ("uninstall", "start", "stop", "restart", "status", "logs", "update", "info", "env"):
+    for name in ("uninstall", "prune", "start", "stop", "restart", "status", "logs", "update", "info", "env"):
         assert name in result.output
 
 

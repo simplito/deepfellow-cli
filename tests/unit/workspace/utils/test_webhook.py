@@ -16,6 +16,7 @@ from deepfellow.workspace.utils.webhook import (
     _remove_old_endpoint,
     configure_webhook,
     is_public_https,
+    remove_webhook,
     webhook_url,
 )
 
@@ -441,3 +442,79 @@ def test_remove_old_endpoint_asks_even_with_yes(mock_get: Mock, mock_echo: Mock,
 
     assert mock_echo.confirm.call_args.kwargs == {"ignore_yes": True}
     assert mock_delete.call_count == 0
+
+
+_PRUNE_ENV = {
+    "PUBLIC_URL": "https://ws.example.com",
+    "DF_SERVER_ORGANIZATION_ID": "org1",
+    "DF_SERVER_PROJECT_ID": "proj1",
+}
+
+
+@mock.patch(f"{_MODULE}.delete")
+@mock.patch(f"{_MODULE}._find_endpoint", return_value="e1")
+@mock.patch(f"{_MODULE}.get_token", return_value="token")
+@mock.patch(f"{_MODULE}.get_server_url", return_value="https://df.example.com")
+@mock.patch(f"{_MODULE}.echo")
+def test_remove_webhook_deletes_the_endpoint_of_the_workspace(
+    mock_echo: Mock, mock_server: Mock, mock_token: Mock, mock_find: Mock, mock_delete: Mock
+) -> None:
+    remove_webhook(_PRUNE_ENV)
+
+    assert mock_find.call_args == mock.call(
+        "https://df.example.com",
+        "token",
+        {"OpenAI-Organization": "org1"},
+        "proj1",
+        "https://ws.example.com/webhooks/df-server",
+    )
+    assert mock_delete.call_args == mock.call(
+        "https://df.example.com/v1/organization/projects/proj1/webhooks/e1",
+        "token",
+        headers={"OpenAI-Organization": "org1"},
+        item_name="webhook endpoint",
+    )
+
+
+@pytest.mark.parametrize(
+    "env",
+    [
+        {},
+        {**_PRUNE_ENV, "PUBLIC_URL": "http://localhost:3000"},
+        {"PUBLIC_URL": "https://ws.example.com"},
+    ],
+)
+@mock.patch(f"{_MODULE}.delete")
+@mock.patch(f"{_MODULE}.get_server_url")
+def test_remove_webhook_does_nothing_without_public_https_or_ids(
+    mock_server: Mock, mock_delete: Mock, env: dict[str, str]
+) -> None:
+    remove_webhook(env)
+
+    assert mock_server.call_count == 0
+    assert mock_delete.call_count == 0
+
+
+@mock.patch(f"{_MODULE}.delete")
+@mock.patch(f"{_MODULE}._find_endpoint", return_value=None)
+@mock.patch(f"{_MODULE}.get_token", return_value="token")
+@mock.patch(f"{_MODULE}.get_server_url", return_value="https://df.example.com")
+@mock.patch(f"{_MODULE}.echo")
+def test_remove_webhook_skips_delete_when_endpoint_is_missing(
+    mock_echo: Mock, mock_server: Mock, mock_token: Mock, mock_find: Mock, mock_delete: Mock
+) -> None:
+    remove_webhook(_PRUNE_ENV)
+
+    assert mock_delete.call_count == 0
+    assert "no webhook endpoint" in mock_echo.info.call_args.args[0]
+
+
+@mock.patch(f"{_MODULE}.get_token", side_effect=typer.Exit(1))
+@mock.patch(f"{_MODULE}.get_server_url", return_value="https://df.example.com")
+@mock.patch(f"{_MODULE}.echo")
+def test_remove_webhook_warns_and_goes_on_when_login_fails(
+    mock_echo: Mock, mock_server: Mock, mock_token: Mock
+) -> None:
+    remove_webhook(_PRUNE_ENV)
+
+    assert "was not removed" in mock_echo.warning.call_args.args[0]

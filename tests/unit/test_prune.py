@@ -8,7 +8,7 @@ import pytest
 import typer
 
 from deepfellow.common.state import state
-from deepfellow.prune import _prune_service, prune
+from deepfellow.prune import _prune_service, _prune_workspace, prune
 
 _UV_UNINSTALL_CMD = ["uv", "tool", "uninstall", "deepfellow-cli"]
 
@@ -42,6 +42,7 @@ def test_prune_service_skips_when_directory_missing(mock_echo: Mock, mock_down: 
     assert mock_rmtree.call_count == 0
 
 
+@mock.patch("deepfellow.prune._prune_workspace")
 @mock.patch("deepfellow.prune.DF_DEEPFELLOW_DIRECTORY")
 @mock.patch("deepfellow.prune.DF_INFRA_DIRECTORY")
 @mock.patch("deepfellow.prune.get_default_server_directory")
@@ -59,6 +60,7 @@ def test_prune_tears_down_everything_with_yes_flag(
     mock_server_dir: Mock,
     mock_infra_dir: Mock,
     mock_deepfellow_dir: Mock,
+    mock_prune_workspace: Mock,
 ) -> None:
     server_dir = mock_server_dir.return_value
     server_dir.exists.return_value = True
@@ -68,6 +70,7 @@ def test_prune_tears_down_everything_with_yes_flag(
 
     prune()
 
+    assert mock_prune_workspace.call_count == 1
     assert mock_down.call_count == 2
     assert mock_rmtree.call_count == 3
     assert mock_run.call_count == 1
@@ -91,6 +94,7 @@ def test_prune_exits_when_user_declines_confirmation(mock_resolve: Mock, mock_ec
     state.reset()
 
 
+@mock.patch("deepfellow.prune._prune_workspace")
 @mock.patch("deepfellow.prune.DF_DEEPFELLOW_DIRECTORY")
 @mock.patch("deepfellow.prune.DF_INFRA_DIRECTORY")
 @mock.patch("deepfellow.prune.get_default_server_directory")
@@ -108,6 +112,7 @@ def test_prune_skips_missing_installations(
     mock_server_dir: Mock,
     mock_infra_dir: Mock,
     mock_deepfellow_dir: Mock,
+    mock_prune_workspace: Mock,
 ) -> None:
     mock_server_dir.return_value.exists.return_value = False
     mock_infra_dir.exists.return_value = False
@@ -123,6 +128,7 @@ def test_prune_skips_missing_installations(
     state.reset()
 
 
+@mock.patch("deepfellow.prune._prune_workspace")
 @mock.patch("deepfellow.prune.DF_DEEPFELLOW_DIRECTORY")
 @mock.patch("deepfellow.prune.DF_INFRA_DIRECTORY")
 @mock.patch("deepfellow.prune.get_default_server_directory")
@@ -140,6 +146,7 @@ def test_prune_warns_and_skips_package_removal_when_no_package_manager(
     mock_server_dir: Mock,
     mock_infra_dir: Mock,
     mock_deepfellow_dir: Mock,
+    mock_prune_workspace: Mock,
 ) -> None:
     mock_server_dir.return_value.exists.return_value = False
     mock_infra_dir.exists.return_value = False
@@ -153,3 +160,53 @@ def test_prune_warns_and_skips_package_removal_when_no_package_manager(
     assert mock_echo.warning.call_count == 1
 
     state.reset()
+
+
+@mock.patch("deepfellow.prune._prune_service")
+@mock.patch("deepfellow.prune.remove_webhook")
+@mock.patch("deepfellow.prune.read_existing_env", return_value={"PUBLIC_URL": "https://ws.example.com"})
+def test_prune_workspace_removes_webhook_after_tearing_down(
+    mock_read_env: Mock, mock_remove_webhook: Mock, mock_prune_service: Mock
+) -> None:
+    directory = Mock()
+    directory.is_dir.return_value = True
+    calls = Mock()
+    calls.attach_mock(mock_remove_webhook, "remove_webhook")
+    calls.attach_mock(mock_prune_service, "prune_service")
+
+    _prune_workspace(directory)
+
+    assert mock_remove_webhook.call_args == mock.call({"PUBLIC_URL": "https://ws.example.com"})
+    assert calls.mock_calls == [
+        mock.call.prune_service("Workspace", directory),
+        mock.call.remove_webhook({"PUBLIC_URL": "https://ws.example.com"}),
+    ]
+
+
+@mock.patch("deepfellow.prune._prune_service")
+@mock.patch("deepfellow.prune.remove_webhook")
+def test_prune_workspace_skips_webhook_when_directory_missing(
+    mock_remove_webhook: Mock, mock_prune_service: Mock
+) -> None:
+    directory = Mock()
+    directory.is_dir.return_value = False
+
+    _prune_workspace(directory)
+
+    assert mock_remove_webhook.call_count == 0
+    assert mock_prune_service.call_args == mock.call("Workspace", directory)
+
+
+@mock.patch("deepfellow.prune._prune_service", side_effect=typer.Exit(1))
+@mock.patch("deepfellow.prune.remove_webhook")
+@mock.patch("deepfellow.prune.read_existing_env", return_value={"PUBLIC_URL": "https://ws.example.com"})
+def test_prune_workspace_keeps_webhook_when_teardown_fails(
+    mock_read_env: Mock, mock_remove_webhook: Mock, mock_prune_service: Mock
+) -> None:
+    directory = Mock()
+    directory.is_dir.return_value = True
+
+    with pytest.raises(typer.Exit):
+        _prune_workspace(directory)
+
+    assert mock_remove_webhook.call_count == 0
