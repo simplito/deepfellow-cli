@@ -340,7 +340,7 @@ def test_configure_infra_force_provided_url_defaults_to_false(mock_echo):
 @mock.patch("deepfellow.server.utils.configure.echo")
 def test_configure_infra_force_provided_api_key_reaches_prompt_until_valid(mock_echo):
     """force_provided_api_key must reach echo.prompt_until_valid's own force_provided kwarg - the
-    built-in "workspace" template deliberately omits infra_api_key (see
+    built-in "suite" template deliberately omits infra_api_key (see
     deepfellow.server.utils.templates.BUILTIN_TEMPLATES), but a custom YAML template could still
     supply one equal to its own original_default (None), which needs the same handling."""
     mock_echo.prompt_until_valid.side_effect = [DF_INFRA_URL, "secret-key"]

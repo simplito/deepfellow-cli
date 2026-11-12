@@ -7,7 +7,7 @@ Consumed by deepfellow.infra.utils.install: inspect() resolves --template via re
 below, and resolve()'s _merge_template_config() merges the resolved config into the CLI-resolved
 values, passing force_provided=True to echo.prompt/prompt_until_valid for any field that came from
 the template. Without it, a template value equal to that field's original_default (e.g. this
-module's own "workspace" template sets port to DF_INFRA_PORT) would be indistinguishable from
+module's own "suite" template sets port to DF_INFRA_PORT) would be indistinguishable from
 "nothing was provided" and the prompt would fire anyway. See deepfellow.common.echo.get_return_value.
 """
 
@@ -67,7 +67,7 @@ CONFIG_KEY_TYPES: dict[str, type] = {
 VALID_CONFIG_KEYS = set(CONFIG_KEY_TYPES)
 
 BUILTIN_TEMPLATES: dict[str, InstallTemplate] = {
-    "workspace": {
+    "suite": {
         "config": {
             "port": DF_INFRA_PORT,
             "infra_name": DF_INFRA_NAME,

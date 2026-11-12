@@ -27,6 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - New Infra and Server installs trust the DeepFellow internal CA from `~/.deepfellow/ca` alongside public CAs; `infra update` and `server update` refresh it
 
 ### Changed
+- **Breaking:** the built-in install template `workspace` is renamed to `suite` (`--template suite` in `suite install`, `infra install` and `server install`); `--template workspace` no longer works and a `suite install` interrupted on an earlier version cannot be resumed - run it again
 - Self-signed certificates from `infra ssl-on` and `server ssl-on` are also valid for `::1`
 - Install and update pick the newest Infra and Server release compatible with the CLI
 - Unsupported or unversioned images (no tag, `latest`, digest only) are refused before any change

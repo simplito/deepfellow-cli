@@ -53,7 +53,7 @@ def default_install_kwargs() -> dict:
         "admin_password": "Sup3r$ecret!",
         "force_install": False,
         "resume": False,
-        "template": "workspace",
+        "template": "suite",
         "infra_port": DF_INFRA_PORT,
         "infra_bind_address": None,
         "infra_image": DF_INFRA_IMAGE,

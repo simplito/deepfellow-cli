@@ -165,10 +165,10 @@ def _build_steps(
     """The full, ordered (step id, display name) list for this run.
 
     One step per entry of the resolved infra template's post_start_actions is inserted between
-    STEP_INFRA_START and STEP_SERVER_INSTALL, in order - the "workspace" template's 4 actions
+    STEP_INFRA_START and STEP_SERVER_INSTALL, in order - the "suite" template's 4 actions
     (ollama service + 3 models) are what made this section look fixed before. Likewise, one step per
     entry of the resolved server template's post_start_actions is inserted between STEP_SERVER_START
-    and STEP_SERVER_LOGIN - the "workspace" template's single server.create_admin action is what made
+    and STEP_SERVER_LOGIN - the "suite" template's single server.create_admin action is what made
     that section look fixed before. A different --template's action count changes either list's
     length accordingly, with no other code change needed. Computed once per run (see install()), not
     a module-level constant, since it depends on the resolved --template.
@@ -335,7 +335,7 @@ def _resolve_effective_template(install_state: SuiteInstallState, template: str)
     cyclomatic complexity down - same rationale as `_infra_config_on_skip()`.
 
     Without this, a `--resume` invocation whose `--template` differs from - or, since it defaults
-    to `"workspace"`, simply omits - the one the original run configured infra/server against would
+    to `"suite"`, simply omits - the one the original run configured infra/server against would
     still resolve `infra_post_start_actions`/`granted_models` from *this* invocation's template,
     installing one template's services/models against the other template's configuration, with no
     error or warning.
@@ -857,7 +857,7 @@ def install(
     admin_password: str | None = None,
     force_install: bool = False,
     resume: bool = False,
-    template: str = "workspace",
+    template: str = "suite",
     infra_port: int = DF_INFRA_PORT,
     infra_bind_address: str | None = None,
     infra_image: str = DF_INFRA_IMAGE,
@@ -893,8 +893,8 @@ def install(
 
     Runs a sequence of granular steps, in order: infra configuration, server configuration, infra
     install, infra start, one step per service/model the resolved `template` installs on infra (the
-    "workspace" template installs the Ollama service and 3 models), server install, server start,
-    one step per post-start action the resolved `template` runs on server (the "workspace" template
+    "suite" template installs the Ollama service and 3 models), server install, server start,
+    one step per post-start action the resolved `template` runs on server (the "suite" template
     creates the admin account), server login, workspace creation, and grant model access. The two
     configuration steps resolve every infra- and server-side prompt (directory-overwrite decisions,
     DF_NAME, vector DB, MongoDB, FalkorDB, ...) before any of the later, purely programmatic steps
@@ -1223,7 +1223,7 @@ def install(
     # Always run: not cheaply live-checkable (would need an Infra API round-trip), but proven
     # idempotent - install() already treats "already installed" as a clean no-op. Same rationale
     # as STEP_SERVER_LOGIN below. One step per resolved post-start action, in order - the
-    # "workspace" template's 4 actions (ollama service + 3 models) are what made this section look
+    # "suite" template's 4 actions (ollama service + 3 models) are what made this section look
     # fixed before; a different `template`'s action list changes this loop's length accordingly.
     for index, action in enumerate(infra_post_start_actions):
         run_step(

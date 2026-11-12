@@ -403,7 +403,7 @@ def test_inspect_resolves_template_before_docker_and_directory_access(
         force_install=False,
         image=DF_INFRA_IMAGE,
         local_image=False,
-        template="workspace",
+        template="suite",
     )
 
     assert call_order == ["resolve_template", "assert_docker", "get_socket", "ensure_directory"]
@@ -469,7 +469,7 @@ def test_inspect_returns_the_resolved_template_in_context(
         force_install=False,
         image=DF_INFRA_IMAGE,
         local_image=False,
-        template="workspace",
+        template="suite",
     )
 
     assert context.resolved_template == resolved
@@ -1100,7 +1100,7 @@ def test_install_calls_ensure_network(
 @mock.patch("deepfellow.infra.utils.install.get_socket")
 @mock.patch("deepfellow.infra.utils.install.assert_docker")
 @mock.patch("deepfellow.infra.utils.install.echo")
-def test_install_accepts_builtin_workspace_template_config_without_crashing(
+def test_install_accepts_builtin_suite_template_config_without_crashing(
     mock_echo: Mock,
     mock_assert_docker: Mock,
     mock_get_socket: Mock,
@@ -1117,14 +1117,14 @@ def test_install_accepts_builtin_workspace_template_config_without_crashing(
     directory: Path,
     docker_config: Mock,
 ) -> None:
-    """Regression test for BUILTIN_TEMPLATES["workspace"]["config"] (infra): every splatted value
+    """Regression test for BUILTIN_TEMPLATES["suite"]["config"] (infra): every splatted value
     (port, infra_name, infra_url, docker_network) must flow through install() into the saved env
     file unchanged, not just reach the end of install() without raising."""
     mock_echo.prompt.side_effect = lambda *args, **kwargs: kwargs.get("from_args")
     mock_echo.prompt_until_valid.side_effect = lambda *args, **kwargs: kwargs.get("from_args")
     mock_echo.confirm.return_value = False
     mock_read.return_value = {}
-    template_config = BUILTIN_TEMPLATES["workspace"]["config"]
+    template_config = BUILTIN_TEMPLATES["suite"]["config"]
 
     install(
         directory=directory,
@@ -2310,10 +2310,10 @@ def test_install_resolves_template_when_given(install_mocks: InstallMocks, tmp_p
     install_mocks.read_env_file_to_dict.return_value = {}
     install_mocks.resolve_template.return_value = {"config": {}, "post_start_actions": []}
 
-    install(directory=tmp_path, template="workspace")
+    install(directory=tmp_path, template="suite")
 
     assert install_mocks.resolve_template.call_count == 1
-    assert install_mocks.resolve_template.call_args == mock.call("workspace")
+    assert install_mocks.resolve_template.call_args == mock.call("suite")
 
 
 def test_install_skips_template_resolution_when_not_given(install_mocks: InstallMocks, tmp_path: Path) -> None:
@@ -2356,7 +2356,7 @@ def test_install_merges_template_config_when_cli_args_are_still_default(
     }
     install_mocks.resolve_template.return_value = {"config": template_config, "post_start_actions": []}
 
-    install(directory=tmp_path, template="workspace")
+    install(directory=tmp_path, template="suite")
 
     name_prompt_kwargs = install_mocks.echo.prompt.call_args_list[0][1]
     assert name_prompt_kwargs["from_args"] == template_config["infra_name"]
@@ -2379,7 +2379,7 @@ def test_install_preserves_prior_env_value_over_template_config(install_mocks: I
     template_config = {"infra_name": "templated-infra"}
     install_mocks.resolve_template.return_value = {"config": template_config, "post_start_actions": []}
 
-    install(directory=tmp_path, template="workspace")
+    install(directory=tmp_path, template="suite")
 
     name_prompt_kwargs = install_mocks.echo.prompt.call_args_list[0][1]
     assert name_prompt_kwargs["from_args"] == "existing-name"
@@ -2406,7 +2406,7 @@ def test_install_preserves_prior_config_json_value_over_template_config(
     template_config = {"infra_name": "templated-infra"}
     install_mocks.resolve_template.return_value = {"config": template_config, "post_start_actions": []}
 
-    install(directory=tmp_path, template="workspace")
+    install(directory=tmp_path, template="suite")
 
     name_prompt_kwargs = install_mocks.echo.prompt.call_args_list[0][1]
     assert name_prompt_kwargs["from_args"] == "existing-name"
@@ -2429,7 +2429,7 @@ def test_install_preserves_prior_env_infra_url_over_template_config(
     template_config = {"infra_url": "http://templated:9999"}
     install_mocks.resolve_template.return_value = {"config": template_config, "post_start_actions": []}
 
-    install(directory=tmp_path, template="workspace")
+    install(directory=tmp_path, template="suite")
 
     url_prompt_kwargs = install_mocks.echo.prompt_until_valid.call_args[1]
     assert url_prompt_kwargs["from_args"] == "http://existing:8086"
@@ -2452,7 +2452,7 @@ def test_install_preserves_prior_env_docker_network_over_template_config(
     template_config = {"docker_network": "templated-net"}
     install_mocks.resolve_template.return_value = {"config": template_config, "post_start_actions": []}
 
-    install(directory=tmp_path, template="workspace")
+    install(directory=tmp_path, template="suite")
 
     network_prompt_kwargs = install_mocks.echo.prompt.call_args_list[1][1]
     assert network_prompt_kwargs["from_args"] == "existing-net"
@@ -2478,7 +2478,7 @@ def test_install_does_not_apply_template_port_when_a_prior_env_port_exists(
     template_config = {"port": 9999}
     install_mocks.resolve_template.return_value = {"config": template_config, "post_start_actions": []}
 
-    install(directory=tmp_path, template="workspace")
+    install(directory=tmp_path, template="suite")
 
     infra_values = install_mocks.save_env_file.call_args[0][1]
     assert infra_values["DF_INFRA_PORT"] == 9500
@@ -2507,7 +2507,7 @@ def test_install_restores_prior_port_when_template_omits_port(install_mocks: Ins
         "post_start_actions": [],
     }
 
-    install(directory=tmp_path, template="workspace")
+    install(directory=tmp_path, template="suite")
 
     infra_values = install_mocks.save_env_file.call_args[0][1]
     assert infra_values["DF_INFRA_PORT"] == 9500
@@ -2537,7 +2537,7 @@ def test_install_raises_install_error_when_prior_env_port_is_not_numeric(
     install_mocks.resolve_template.return_value = {"config": {"port": 9999}, "post_start_actions": []}
 
     with pytest.raises(InstallError, match="DF_INFRA_PORT"):
-        install(directory=tmp_path, template="workspace")
+        install(directory=tmp_path, template="suite")
 
 
 @pytest.mark.parametrize(
@@ -2555,7 +2555,7 @@ def test_install_applies_template_config_when_prior_env_value_is_empty_string(
     template_config = {field: "templated-value"}
     install_mocks.resolve_template.return_value = {"config": template_config, "post_start_actions": []}
 
-    install(directory=tmp_path, template="workspace")
+    install(directory=tmp_path, template="suite")
 
     if field == "infra_name":
         prompt_kwargs = install_mocks.echo.prompt.call_args_list[0][1]
@@ -2580,7 +2580,7 @@ def test_install_explicit_cli_arg_wins_over_template_config(install_mocks: Insta
 
     install(
         directory=tmp_path,
-        template="workspace",
+        template="suite",
         infra_name="explicit-name",
         port=1234,
         explicitly_provided={"infra_name", "port"},
@@ -2598,7 +2598,7 @@ def test_install_explicit_cli_arg_equal_to_its_own_default_wins_over_template_co
 ) -> None:
     # Regression test: the old `merged[key] != own_default` heuristic couldn't tell an explicit
     # flag that happens to equal its own default from one never passed at all - and the built-in
-    # "workspace" template's config *is* the CLI defaults, so this is the ordinary case here, not a
+    # "suite" template's config *is* the CLI defaults, so this is the ordinary case here, not a
     # corner case. Every field below is explicit and equal to its own default; the template sets a
     # DIFFERENT value for each, so only explicitly_provided (not a value comparison) can make the
     # explicit flag win. This test fails under the old heuristic for all four fields at once.
@@ -2614,7 +2614,7 @@ def test_install_explicit_cli_arg_equal_to_its_own_default_wins_over_template_co
 
     install(
         directory=tmp_path,
-        template="workspace",
+        template="suite",
         port=DF_INFRA_PORT,
         infra_name=DF_INFRA_NAME,
         infra_url=DF_INFRA_URL,
@@ -2668,7 +2668,7 @@ def test_install_only_the_explicit_field_wins_the_other_three_still_use_template
 
     install(
         directory=tmp_path,
-        template="workspace",
+        template="suite",
         port=_EXPLICIT_VALUE_FOR_ISOLATION_TEST["port"] if explicit_field == "port" else DF_INFRA_PORT,
         infra_name=(
             _EXPLICIT_VALUE_FOR_ISOLATION_TEST["infra_name"] if explicit_field == "infra_name" else DF_INFRA_NAME
@@ -2718,7 +2718,7 @@ def test_install_starts_infra_and_dispatches_post_start_actions_in_order(
     ]
     install_mocks.resolve_template.return_value = {"config": {}, "post_start_actions": actions}
 
-    install(directory=tmp_path, template="workspace")
+    install(directory=tmp_path, template="suite")
 
     assert install_mocks.start_infra.call_count == 1
     assert install_mocks.start_infra.call_args == mock.call(tmp_path)
@@ -2829,7 +2829,7 @@ def test_install_resolves_every_post_start_prompt_before_any_apply_phase(
     install_mocks.apply_service_spec.side_effect = record("apply:service")
     install_mocks.apply_model_install.side_effect = record("apply:model")
 
-    install(directory=tmp_path, template="workspace")
+    install(directory=tmp_path, template="suite")
 
     assert calls == ["ask:service", "ask:model", "ask:model", "apply:service", "apply:model", "apply:model"]
 
@@ -2848,7 +2848,7 @@ def test_install_overwrites_and_warns_about_a_template_supplied_server(
     }
     install_mocks.resolve_template.return_value = {"config": {}, "post_start_actions": [action]}
 
-    install(directory=tmp_path, template="workspace")
+    install(directory=tmp_path, template="suite")
 
     assert action["kwargs"]["server"] == f"http://localhost:{DF_INFRA_PORT}"
     warning_messages = [call.args[0] for call in install_mocks.echo.warning.call_args_list]
@@ -2869,7 +2869,7 @@ def test_install_injects_server_from_the_actually_resolved_port_not_the_default(
     action: dict[str, Any] = {"function": "infra.service.install", "kwargs": {"name": "ollama"}}
     install_mocks.resolve_template.return_value = {"config": {}, "post_start_actions": [action]}
 
-    install(directory=tmp_path, template="workspace", port=9000)
+    install(directory=tmp_path, template="suite", port=9000)
 
     assert action["kwargs"]["server"] == "http://localhost:9000"
 
@@ -2883,7 +2883,7 @@ def test_install_injects_server_from_a_template_sourced_port(install_mocks: Inst
     action: dict[str, Any] = {"function": "infra.service.install", "kwargs": {"name": "ollama"}}
     install_mocks.resolve_template.return_value = {"config": {"port": 9500}, "post_start_actions": [action]}
 
-    install(directory=tmp_path, template="workspace")
+    install(directory=tmp_path, template="suite")
 
     infra_values = install_mocks.save_env_file.call_args[0][1]
     assert infra_values["DF_INFRA_PORT"] == 9500
@@ -2964,7 +2964,7 @@ def test_install_points_local_urls_at_given_bind_address(install_mocks: InstallM
     action: dict[str, Any] = {"function": "infra.service.install", "kwargs": {"name": "ollama"}}
     install_mocks.resolve_template.return_value = {"config": {}, "post_start_actions": [action]}
 
-    install(directory=tmp_path, template="workspace", bind_address="10.0.0.5")
+    install(directory=tmp_path, template="suite", bind_address="10.0.0.5")
 
     infra_values = install_mocks.save_env_file.call_args[0][1]
     assert infra_values["DF_INFRA_BIND_ADDRESS"] == "10.0.0.5"
@@ -2983,7 +2983,7 @@ def test_install_skips_start_infra_when_template_has_no_post_start_actions(
     install_mocks.read_env_file_to_dict.return_value = {}
     install_mocks.resolve_template.return_value = {"config": {"port": 9999}, "post_start_actions": []}
 
-    install(directory=tmp_path, template="workspace")
+    install(directory=tmp_path, template="suite")
 
     assert install_mocks.start_infra.call_count == 0
     assert install_mocks.dispatch_post_start_action.call_count == 0
@@ -2999,7 +2999,7 @@ def test_install_raises_install_error_when_post_start_action_fails(install_mocks
     install_mocks.apply_model_install.side_effect = InstallError("bad kwargs")
 
     with pytest.raises(InstallError):
-        install(directory=tmp_path, template="workspace")
+        install(directory=tmp_path, template="suite")
 
     error_messages = [call.args[0] for call in install_mocks.echo.error.call_args_list]
     assert (
@@ -3022,7 +3022,7 @@ def test_install_raises_install_error_when_a_post_start_action_build_phase_fails
     install_mocks.resolve_model_connection.side_effect = typer.Exit(1)
 
     with pytest.raises(InstallError):
-        install(directory=tmp_path, template="workspace")
+        install(directory=tmp_path, template="suite")
 
     error_messages = [call.args[0] for call in install_mocks.echo.error.call_args_list]
     assert (
@@ -3049,7 +3049,7 @@ def test_install_raises_install_error_when_a_post_start_action_build_phase_fails
     install_mocks.resolve_model_connection.side_effect = ValueError("unexpected failure")
 
     with pytest.raises(InstallError):
-        install(directory=tmp_path, template="workspace")
+        install(directory=tmp_path, template="suite")
 
     error_messages = [call.args[0] for call in install_mocks.echo.error.call_args_list]
     assert (
@@ -3074,7 +3074,7 @@ def test_install_raises_install_error_when_a_post_start_action_fails_outside_tra
     install_mocks.apply_model_install.side_effect = ValueError("unexpected failure")
 
     with pytest.raises(InstallError):
-        install(directory=tmp_path, template="workspace")
+        install(directory=tmp_path, template="suite")
 
     error_messages = [call.args[0] for call in install_mocks.echo.error.call_args_list]
     assert (
@@ -3103,7 +3103,7 @@ def test_install_runs_no_apply_phase_when_a_later_actions_ask_phase_fails(
     install_mocks.resolve_model_connection.side_effect = ["connection", typer.Exit(1)]
 
     with pytest.raises(InstallError):
-        install(directory=tmp_path, template="workspace")
+        install(directory=tmp_path, template="suite")
 
     error_messages = [call.args[0] for call in install_mocks.echo.error.call_args_list]
     assert (
@@ -3135,7 +3135,7 @@ def test_install_names_the_failing_action_when_the_second_of_three_fails(
     install_mocks.apply_model_install.side_effect = [InstallError("model not found"), None]
 
     with pytest.raises(InstallError):
-        install(directory=tmp_path, template="workspace")
+        install(directory=tmp_path, template="suite")
 
     error_messages = [call.args[0] for call in install_mocks.echo.error.call_args_list]
     assert (
@@ -3157,7 +3157,7 @@ def test_install_raises_install_error_when_start_infra_exits(install_mocks: Inst
     install_mocks.start_infra.side_effect = typer.Exit(1)
 
     with pytest.raises(InstallError):
-        install(directory=tmp_path, template="workspace")
+        install(directory=tmp_path, template="suite")
 
     error_messages = [call.args[0] for call in install_mocks.echo.error.call_args_list]
     assert (
@@ -3178,7 +3178,7 @@ def test_install_raises_install_error_when_start_infra_hits_a_docker_network_err
     install_mocks.start_infra.side_effect = DockerNetworkError("unable to list networks")
 
     with pytest.raises(InstallError):
-        install(directory=tmp_path, template="workspace")
+        install(directory=tmp_path, template="suite")
 
     error_messages = [call.args[0] for call in install_mocks.echo.error.call_args_list]
     assert ("Failed to start infra for template post-start actions: unable to list networks") in error_messages

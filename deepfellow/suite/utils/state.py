@@ -38,7 +38,7 @@ class SuiteInstallState:
     `template` holds the `--template` name this run resolved `infra_config`/`server_config`
     against, once resolved - persisted (unlike the *result* of resolving it, which is cheap and
     deterministic to recompute) so a later `--resume` run always reuses it instead of trusting
-    that invocation's own `--template`, which silently defaults back to `"workspace"` if simply
+    that invocation's own `--template`, which silently defaults back to `"suite"` if simply
     forgotten on a retry. Without this, `--resume` would skip `STEP_INFRA_CONFIG`/
     `STEP_SERVER_CONFIG` (reconstructing them from the *original* template) while still resolving
     the services/models to install and grant access to from *this* invocation's `--template` -

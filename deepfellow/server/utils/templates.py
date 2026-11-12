@@ -6,7 +6,7 @@
 `server install` merges resolve_template(...)["config"] into the CLI args passed to
 echo.prompt/prompt_until_valid/choice with force_provided=True for any value that came from the
 template. Without it, a template value equal to that field's original_default (e.g. this module's
-own "workspace" template sets infra_url to DF_INFRA_URL and port to DF_SERVER_PORT) is
+own "suite" template sets infra_url to DF_INFRA_URL and port to DF_SERVER_PORT) is
 indistinguishable from "nothing was provided" and the prompt fires anyway. See
 deepfellow.common.echo.get_return_value.
 """
@@ -75,7 +75,7 @@ CONFIG_KEY_TYPES: dict[str, type] = {
 VALID_CONFIG_KEYS = set(CONFIG_KEY_TYPES) | {"vectordb_type"}
 
 BUILTIN_TEMPLATES: dict[str, InstallTemplate] = {
-    "workspace": {
+    "suite": {
         "config": {
             "port": DF_SERVER_PORT,
             "infra_url": DF_INFRA_URL,

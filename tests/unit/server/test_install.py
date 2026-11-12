@@ -827,7 +827,7 @@ def test_install_template_infra_api_key_wins_over_local_infra_env_fallback(
     }
     mock_env_get.return_value = "infra-env-key"
 
-    install(**{**install_kwargs(tmp_path), "infra_api_key": None, "template": "workspace", "bind_address": "127.0.0.1"})
+    install(**{**install_kwargs(tmp_path), "infra_api_key": None, "template": "suite", "bind_address": "127.0.0.1"})
 
     assert mock_env_get.call_count == 0
     infra_call = mock_configure_infra.call_args
@@ -861,7 +861,7 @@ def test_install_local_infra_env_fallback_still_applies_when_template_omits_infr
     mock_resolve_template,
     tmp_path,
 ):
-    """The built-in "workspace" template deliberately omits infra_api_key (see
+    """The built-in "suite" template deliberately omits infra_api_key (see
     deepfellow.server.utils.templates.BUILTIN_TEMPLATES) - the local-infra-env fallback must still
     apply in that case, since nothing else supplied a value."""
     configure_install_mocks(
@@ -870,7 +870,7 @@ def test_install_local_infra_env_fallback_still_applies_when_template_omits_infr
     mock_resolve_template.return_value = {"config": {"port": 9999}, "post_start_actions": []}
     mock_env_get.return_value = "infra-env-key"
 
-    install(**{**install_kwargs(tmp_path), "infra_api_key": None, "template": "workspace"})
+    install(**{**install_kwargs(tmp_path), "infra_api_key": None, "template": "suite"})
 
     assert mock_env_get.call_count == 1
     infra_call = mock_configure_infra.call_args
@@ -1082,7 +1082,7 @@ def test_inspect_rejects_non_interactive_template_missing_admin_fields(
             image="deepfellow-server:test",
             local_image=False,
             force_install=False,
-            template="workspace",
+            template="suite",
         )
 
     assert mock_assert_docker.call_count == 0
@@ -1131,7 +1131,7 @@ def test_inspect_allows_non_interactive_template_with_all_admin_fields(
     }
 
     inspect_util(
-        directory=tmp_path, image="deepfellow-server:test", local_image=False, force_install=False, template="workspace"
+        directory=tmp_path, image="deepfellow-server:test", local_image=False, force_install=False, template="suite"
     )
 
     assert mock_assert_docker.call_count == 1
@@ -1153,7 +1153,7 @@ def test_inspect_allows_interactive_template_missing_admin_fields(
     }
 
     inspect_util(
-        directory=tmp_path, image="deepfellow-server:test", local_image=False, force_install=False, template="workspace"
+        directory=tmp_path, image="deepfellow-server:test", local_image=False, force_install=False, template="suite"
     )
 
     assert mock_assert_docker.call_count == 1
@@ -1879,7 +1879,7 @@ def test_install_falls_back_to_default_vectordb_type_when_prior_env_value_is_fla
 @MOCK_ENSURE_NETWORK
 @MOCK_ASSERT_DOCKER
 @MOCK_ECHO
-def test_install_accepts_builtin_workspace_template_config_without_crashing(
+def test_install_accepts_builtin_suite_template_config_without_crashing(
     mock_echo,
     mock_assert_docker,
     mock_ensure_network,
@@ -1891,13 +1891,13 @@ def test_install_accepts_builtin_workspace_template_config_without_crashing(
     mock_save_compose_file,
     tmp_path,
 ):
-    """Regression test for BUILTIN_TEMPLATES["workspace"]["config"]["vectordb_type"] once being a
+    """Regression test for BUILTIN_TEMPLATES["suite"]["config"]["vectordb_type"] once being a
     plain string: install() calls vectordb_type.value, so splatting that config in must not crash."""
     configure_install_mocks(
         mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
     )
 
-    install(directory=tmp_path, force_install=True, **BUILTIN_TEMPLATES["workspace"]["config"])
+    install(directory=tmp_path, force_install=True, **BUILTIN_TEMPLATES["suite"]["config"])
 
     assert mock_configure_vector_db.call_count == 1
     assert mock_configure_vector_db.call_args[0][3] == "milvus"
@@ -4484,10 +4484,10 @@ def test_install_resolves_template_when_given(
     )
     mock_resolve_template.return_value = {"config": {}, "post_start_actions": []}
 
-    install(directory=tmp_path, template="workspace", force_install=True)
+    install(directory=tmp_path, template="suite", force_install=True)
 
     assert mock_resolve_template.call_count == 1
-    assert mock_resolve_template.call_args == mock.call("workspace")
+    assert mock_resolve_template.call_args == mock.call("suite")
 
 
 @MOCK_RESOLVE_TEMPLATE
@@ -4529,7 +4529,7 @@ def test_install_merges_template_config_when_cli_args_are_still_default(
     }
     mock_resolve_template.return_value = {"config": template_config, "post_start_actions": []}
 
-    install(directory=tmp_path, template="workspace", force_install=True, bind_address="127.0.0.1")
+    install(directory=tmp_path, template="suite", force_install=True, bind_address="127.0.0.1")
 
     network_prompt_kwargs = mock_echo.prompt.call_args_list[0][1]
     assert network_prompt_kwargs["from_args"] == "templated-net"
@@ -4590,7 +4590,7 @@ def test_install_explicit_cli_arg_wins_over_template_config(
 
     install(
         directory=tmp_path,
-        template="workspace",
+        template="suite",
         force_install=True,
         docker_network="explicit-net",
         infra_url="http://explicit:1234",
@@ -4638,7 +4638,7 @@ def test_install_preserves_prior_env_value_over_template_config(
     template_config = {"docker_network": "templated-net", "infra_url": "http://templated-infra:9999"}
     mock_resolve_template.return_value = {"config": template_config, "post_start_actions": []}
 
-    install(directory=tmp_path, template="workspace", force_install=True)
+    install(directory=tmp_path, template="suite", force_install=True)
 
     network_prompt_kwargs = mock_echo.prompt.call_args_list[0][1]
     assert network_prompt_kwargs["from_args"] == "existing-net"
@@ -4698,7 +4698,7 @@ def test_install_preserves_prior_config_json_value_over_template_config(
     template_config = {"docker_network": "templated-net", "infra_url": "http://templated-infra:9999"}
     mock_resolve_template.return_value = {"config": template_config, "post_start_actions": []}
 
-    install(directory=tmp_path, template="workspace", force_install=True)
+    install(directory=tmp_path, template="suite", force_install=True)
 
     network_prompt_kwargs = mock_echo.prompt.call_args_list[0][1]
     assert network_prompt_kwargs["from_args"] == "config-json-net"
@@ -4752,7 +4752,7 @@ def test_install_preserves_prior_env_vectordb_type_over_template_config(
     template_config = {"vectordb_type": VectorDBTypeChoice.milvus}
     mock_resolve_template.return_value = {"config": template_config, "post_start_actions": []}
 
-    install(directory=tmp_path, template="workspace", force_install=True)
+    install(directory=tmp_path, template="suite", force_install=True)
 
     vectordb_call = mock_configure_vector_db.call_args
     assert vectordb_call[0][3] == "qdrant"
@@ -4825,7 +4825,7 @@ def test_install_restores_prior_port_when_template_omits_port(
     (tmp_path / ".env").write_text("DF_SERVER_PORT=9500\n")
     mock_resolve_template.return_value = {"config": {"docker_network": "templated-net"}, "post_start_actions": []}
 
-    install(directory=tmp_path, template="workspace", force_install=True)
+    install(directory=tmp_path, template="suite", force_install=True)
 
     env_vars = read_env_file(tmp_path / ".env")
     assert env_vars["DF_SERVER_PORT"] == "9500"
@@ -4843,7 +4843,7 @@ def test_install_restores_prior_port_when_template_omits_port(
 @MOCK_ENSURE_NETWORK
 @MOCK_ASSERT_DOCKER
 @MOCK_ECHO
-def test_install_end_to_end_with_real_builtin_workspace_template(
+def test_install_end_to_end_with_real_builtin_suite_template(
     mock_echo,
     mock_assert_docker,
     mock_ensure_network,
@@ -4859,7 +4859,7 @@ def test_install_end_to_end_with_real_builtin_workspace_template(
     tmp_path,
 ):
     """Every other template test mocks resolve_template() with a synthetic config, so the real
-    BUILTIN_TEMPLATES["workspace"] the CLI actually ships is never exercised through the full
+    BUILTIN_TEMPLATES["suite"] the CLI actually ships is never exercised through the full
     precedence chain (merge -> resolve -> apply -> post-start dispatch). This drives it unmocked,
     only stubbing the external Docker/HTTP/prompt boundaries."""
     configure_install_mocks(
@@ -4868,7 +4868,7 @@ def test_install_end_to_end_with_real_builtin_workspace_template(
 
     install(
         directory=tmp_path,
-        template="workspace",
+        template="suite",
         force_install=True,
         admin_name="Admin User",
         admin_email="admin@example.com",
@@ -4941,7 +4941,7 @@ def test_install_dispatches_post_start_actions_overriding_directory(
     ]
     mock_resolve_template.return_value = {"config": {}, "post_start_actions": actions}
 
-    install(directory=tmp_path, template="workspace", force_install=True, bind_address="127.0.0.1")
+    install(directory=tmp_path, template="suite", force_install=True, bind_address="127.0.0.1")
 
     assert mock_start_server.call_count == 1
     assert mock_start_server.call_args == mock.call(tmp_path)
@@ -5018,7 +5018,7 @@ def test_install_resolves_every_admin_credential_before_creating_any_admin_accou
     mock_resolve_admin_creds.side_effect = record_ask
     mock_apply_admin.side_effect = record_apply
 
-    install(directory=tmp_path, template="workspace", force_install=True)
+    install(directory=tmp_path, template="suite", force_install=True)
 
     assert calls == ["ask", "ask", "apply", "apply"]
     assert mock_dispatch_post_start_action.call_count == 0
@@ -5071,7 +5071,7 @@ def test_install_injects_cli_admin_flags_into_create_admin_action(
 
     install(
         directory=tmp_path,
-        template="workspace",
+        template="suite",
         force_install=True,
         admin_name="szymon",
         admin_email="szymon@szymon.pl",
@@ -5125,7 +5125,7 @@ def test_install_does_not_inject_admin_flags_into_non_create_admin_actions(
 
     install(
         directory=tmp_path,
-        template="workspace",
+        template="suite",
         force_install=True,
         admin_name="szymon",
         admin_email="szymon@szymon.pl",
@@ -5177,7 +5177,7 @@ def test_install_start_server_docker_network_error_raises_install_error(
     mock_start_server.side_effect = DockerNetworkError("network down")
 
     with pytest.raises(InstallError):
-        install(directory=tmp_path, template="workspace", force_install=True)
+        install(directory=tmp_path, template="suite", force_install=True)
 
     error_messages = [call.args[0] for call in mock_echo.error.call_args_list]
     assert any("Failed to start server for template post start actions: network down" in msg for msg in error_messages)
@@ -5224,7 +5224,7 @@ def test_install_start_server_typer_exit_raises_install_error(
     mock_start_server.side_effect = typer.Exit(1)
 
     with pytest.raises(InstallError):
-        install(directory=tmp_path, template="workspace", force_install=True)
+        install(directory=tmp_path, template="suite", force_install=True)
 
     error_messages = [call.args[0] for call in mock_echo.error.call_args_list]
     assert any("see console output above for details." in msg for msg in error_messages)
@@ -5276,7 +5276,7 @@ def test_install_post_start_action_failure_raises_install_error(
     mock_apply_admin.side_effect = InstallError("bad kwargs")
 
     with pytest.raises(InstallError):
-        install(directory=tmp_path, template="workspace", force_install=True)
+        install(directory=tmp_path, template="suite", force_install=True)
 
     error_messages = [call.args[0] for call in mock_echo.error.call_args_list]
     assert (
@@ -5331,7 +5331,7 @@ def test_install_post_start_action_build_phase_failure_raises_install_error(
     mock_resolve_admin_creds.side_effect = typer.Exit(1)
 
     with pytest.raises(InstallError):
-        install(directory=tmp_path, template="workspace", force_install=True)
+        install(directory=tmp_path, template="suite", force_install=True)
 
     error_messages = [call.args[0] for call in mock_echo.error.call_args_list]
     assert (
@@ -5386,7 +5386,7 @@ def test_install_post_start_action_build_phase_failure_outside_translated_set_st
     mock_resolve_admin_creds.side_effect = ValueError("unexpected failure")
 
     with pytest.raises(InstallError):
-        install(directory=tmp_path, template="workspace", force_install=True)
+        install(directory=tmp_path, template="suite", force_install=True)
 
     error_messages = [call.args[0] for call in mock_echo.error.call_args_list]
     assert (
@@ -5442,7 +5442,7 @@ def test_install_post_start_action_failure_outside_translated_set_still_raises_i
     mock_apply_admin.side_effect = ValueError("unexpected failure")
 
     with pytest.raises(InstallError):
-        install(directory=tmp_path, template="workspace", force_install=True)
+        install(directory=tmp_path, template="suite", force_install=True)
 
     error_messages = [call.args[0] for call in mock_echo.error.call_args_list]
     assert (
@@ -5500,7 +5500,7 @@ def test_install_stops_dispatching_post_start_actions_after_first_failure(
     mock_apply_admin.side_effect = [InstallError("bad kwargs"), None]
 
     with pytest.raises(InstallError):
-        install(directory=tmp_path, template="workspace", force_install=True)
+        install(directory=tmp_path, template="suite", force_install=True)
 
     # Both actions were asked about up front, but the apply pass stops at the first failure.
     assert mock_resolve_admin_creds.call_count == 2
@@ -5566,7 +5566,7 @@ def test_install_runs_no_apply_phase_when_a_later_actions_ask_phase_fails(
     mock_resolve_admin_creds.side_effect = [("a", "b", "c"), typer.Exit(1)]
 
     with pytest.raises(InstallError):
-        install(directory=tmp_path, template="workspace", force_install=True)
+        install(directory=tmp_path, template="suite", force_install=True)
 
     error_messages = [call.args[0] for call in mock_echo.error.call_args_list]
     assert (

@@ -41,13 +41,13 @@ def test_dispatch_post_start_action_calls_registered_function_with_kwargs() -> N
 
 @mock.patch("deepfellow.server.utils.users.run")
 @mock.patch("deepfellow.common.install.echo")
-def test_dispatch_post_start_action_creates_admin_from_builtin_workspace_template(
+def test_dispatch_post_start_action_creates_admin_from_builtin_suite_template(
     mock_echo: Mock,
     mock_run: Mock,
 ) -> None:
     mock_echo.prompt_until_valid.side_effect = ["admin", "admin@example.com", "S3cure_pass!"]
     mock_run.return_value = "Admin created"
-    action = BUILTIN_TEMPLATES["workspace"]["post_start_actions"][0]
+    action = BUILTIN_TEMPLATES["suite"]["post_start_actions"][0]
 
     dispatch_post_start_action(action)
 
@@ -58,37 +58,36 @@ def test_dispatch_post_start_action_creates_admin_from_builtin_workspace_templat
 
 
 def test_resolve_template_returns_builtin_template_when_value_matches_known_name() -> None:
-    result = resolve_template("workspace")
+    result = resolve_template("suite")
 
-    assert result == BUILTIN_TEMPLATES["workspace"]
+    assert result == BUILTIN_TEMPLATES["suite"]
 
 
 def test_resolve_template_returns_a_copy_of_the_builtin_template_not_a_live_reference() -> None:
-    result = resolve_template("workspace")
+    result = resolve_template("suite")
 
-    assert result is not BUILTIN_TEMPLATES["workspace"]
-    assert result["config"] is not BUILTIN_TEMPLATES["workspace"]["config"]
+    assert result is not BUILTIN_TEMPLATES["suite"]
+    assert result["config"] is not BUILTIN_TEMPLATES["suite"]["config"]
 
     result["config"]["extra_key"] = "mutated"
 
-    assert "extra_key" not in BUILTIN_TEMPLATES["workspace"]["config"]
+    assert "extra_key" not in BUILTIN_TEMPLATES["suite"]["config"]
 
 
 def test_resolve_template_post_start_action_kwargs_are_not_a_live_reference() -> None:
-    result = resolve_template("workspace")
+    result = resolve_template("suite")
 
     assert (
-        result["post_start_actions"][0]["kwargs"]
-        is not BUILTIN_TEMPLATES["workspace"]["post_start_actions"][0]["kwargs"]
+        result["post_start_actions"][0]["kwargs"] is not BUILTIN_TEMPLATES["suite"]["post_start_actions"][0]["kwargs"]
     )
 
     result["post_start_actions"][0]["kwargs"]["extra_key"] = "mutated"
 
-    assert "extra_key" not in BUILTIN_TEMPLATES["workspace"]["post_start_actions"][0]["kwargs"]
+    assert "extra_key" not in BUILTIN_TEMPLATES["suite"]["post_start_actions"][0]["kwargs"]
 
 
-def test_builtin_workspace_vectordb_type_is_a_vectordbtypechoice_enum() -> None:
-    assert BUILTIN_TEMPLATES["workspace"]["config"]["vectordb_type"] is VectorDBTypeChoice.milvus
+def test_builtin_suite_vectordb_type_is_a_vectordbtypechoice_enum() -> None:
+    assert BUILTIN_TEMPLATES["suite"]["config"]["vectordb_type"] is VectorDBTypeChoice.milvus
 
 
 def test_resolve_template_coerces_yaml_vectordb_type_string_to_enum(tmp_path: Path) -> None:
