@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+- `changelog-check` fails on a repeated or non-standard `###` heading in `[Unreleased]`, read as merged with `main`.
+
 ## [0.39.0] - 2026-11-12
 
 ### Added
