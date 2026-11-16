@@ -9,7 +9,7 @@ from typing import Annotated
 import typer
 
 from deepfellow.common.config import read_env_file_to_dict
-from deepfellow.common.defaults import DF_SERVER_IMAGE, DF_SERVER_IMAGE_HUB, DOCKER_COMPOSE_CONFIG_FILENAME
+from deepfellow.common.defaults import DF_SERVER_IMAGE_HUB, DOCKER_COMPOSE_CONFIG_FILENAME
 from deepfellow.common.docker import (
     get_running_service_image,
     load_compose_file,
@@ -23,6 +23,7 @@ from deepfellow.common.registry import (
     assert_cli_compatible,
     assert_not_downgrade,
     get_newest_image_tag,
+    require_local_image_tag,
     warn_version_check_skipped,
 )
 from deepfellow.common.system import run
@@ -46,19 +47,20 @@ app = typer.Typer()
 
 
 def _resolve_image(
-    image: str, tag: str | None, current: str = "", local_image: bool = False, skip_version_check: bool = False
+    image: str | None, tag: str | None, current: str = "", local_image: bool = False, skip_version_check: bool = False
 ) -> str:
     """Return the final image reference to use for update, exiting if this CLI can't install it.
 
-    A locally built image is taken as it is: it needs neither the registry nor the checks.
+    A locally built image is taken as it is: it needs neither the registry nor the checks, only an explicit tag.
+    Without an image or tag the newest release this CLI supports is used.
     """
     if tag:
         image = f"{DF_SERVER_IMAGE_HUB}:{tag}"
     if local_image:
-        return image
+        return require_local_image_tag(image, "Server", image_hint="`--image <name>:<tag>` or `--tag <tag>`")
     if skip_version_check:
         warn_version_check_skipped()
-    if not tag and image == DF_SERVER_IMAGE:
+    if image is None:
         newest = get_newest_image_tag(DF_SERVER_IMAGE_HUB)
         if not skip_version_check:
             assert_not_downgrade("Server", current, newest)
@@ -78,8 +80,7 @@ def _report_if_up_to_date(directory: Path, image: str, current: str, had_nightsh
     update for its migration, even on the newest image.
     """
     up_to_date = (
-        not image.endswith(":latest")
-        and current == image
+        current == image
         and not is_legacy_mongo_install(directory)
         and get_running_service_image("server", directory) == image
     )
@@ -138,8 +139,14 @@ def _warn_migrations_pending_restart(*, mongo_migrated: bool, ports_restricted: 
 @app.command()
 def update(
     directory: Path = directory_option(exists=True),
-    image: str = typer.Option(DF_SERVER_IMAGE, envvar="DF_SERVER_IMAGE", help="DeepFellow Server docker image."),
-    local_image: bool = typer.Option(False, help="Use locally build DeepFellow Server docker image."),
+    image: str | None = typer.Option(
+        None,
+        envvar="DF_SERVER_IMAGE",
+        help="DeepFellow Server docker image with a version tag. Default: the newest release compatible with this CLI.",
+    ),
+    local_image: bool = typer.Option(
+        False, help="Use locally build DeepFellow Server docker image. Requires --tag or an explicit tag in --image."
+    ),
     tag: str | None = typer.Option(None, help="Deepfellow Server docker image tag (e.g. 0.15.0)"),
     skip_version_check: Annotated[
         bool,
@@ -170,12 +177,12 @@ def update(
     check_server_directory(directory)
     assert_docker()
     # Validate mutual exclusive image and tag
-    if tag and image != DF_SERVER_IMAGE:
+    if tag and image is not None:
         raise typer.BadParameter("Only one if the `--tag` or `--image` options can be provided.")
 
     # Resolved and validated before the first question or write, so a refused image leaves the install untouched.
     values = read_env_file_to_dict(directory / ".env")
-    track_registry = bool(tag) or image == DF_SERVER_IMAGE
+    track_registry = image is None and not tag
     current = str(values["df_server_image"])
     image = _resolve_image(image, tag, current, local_image, skip_version_check)
 

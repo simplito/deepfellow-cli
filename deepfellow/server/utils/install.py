@@ -36,7 +36,6 @@ from deepfellow.common.defaults import (
     DF_RABBITMQ_URL,
     DF_SERVER_BIND_ADDRESS,
     DF_SERVER_DIRECTORY,
-    DF_SERVER_IMAGE,
     DF_SERVER_IMAGE_HUB,
     DF_SERVER_PORT,
     DF_SERVER_STORAGE_DIRECTORY,
@@ -165,7 +164,7 @@ class InstallContext:
 
     resolved_template: InstallTemplate | None
     directory: Path
-    newest_image_tag: str | None
+    image: str
     original_env_content: EnvDict
     log_level: str
     plugins_setup: str
@@ -203,7 +202,7 @@ def _validate_non_interactive_post_start_actions(
 
 def inspect(
     directory: Path,
-    image: str,
+    image: str | None,
     local_image: bool,
     force_install: bool,
     template: str | None = None,
@@ -224,7 +223,7 @@ def inspect(
 
     Args:
         directory: Directory to install into.
-        image: DeepFellow Server docker image, before newest-tag resolution.
+        image: DeepFellow Server docker image; the newest compatible release when `None`.
         local_image: Whether a locally built docker image is used.
         force_install: Skips the overwrite check/prompt entirely when set.
         template: Optional built-in template name or path to a template YAML file.
@@ -256,8 +255,8 @@ def inspect(
 
     assert_docker()
     # Before anything is asked or created, so a refused image leaves nothing behind.
-    newest_image_tag = checked_image or resolve_install_image(
-        "Server", DF_SERVER_IMAGE_HUB, DF_SERVER_IMAGE, image, local_image, skip_version_check
+    resolved_image = checked_image or resolve_install_image(
+        "Server", DF_SERVER_IMAGE_HUB, image, local_image, skip_version_check
     )
     ensure_directory(
         directory,
@@ -298,7 +297,7 @@ def inspect(
     return InstallContext(
         resolved_template,
         directory,
-        newest_image_tag,
+        resolved_image,
         original_env_content,
         log_level,
         plugins_setup,
@@ -563,7 +562,6 @@ def resolve(
     context: InstallContext,
     *,
     port: int,
-    image: str,
     otel_url: str | None,
     otel_local: bool,
     infra_url: str,
@@ -610,7 +608,6 @@ def resolve(
     Args:
         context: Read-only values gathered by :func:`inspect`, including any resolved --template.
         port: Published port to serve the DeepFellow Server from.
-        image: DeepFellow Server docker image, before newest-tag resolution.
         otel_url: Existing Open Telemetry collector URL, if any.
         otel_local: Whether to install a local debug-only Open Telemetry collector.
         infra_url: DeepFellow Infra URL to connect to.
@@ -837,7 +834,7 @@ def resolve(
     return InstallConfig(
         directory=directory,
         port=port,
-        image=context.newest_image_tag or image,
+        image=context.image,
         docker_network=docker_network,
         log_level=context.log_level,
         plugins_setup=context.plugins_setup,
@@ -1355,7 +1352,7 @@ def install(
     directory: Path = DF_SERVER_DIRECTORY,
     port: int = DF_SERVER_PORT,
     bind_address: str | None = None,
-    image: str = DF_SERVER_IMAGE,
+    image: str | None = None,
     local_image: bool = False,
     skip_version_check: bool = False,
     otel_url: str | None = None,
@@ -1417,7 +1414,6 @@ def install(
     config = resolve(
         context,
         port=port,
-        image=image,
         otel_url=otel_url,
         otel_local=otel_local,
         infra_url=infra_url,

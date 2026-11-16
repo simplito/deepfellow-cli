@@ -13,13 +13,11 @@ from deepfellow.common.defaults import (
     DF_FALKORDB_URL,
     DF_INFRA_DIRECTORY,
     DF_INFRA_DOCKER_NETWORK,
-    DF_INFRA_IMAGE,
     DF_INFRA_PORT,
     DF_INFRA_STORAGE_DIR,
     DF_MONGO_PORT,
     DF_RABBITMQ_URL,
     DF_SERVER_DIRECTORY,
-    DF_SERVER_IMAGE,
     DF_SERVER_PORT,
     NightshiftModeChoice,
 )
@@ -132,8 +130,14 @@ def install(
         callback=validate_bind_address,
         help='Host address to publish the Infra port on, e.g. 127.0.0.1. Default: all interfaces ("").',
     ),
-    infra_image: str = typer.Option(DF_INFRA_IMAGE, envvar="DF_INFRA_IMAGE", help="DeepFellow Infra docker image."),
-    infra_local_image: bool = typer.Option(False, help="Use locally build DeepFellow Infra docker image."),
+    infra_image: str | None = typer.Option(
+        None,
+        envvar="DF_INFRA_IMAGE",
+        help="DeepFellow Infra docker image with a version tag. Default: the newest release compatible with this CLI.",
+    ),
+    infra_local_image: bool = typer.Option(
+        False, help="Use locally build DeepFellow Infra docker image. Requires an explicit tag in --infra-image."
+    ),
     infra_directory: Path = typer.Option(
         DF_INFRA_DIRECTORY,
         envvar="DF_INFRA_DIRECTORY",
@@ -154,8 +158,14 @@ def install(
         callback=validate_bind_address,
         help='Host address to publish the Server port on, e.g. 127.0.0.1. Default: all interfaces ("").',
     ),
-    server_image: str = typer.Option(DF_SERVER_IMAGE, envvar="DF_SERVER_IMAGE", help="DeepFellow Server docker image."),
-    server_local_image: bool = typer.Option(False, help="Use locally build DeepFellow Server docker image."),
+    server_image: str | None = typer.Option(
+        None,
+        envvar="DF_SERVER_IMAGE",
+        help="DeepFellow Server docker image with a version tag. Default: the newest release compatible with this CLI.",
+    ),
+    server_local_image: bool = typer.Option(
+        False, help="Use locally build DeepFellow Server docker image. Requires an explicit tag in --server-image."
+    ),
     skip_version_check: Annotated[
         bool,
         typer.Option(

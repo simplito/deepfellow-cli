@@ -9,13 +9,14 @@ import pytest
 import typer
 
 from deepfellow.common.defaults import (
-    DF_INFRA_IMAGE,
     DF_INFRA_IMAGE_HUB,
     DOCKER_COMPOSE_CONFIG_FILENAME,
     INFRA_BIND_ADDRESS,
 )
 from deepfellow.common.tls import CAError
 from deepfellow.infra.update import _resolve_image, update
+
+DF_INFRA_IMAGE = f"{DF_INFRA_IMAGE_HUB}:1.2.3"
 
 pytestmark = pytest.mark.usefixtures("_unversioned_cli")
 
@@ -39,7 +40,7 @@ def compose_data_with_pull_policy() -> dict:
 def default_update_kwargs(directory) -> dict:
     return {
         "directory": directory,
-        "image": DF_INFRA_IMAGE,
+        "image": None,
         "local_image": False,
         "tag": None,
     }
@@ -104,7 +105,7 @@ def test_resolve_image_allows_newer_tag_for_local_image(mock_cli_version: Mock) 
 def test_resolve_image_returns_newest_when_default_image_and_no_tag(mock_get_newest_image_tag: Mock) -> None:
     mock_get_newest_image_tag.return_value = f"{DF_INFRA_IMAGE_HUB}:0.16.0"
 
-    result: str = _resolve_image(DF_INFRA_IMAGE, None)
+    result: str = _resolve_image(None, None)
 
     assert result == f"{DF_INFRA_IMAGE_HUB}:0.16.0"
     assert mock_get_newest_image_tag.call_count == 1
@@ -159,7 +160,7 @@ def test_update_local_image_and_no_pull_policy(
     mock_load.return_value = compose_data
     mock_echo.confirm.return_value = False
 
-    update(**{**default_update_kwargs, "local_image": True})
+    update(**{**default_update_kwargs, "image": "local-image:dev", "local_image": True})
 
     assert compose_data["services"]["infra"]["pull_policy"] == "never"
     assert mock_save.call_count == 1
@@ -199,7 +200,7 @@ def test_update_local_image_and_pull_policy(
     mock_load.return_value = compose_data_with_pull_policy
     mock_echo.confirm.return_value = False
 
-    update(**{**default_update_kwargs, "local_image": True})
+    update(**{**default_update_kwargs, "image": "local-image:dev", "local_image": True})
 
     assert compose_data_with_pull_policy["services"]["infra"]["pull_policy"] == "always"
     assert mock_save.call_count == 0
@@ -565,7 +566,7 @@ def test_update_pulls_when_newer_version_available(
 @mock.patch("deepfellow.infra.update.read_env_file_to_dict")
 @mock.patch("deepfellow.infra.update.assert_docker")
 @mock.patch("deepfellow.infra.update.check_infra_directory")
-def test_update_with_same_tag_as_current_skips_pull(
+def test_update_with_same_tag_as_current_still_pulls(
     mock_check: Mock,
     mock_assert_docker: Mock,
     mock_read: Mock,
@@ -586,8 +587,9 @@ def test_update_with_same_tag_as_current_skips_pull(
 
     update(**{**default_update_kwargs, "tag": "0.15.0"})
 
-    assert mock_run.call_count == 0
-    assert mock_echo.success.call_count == 1
+    assert mock_run.call_args == mock.call(
+        ["docker", "pull", f"{DF_INFRA_IMAGE_HUB}:0.15.0"], cwd=default_update_kwargs["directory"]
+    )
 
 
 @mock.patch("deepfellow.infra.update.get_running_service_image")
@@ -747,7 +749,7 @@ def test_update_local_image_does_not_pull(
     mock_load.return_value = compose_data
     mock_echo.confirm.return_value = False
 
-    update(**{**default_update_kwargs, "image": "local-image", "local_image": True})
+    update(**{**default_update_kwargs, "image": "local-image:dev", "local_image": True})
 
     assert mock_run.call_count == 0
     assert mock_newest.call_count == 0
@@ -793,12 +795,12 @@ def test_resolve_image_exits_when_installed_is_newer_than_newest_compatible(mock
     mock_get_newest_image_tag.return_value = f"{DF_INFRA_IMAGE_HUB}:1.2.0"
 
     with pytest.raises(typer.Exit):
-        _resolve_image(DF_INFRA_IMAGE, None, f"{DF_INFRA_IMAGE_HUB}:1.3.0")
+        _resolve_image(None, None, f"{DF_INFRA_IMAGE_HUB}:1.3.0")
 
 
 @mock.patch("deepfellow.infra.update.get_newest_image_tag")
 def test_resolve_image_allows_explicit_older_tag_as_downgrade(mock_get_newest_image_tag: Mock) -> None:
-    result: str = _resolve_image(DF_INFRA_IMAGE, "1.1.0", f"{DF_INFRA_IMAGE_HUB}:1.3.0")
+    result: str = _resolve_image(None, "1.1.0", f"{DF_INFRA_IMAGE_HUB}:1.3.0")
 
     assert result == f"{DF_INFRA_IMAGE_HUB}:1.1.0"
     assert mock_get_newest_image_tag.call_count == 0
@@ -815,7 +817,7 @@ def test_resolve_image_skips_compat_check_when_skip_version_check(mock_cli_versi
 def test_resolve_image_skips_downgrade_check_when_skip_version_check(mock_get_newest_image_tag: Mock) -> None:
     mock_get_newest_image_tag.return_value = f"{DF_INFRA_IMAGE_HUB}:1.2.0"
 
-    result: str = _resolve_image(DF_INFRA_IMAGE, None, f"{DF_INFRA_IMAGE_HUB}:1.3.0", skip_version_check=True)
+    result: str = _resolve_image(None, None, f"{DF_INFRA_IMAGE_HUB}:1.3.0", skip_version_check=True)
 
     assert result == f"{DF_INFRA_IMAGE_HUB}:1.2.0"
 
@@ -834,7 +836,7 @@ def test_resolve_image_uses_local_image_without_registry_or_checks(
 
 @mock.patch("deepfellow.infra.update.get_newest_image_tag")
 def test_resolve_image_uses_hub_tag_for_local_image_with_tag(mock_get_newest_image_tag: Mock) -> None:
-    result: str = _resolve_image(DF_INFRA_IMAGE, "dev-build", local_image=True)
+    result: str = _resolve_image(None, "dev-build", local_image=True)
 
     assert result == f"{DF_INFRA_IMAGE_HUB}:dev-build"
     assert mock_get_newest_image_tag.call_count == 0
@@ -1013,3 +1015,27 @@ def test_update_warns_on_ca_error_and_still_pulls_and_offers_restart(
     assert "The CA certificate is malformed." in mock_docker_echo.warning.call_args.args[0]
     assert mock_run.call_args == mock.call(["docker", "pull", newest], cwd=directory)
     assert mock_echo.confirm.call_args == mock.call("Do you want to restart?", default=True)
+
+
+@pytest.mark.parametrize("image", [None, DF_INFRA_IMAGE_HUB])
+@mock.patch("deepfellow.common.registry.echo")
+@mock.patch("deepfellow.infra.update.get_newest_image_tag")
+def test_resolve_image_exits_for_local_image_without_tag(
+    mock_get_newest_image_tag: Mock, mock_echo: Mock, image: str | None
+) -> None:
+    with pytest.raises(typer.Exit):
+        _resolve_image(image, None, f"{DF_INFRA_IMAGE_HUB}:1.3.0", local_image=True)
+
+    message = mock_echo.error.call_args.args[0]
+    assert mock_get_newest_image_tag.call_count == 0
+    assert message.startswith("Infra: `--local-image` needs an explicit image tag")
+    assert "`--image <name>:<tag>` or `--tag <tag>`" in message
+
+
+@mock.patch("deepfellow.infra.update.get_newest_image_tag")
+def test_resolve_image_pins_newest_release_when_installed_image_is_latest(mock_get_newest_image_tag: Mock) -> None:
+    mock_get_newest_image_tag.return_value = f"{DF_INFRA_IMAGE_HUB}:1.2.0"
+
+    result: str = _resolve_image(None, None, f"{DF_INFRA_IMAGE_HUB}:latest")
+
+    assert result == f"{DF_INFRA_IMAGE_HUB}:1.2.0"

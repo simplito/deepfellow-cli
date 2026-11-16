@@ -22,7 +22,6 @@ DF_NO_UPDATE_CHECK_ENV = "DF_NO_UPDATE_CHECK"
 
 DF_INFRA_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / "infra"
 DF_INFRA_IMAGE_HUB = "hub.simplito.com/deepfellow/deepfellow-infra"
-DF_INFRA_IMAGE = f"{DF_INFRA_IMAGE_HUB}:latest"
 DF_INFRA_PORT = 8086
 # Host address the Infra API port is published on; empty means all interfaces (IPv4 and IPv6).
 DF_INFRA_BIND_ADDRESS = ""
@@ -37,7 +36,6 @@ INFRA_PULL_WAIT_TIMEOUT_SECONDS = 30 * 60
 
 DF_SERVER_DIRECTORY = DF_DEEPFELLOW_DIRECTORY / "server"
 DF_SERVER_IMAGE_HUB = "hub.simplito.com/deepfellow/deepfellow-server"
-DF_SERVER_IMAGE = f"{DF_SERVER_IMAGE_HUB}:latest"
 DF_SERVER_PORT = 8000
 # Host address the Server API port is published on; empty means all interfaces (IPv4 and IPv6).
 DF_SERVER_BIND_ADDRESS = ""

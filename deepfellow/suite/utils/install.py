@@ -18,7 +18,6 @@ from deepfellow.common.defaults import (
     DF_FALKORDB_URL,
     DF_INFRA_DIRECTORY,
     DF_INFRA_DOCKER_NETWORK,
-    DF_INFRA_IMAGE,
     DF_INFRA_IMAGE_HUB,
     DF_INFRA_NAME,
     DF_INFRA_PORT,
@@ -29,7 +28,6 @@ from deepfellow.common.defaults import (
     DF_MONGO_URL,
     DF_RABBITMQ_URL,
     DF_SERVER_DIRECTORY,
-    DF_SERVER_IMAGE,
     DF_SERVER_IMAGE_HUB,
     DF_SERVER_PORT,
     DF_SUITE_INSTALL_STATE_FILE,
@@ -466,7 +464,7 @@ def _infra_config(
     *,
     port: int,
     bind_address: str | None = None,
-    image: str,
+    image: str | None,
     local_image: bool,
     directory: Path,
     docker_config: Path | None,
@@ -509,7 +507,6 @@ def _infra_config(
     return infra_resolve(
         context,
         port=port,
-        image=image,
         docker_config=docker_config,
         storage=storage,
         hugging_face_token=None,
@@ -592,7 +589,7 @@ def _server_config(
     *,
     port: int,
     bind_address: str | None = None,
-    image: str,
+    image: str | None,
     local_image: bool,
     directory: Path,
     docker_network: str,
@@ -646,7 +643,6 @@ def _server_config(
     return server_resolve(
         context,
         port=port,
-        image=image,
         otel_url=None,
         otel_local=otel_local,
         infra_url=DF_INFRA_URL,
@@ -860,14 +856,14 @@ def install(
     template: str = "suite",
     infra_port: int = DF_INFRA_PORT,
     infra_bind_address: str | None = None,
-    infra_image: str = DF_INFRA_IMAGE,
+    infra_image: str | None = None,
     infra_local_image: bool = False,
     infra_directory: Path = DF_INFRA_DIRECTORY,
     infra_docker_config: Path | None = None,
     infra_storage: Path = DF_INFRA_STORAGE_DIR,
     server_port: int = DF_SERVER_PORT,
     server_bind_address: str | None = None,
-    server_image: str = DF_SERVER_IMAGE,
+    server_image: str | None = None,
     server_local_image: bool = False,
     skip_version_check: bool = False,
     server_directory: Path = DF_SERVER_DIRECTORY,
@@ -1065,18 +1061,24 @@ def install(
     infra_checked_image: str | None = None
     server_checked_image: str | None = None
     if STEP_INFRA_CONFIG not in install_state.completed_steps:
-        infra_checked_image = (
-            resolve_install_image(
-                "Infra", DF_INFRA_IMAGE_HUB, DF_INFRA_IMAGE, infra_image, infra_local_image, skip_version_check
-            )
-            or infra_image
+        infra_checked_image = resolve_install_image(
+            "Infra",
+            DF_INFRA_IMAGE_HUB,
+            infra_image,
+            infra_local_image,
+            skip_version_check,
+            "--infra-local-image",
+            "--infra-image",
         )
     if STEP_SERVER_CONFIG not in install_state.completed_steps:
-        server_checked_image = (
-            resolve_install_image(
-                "Server", DF_SERVER_IMAGE_HUB, DF_SERVER_IMAGE, server_image, server_local_image, skip_version_check
-            )
-            or server_image
+        server_checked_image = resolve_install_image(
+            "Server",
+            DF_SERVER_IMAGE_HUB,
+            server_image,
+            server_local_image,
+            skip_version_check,
+            "--server-local-image",
+            "--server-image",
         )
 
     print_vram_estimate(infra_post_start_actions)

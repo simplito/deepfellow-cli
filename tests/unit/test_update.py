@@ -168,12 +168,12 @@ def test_update_skip_cli_runs_steps_in_process(
     assert mock_run.call_count == 0
     assert mock_update_infra.call_count == 1
     assert mock_update_infra.call_args == mock.call(
-        directory=mock_infra_dir, image=mock.ANY, local_image=False, tag=None, skip_version_check=False
+        directory=mock_infra_dir, image=None, local_image=False, tag=None, skip_version_check=False
     )
     assert mock_update_server.call_count == 1
     assert mock_update_server.call_args == mock.call(
         directory=server_dir,
-        image=mock.ANY,
+        image=None,
         local_image=False,
         tag=None,
         skip_version_check=False,

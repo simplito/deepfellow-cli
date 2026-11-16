@@ -31,7 +31,7 @@ from deepfellow.common.defaults import (
     DF_MONGO_URL,
     DF_RABBITMQ_URL,
     DF_SERVER_DIRECTORY,
-    DF_SERVER_IMAGE,
+    DF_SERVER_IMAGE_HUB,
     DF_SERVER_PORT,
     DOCKER_COMPOSE_CONFIG_FILENAME,
     DOCKER_COMPOSE_FALKORDB,
@@ -76,6 +76,8 @@ from deepfellow.server.utils.install import (
 from deepfellow.server.utils.install import inspect as inspect_util
 from deepfellow.server.utils.minio_migration import MIGRATION_SKIPPED_LABEL, MIGRATION_SKIPPED_LABEL_CONFIRMED
 from deepfellow.server.utils.templates import BUILTIN_TEMPLATES, VALID_CONFIG_KEYS
+
+DF_SERVER_IMAGE = f"{DF_SERVER_IMAGE_HUB}:1.2.3"
 
 pytestmark = pytest.mark.usefixtures("_unversioned_cli")
 
@@ -928,7 +930,7 @@ def test_inspect_returns_context_with_defaults_when_no_env_file(
 
     assert mock_assert_docker.call_count == 1
     assert context.directory == tmp_path
-    assert context.newest_image_tag is None
+    assert context.image == "deepfellow-server:test"
     assert context.original_env_content == {}
     assert context.log_level == "INFO"
     assert context.plugins_setup == "{}"
@@ -1172,9 +1174,9 @@ def test_inspect_resolves_newest_image_tag_for_default_image(
 ) -> None:
     mock_get_newest_image_tag.return_value = "v1.2.3"
 
-    context = inspect_util(directory=tmp_path, image=DF_SERVER_IMAGE, local_image=False, force_install=False)
+    context = inspect_util(directory=tmp_path, image=None, local_image=False, force_install=False)
 
-    assert context.newest_image_tag == "v1.2.3"
+    assert context.image == "v1.2.3"
     assert mock_get_newest_image_tag.call_count == 1
 
 
@@ -1200,7 +1202,7 @@ def test_inspect_skips_newest_image_tag_lookup(
 ) -> None:
     context = inspect_util(directory=tmp_path, image=image, local_image=local_image, force_install=False)
 
-    assert context.newest_image_tag is None
+    assert context.image == image
     assert mock_get_newest_image_tag.call_count == 0
 
 
@@ -1931,7 +1933,7 @@ def test_resolve_keeps_previous_metrics_when_confirmed(
     context = InstallContext(
         resolved_template=None,
         directory=tmp_path,
-        newest_image_tag=None,
+        image="deepfellow/server:1.2.3",
         original_env_content={"df_metrics_username": "orig-user", "df_metrics_password": "orig-pass"},
         log_level="INFO",
         plugins_setup="{}",
@@ -1943,6 +1945,7 @@ def test_resolve_keeps_previous_metrics_when_confirmed(
     del kwargs["admin_name"]
     del kwargs["admin_email"]
     del kwargs["admin_password"]
+    del kwargs["image"]
 
     config = resolve(context, **kwargs)
 
@@ -1973,7 +1976,7 @@ def test_resolve_regenerates_metrics_when_not_confirmed(
     context = InstallContext(
         resolved_template=None,
         directory=tmp_path,
-        newest_image_tag=None,
+        image="deepfellow/server:1.2.3",
         original_env_content={"df_metrics_username": "orig-user", "df_metrics_password": "orig-pass"},
         log_level="INFO",
         plugins_setup="{}",
@@ -1985,6 +1988,7 @@ def test_resolve_regenerates_metrics_when_not_confirmed(
     del kwargs["admin_name"]
     del kwargs["admin_email"]
     del kwargs["admin_password"]
+    del kwargs["image"]
 
     config = resolve(context, **kwargs)
 
@@ -2011,7 +2015,7 @@ def mongo_context(directory: Path, original_env_content: dict[str, Any]) -> Inst
     return InstallContext(
         resolved_template=None,
         directory=directory,
-        newest_image_tag=None,
+        image="deepfellow/server:1.2.3",
         original_env_content=original_env_content,
         log_level="INFO",
         plugins_setup="{}",
@@ -2021,7 +2025,7 @@ def mongo_context(directory: Path, original_env_content: dict[str, Any]) -> Inst
 def local_mongo_resolve_kwargs(directory: Path) -> dict[str, Any]:
     """Build explicit arguments for calling resolve() directly with a local MongoDB."""
     kwargs = install_kwargs(directory)
-    for key in ("directory", "force_install", "template", "admin_name", "admin_email", "admin_password"):
+    for key in ("directory", "image", "force_install", "template", "admin_name", "admin_email", "admin_password"):
         del kwargs[key]
     kwargs["mongodb_url"] = DF_MONGO_URL
     kwargs["mongodb_database_name"] = DF_MONGO_DB
@@ -2876,7 +2880,7 @@ def test_resolve_asks_keep_or_migrate_decision_when_legacy_minio_found(
     context = InstallContext(
         resolved_template=None,
         directory=tmp_path,
-        newest_image_tag=None,
+        image="deepfellow/server:1.2.3",
         original_env_content={},
         log_level="INFO",
         plugins_setup="{}",
@@ -2888,6 +2892,7 @@ def test_resolve_asks_keep_or_migrate_decision_when_legacy_minio_found(
     del kwargs["admin_name"]
     del kwargs["admin_email"]
     del kwargs["admin_password"]
+    del kwargs["image"]
 
     config = resolve(context, **kwargs)
 
@@ -2934,7 +2939,7 @@ def test_resolve_leaves_migration_unconfirmed_when_migrate_is_chosen(
     context = InstallContext(
         resolved_template=None,
         directory=tmp_path,
-        newest_image_tag=None,
+        image="deepfellow/server:1.2.3",
         original_env_content={},
         log_level="INFO",
         plugins_setup="{}",
@@ -2946,6 +2951,7 @@ def test_resolve_leaves_migration_unconfirmed_when_migrate_is_chosen(
     del kwargs["admin_name"]
     del kwargs["admin_email"]
     del kwargs["admin_password"]
+    del kwargs["image"]
 
     config = resolve(context, **kwargs)
 
@@ -2987,7 +2993,7 @@ def test_resolve_does_not_mark_the_non_interactive_default_keep_decision_as_conf
     context = InstallContext(
         resolved_template=None,
         directory=tmp_path,
-        newest_image_tag=None,
+        image="deepfellow/server:1.2.3",
         original_env_content={},
         log_level="INFO",
         plugins_setup="{}",
@@ -2999,6 +3005,7 @@ def test_resolve_does_not_mark_the_non_interactive_default_keep_decision_as_conf
     del kwargs["admin_name"]
     del kwargs["admin_email"]
     del kwargs["admin_password"]
+    del kwargs["image"]
 
     state.non_interactive = True
     try:
@@ -3039,7 +3046,7 @@ def test_resolve_skips_legacy_minio_check_when_no_legacy_service_found(
     context = InstallContext(
         resolved_template=None,
         directory=tmp_path,
-        newest_image_tag=None,
+        image="deepfellow/server:1.2.3",
         original_env_content={},
         log_level="INFO",
         plugins_setup="{}",
@@ -3051,6 +3058,7 @@ def test_resolve_skips_legacy_minio_check_when_no_legacy_service_found(
     del kwargs["admin_name"]
     del kwargs["admin_email"]
     del kwargs["admin_password"]
+    del kwargs["image"]
 
     config = resolve(context, **kwargs)
 
@@ -3088,7 +3096,7 @@ def test_resolve_exits_when_legacy_minio_is_still_running(
     context = InstallContext(
         resolved_template=None,
         directory=tmp_path,
-        newest_image_tag=None,
+        image="deepfellow/server:1.2.3",
         original_env_content={},
         log_level="INFO",
         plugins_setup="{}",
@@ -3100,6 +3108,7 @@ def test_resolve_exits_when_legacy_minio_is_still_running(
     del kwargs["admin_name"]
     del kwargs["admin_email"]
     del kwargs["admin_password"]
+    del kwargs["image"]
 
     with pytest.raises(typer.Exit):
         resolve(context, **kwargs)
@@ -5696,7 +5705,7 @@ def test_resolve_forces_nightshift_mode_only_when_explicitly_provided(
     context = InstallContext(
         resolved_template=None,
         directory=tmp_path,
-        newest_image_tag=None,
+        image="deepfellow/server:1.2.3",
         original_env_content={},
         log_level="INFO",
         plugins_setup="{}",
@@ -5704,6 +5713,7 @@ def test_resolve_forces_nightshift_mode_only_when_explicitly_provided(
     kwargs = install_kwargs(tmp_path)
     for key in ("directory", "force_install", "template", "admin_name", "admin_email", "admin_password"):
         del kwargs[key]
+    del kwargs["image"]
 
     resolve(context, **kwargs, explicitly_provided=explicitly_provided)
 
@@ -5747,7 +5757,6 @@ def test_inspect_exits_before_changing_anything_when_custom_image_not_known_to_w
     [
         pytest.param("custom/image:1.2.9", False, id="same-minor"),
         pytest.param("custom/image:2.0.0", True, id="local-image-skips-check"),
-        pytest.param("custom/image", True, id="local-image-without-tag"),
     ],
 )
 @mock.patch("deepfellow.common.version.cli_version", return_value="1.2.0")
@@ -5767,7 +5776,7 @@ def test_inspect_accepts_custom_image_known_to_work(
 ) -> None:
     context = inspect_util(directory=tmp_path, image=image, local_image=local_image, force_install=False)
 
-    assert context.newest_image_tag is None
+    assert context.image == image
     assert mock_ensure_directory.call_count == 1
 
 

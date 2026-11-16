@@ -9,13 +9,14 @@ import pytest
 import typer
 
 from deepfellow.common.defaults import (
-    DF_SERVER_IMAGE,
     DF_SERVER_IMAGE_HUB,
     DOCKER_COMPOSE_CONFIG_FILENAME,
     DOCKER_COMPOSE_RABBITMQ,
 )
 from deepfellow.server.update import _resolve_image, update
 from deepfellow.server.utils.configure import NightshiftConfig
+
+DF_SERVER_IMAGE = f"{DF_SERVER_IMAGE_HUB}:1.2.3"
 
 pytestmark = pytest.mark.usefixtures("_unversioned_cli")
 
@@ -46,7 +47,7 @@ def nightshift_config() -> NightshiftConfig:
 def default_update_kwargs(directory: Path) -> dict:
     return {
         "directory": directory,
-        "image": DF_SERVER_IMAGE,
+        "image": None,
         "local_image": False,
         "tag": None,
         "nightshift": None,
@@ -241,7 +242,7 @@ def test_update_local_image_and_no_pull_policy(
     mock_load.return_value = compose_data
     mock_echo.confirm.return_value = False
 
-    update(**{**default_update_kwargs, "local_image": True})
+    update(**{**default_update_kwargs, "image": "local-image:dev", "local_image": True})
 
     assert compose_data["services"]["server"]["pull_policy"] == "never"
     assert mock_save.call_count == 1
@@ -287,7 +288,7 @@ def test_update_local_image_and_pull_policy(
     mock_load.return_value = compose_data_with_pull_policy
     mock_echo.confirm.return_value = False
 
-    update(**{**default_update_kwargs, "local_image": True})
+    update(**{**default_update_kwargs, "image": "local-image:dev", "local_image": True})
 
     assert compose_data_with_pull_policy["services"]["server"]["pull_policy"] == "always"
     assert mock_save.call_count == 0
@@ -1248,7 +1249,7 @@ def test_update_skips_pull_when_already_up_to_date(
 @mock.patch("deepfellow.server.update.read_env_file_to_dict")
 @mock.patch("deepfellow.server.update.assert_docker")
 @mock.patch("deepfellow.server.update.check_server_directory")
-def test_update_with_same_tag_as_current_skips_pull(
+def test_update_with_same_tag_as_current_still_pulls(
     mock_check: Mock,
     mock_assert_docker: Mock,
     mock_read: Mock,
@@ -1282,8 +1283,7 @@ def test_update_with_same_tag_as_current_skips_pull(
     update(**{**default_update_kwargs, "tag": "0.15.0"})
 
     assert mock_newest.call_count == 0
-    assert mock_run.call_count == 0
-    assert mock_echo.success.call_count == 1
+    assert mock.call(["docker", "pull", current], cwd=default_update_kwargs["directory"]) in mock_run.call_args_list
 
 
 @mock.patch("deepfellow.server.update.migrate_mongo_to_app_user")
@@ -1754,7 +1754,7 @@ def test_update_local_image_does_not_pull_image_directly(
     mock_is_legacy_mongo_install.return_value = False
     mock_echo.confirm.return_value = False
 
-    update(**{**default_update_kwargs, "image": "local-image", "local_image": True})
+    update(**{**default_update_kwargs, "image": "local-image:dev", "local_image": True})
 
     assert mock_newest.call_count == 0
     assert mock_running_image.call_count == 0
@@ -1893,12 +1893,12 @@ def test_resolve_image_exits_when_installed_is_newer_than_newest_compatible(mock
     mock_get_newest_image_tag.return_value = f"{DF_SERVER_IMAGE_HUB}:1.2.0"
 
     with pytest.raises(typer.Exit):
-        _resolve_image(DF_SERVER_IMAGE, None, f"{DF_SERVER_IMAGE_HUB}:1.3.0")
+        _resolve_image(None, None, f"{DF_SERVER_IMAGE_HUB}:1.3.0")
 
 
 @mock.patch("deepfellow.server.update.get_newest_image_tag")
 def test_resolve_image_allows_explicit_older_tag_as_downgrade(mock_get_newest_image_tag: Mock) -> None:
-    result: str = _resolve_image(DF_SERVER_IMAGE, "1.1.0", f"{DF_SERVER_IMAGE_HUB}:1.3.0")
+    result: str = _resolve_image(None, "1.1.0", f"{DF_SERVER_IMAGE_HUB}:1.3.0")
 
     assert result == f"{DF_SERVER_IMAGE_HUB}:1.1.0"
     assert mock_get_newest_image_tag.call_count == 0
@@ -1915,7 +1915,7 @@ def test_resolve_image_skips_compat_check_when_skip_version_check(mock_cli_versi
 def test_resolve_image_skips_downgrade_check_when_skip_version_check(mock_get_newest_image_tag: Mock) -> None:
     mock_get_newest_image_tag.return_value = f"{DF_SERVER_IMAGE_HUB}:1.2.0"
 
-    result: str = _resolve_image(DF_SERVER_IMAGE, None, f"{DF_SERVER_IMAGE_HUB}:1.3.0", skip_version_check=True)
+    result: str = _resolve_image(None, None, f"{DF_SERVER_IMAGE_HUB}:1.3.0", skip_version_check=True)
 
     assert result == f"{DF_SERVER_IMAGE_HUB}:1.2.0"
 
@@ -1934,7 +1934,7 @@ def test_resolve_image_uses_local_image_without_registry_or_checks(
 
 @mock.patch("deepfellow.server.update.get_newest_image_tag")
 def test_resolve_image_uses_hub_tag_for_local_image_with_tag(mock_get_newest_image_tag: Mock) -> None:
-    result: str = _resolve_image(DF_SERVER_IMAGE, "dev-build", local_image=True)
+    result: str = _resolve_image(None, "dev-build", local_image=True)
 
     assert result == f"{DF_SERVER_IMAGE_HUB}:dev-build"
     assert mock_get_newest_image_tag.call_count == 0
@@ -2131,3 +2131,27 @@ def test_update_refreshes_ca_bundle_when_pulling_newer_image(
     assert mock_refresh_ca_trust_bundle.call_count == 1
     assert mock_refresh_ca_trust_bundle.call_args == mock.call(directory, server_service)
     assert mock.call(["docker", "pull", newest], cwd=directory) in mock_run.call_args_list
+
+
+@pytest.mark.parametrize("image", [None, DF_SERVER_IMAGE_HUB])
+@mock.patch("deepfellow.common.registry.echo")
+@mock.patch("deepfellow.server.update.get_newest_image_tag")
+def test_resolve_image_exits_for_local_image_without_tag(
+    mock_get_newest_image_tag: Mock, mock_echo: Mock, image: str | None
+) -> None:
+    with pytest.raises(typer.Exit):
+        _resolve_image(image, None, f"{DF_SERVER_IMAGE_HUB}:1.3.0", local_image=True)
+
+    message = mock_echo.error.call_args.args[0]
+    assert mock_get_newest_image_tag.call_count == 0
+    assert message.startswith("Server: `--local-image` needs an explicit image tag")
+    assert "`--image <name>:<tag>` or `--tag <tag>`" in message
+
+
+@mock.patch("deepfellow.server.update.get_newest_image_tag")
+def test_resolve_image_pins_newest_release_when_installed_image_is_latest(mock_get_newest_image_tag: Mock) -> None:
+    mock_get_newest_image_tag.return_value = f"{DF_SERVER_IMAGE_HUB}:1.2.0"
+
+    result: str = _resolve_image(None, None, f"{DF_SERVER_IMAGE_HUB}:latest")
+
+    assert result == f"{DF_SERVER_IMAGE_HUB}:1.2.0"

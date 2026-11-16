@@ -12,7 +12,6 @@ from deepfellow.common.config import (
     read_env_file_to_dict,
 )
 from deepfellow.common.defaults import (
-    DF_INFRA_IMAGE,
     DF_INFRA_IMAGE_HUB,
     DOCKER_COMPOSE_CONFIG_FILENAME,
     INFRA_BIND_ADDRESS,
@@ -31,6 +30,7 @@ from deepfellow.common.registry import (
     assert_cli_compatible,
     assert_not_downgrade,
     get_newest_image_tag,
+    require_local_image_tag,
     warn_version_check_skipped,
 )
 from deepfellow.common.system import run
@@ -42,19 +42,20 @@ app = typer.Typer()
 
 
 def _resolve_image(
-    image: str, tag: str | None, current: str = "", local_image: bool = False, skip_version_check: bool = False
+    image: str | None, tag: str | None, current: str = "", local_image: bool = False, skip_version_check: bool = False
 ) -> str:
     """Return the final image reference to use for update, exiting if this CLI can't install it.
 
-    A locally built image is taken as it is: it needs neither the registry nor the checks.
+    A locally built image is taken as it is: it needs neither the registry nor the checks, only an explicit tag.
+    Without an image or tag the newest release this CLI supports is used.
     """
     if tag:
         image = f"{DF_INFRA_IMAGE_HUB}:{tag}"
     if local_image:
-        return image
+        return require_local_image_tag(image, "Infra", image_hint="`--image <name>:<tag>` or `--tag <tag>`")
     if skip_version_check:
         warn_version_check_skipped()
-    if not tag and image == DF_INFRA_IMAGE:
+    if image is None:
         newest = get_newest_image_tag(DF_INFRA_IMAGE_HUB)
         if not skip_version_check:
             assert_not_downgrade("Infra", current, newest)
@@ -69,8 +70,14 @@ def _resolve_image(
 @app.command()
 def update(
     directory: Path = directory_option(exists=True),
-    image: str = typer.Option(DF_INFRA_IMAGE, envvar="DF_INFRA_IMAGE", help="DeepFellow Infra docker image."),
-    local_image: bool = typer.Option(False, help="Use locally build DeepFellow Infra docker image."),
+    image: str | None = typer.Option(
+        None,
+        envvar="DF_INFRA_IMAGE",
+        help="DeepFellow Infra docker image with a version tag. Default: the newest release compatible with this CLI.",
+    ),
+    local_image: bool = typer.Option(
+        False, help="Use locally build DeepFellow Infra docker image. Requires --tag or an explicit tag in --image."
+    ),
     tag: str | None = typer.Option(None, help="Deepfellow Infra docker image tag (e.g. 0.15.0)"),
     skip_version_check: Annotated[
         bool,
@@ -84,7 +91,7 @@ def update(
     check_infra_directory(directory)
     assert_docker()
     # Validate mutual exclusive image and tag
-    if tag and image != DF_INFRA_IMAGE:
+    if tag and image is not None:
         raise typer.BadParameter("Only one if the `--tag` or `--image` options can be provided.")
 
     # Prepare the starting point for .env
@@ -92,7 +99,7 @@ def update(
     infra_values = read_env_file_to_dict(env_file)
 
     # Resolved and validated before anything is rewritten, so a refused image leaves the install untouched.
-    track_registry = bool(tag) or image == DF_INFRA_IMAGE
+    track_registry = image is None and not tag
     current = str(infra_values["df_infra_image"])
     image = _resolve_image(image, tag, current, local_image, skip_version_check)
 
@@ -127,7 +134,6 @@ def update(
     if (
         track_registry
         and not local_image
-        and not image.endswith(":latest")
         and current == image
         and get_running_service_image("infra", directory) == image
     ):

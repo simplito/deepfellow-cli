@@ -26,7 +26,6 @@ from deepfellow.common.defaults import (
     DF_INFRA_BIND_ADDRESS,
     DF_INFRA_DIRECTORY,
     DF_INFRA_DOCKER_NETWORK,
-    DF_INFRA_IMAGE,
     DF_INFRA_IMAGE_HUB,
     DF_INFRA_NAME,
     DF_INFRA_PORT,
@@ -77,7 +76,7 @@ class InstallContext:
     resolved_template: InstallTemplate | None
     directory: Path
     docker_socket: str
-    newest_image_tag: str | None
+    image: str
     original_env_content: EnvDict  # {} if no prior .env, merged with config.json's settings if any
 
 
@@ -85,7 +84,7 @@ def inspect(
     directory: Path,
     allow_rootful: bool,
     force_install: bool,
-    image: str,
+    image: str | None,
     local_image: bool,
     template: str | None = None,
     overwrite: bool | None = None,
@@ -105,7 +104,7 @@ def inspect(
         allow_rootful: Whether a rootful Docker socket is acceptable. Ignored when
             `docker_socket` is given.
         force_install: Skips the overwrite check/prompt entirely when set.
-        image: DeepFellow Infra docker image, before newest-tag resolution.
+        image: DeepFellow Infra docker image; the newest compatible release when `None`.
         local_image: Whether a locally built docker image is used.
         template: Optional built-in template name or path to a template YAML file.
         overwrite: Pre-answered directory-overwrite decision, passed straight through to
@@ -130,8 +129,8 @@ def inspect(
 
     assert_docker()
     # Before anything is asked or created, so a refused image leaves nothing behind.
-    newest_image_tag = checked_image or resolve_install_image(
-        "Infra", DF_INFRA_IMAGE_HUB, DF_INFRA_IMAGE, image, local_image, skip_version_check
+    resolved_image = checked_image or resolve_install_image(
+        "Infra", DF_INFRA_IMAGE_HUB, image, local_image, skip_version_check
     )
     if docker_socket is None:
         docker_socket = get_socket(allow_rootful=allow_rootful)
@@ -158,7 +157,7 @@ def inspect(
         config_json_settings = read_config_json_settings(Path(storage_dir) / "config.json")
         original_env_content = merge_config_json_into_env(original_env_content, config_json_settings)
 
-    return InstallContext(resolved_template, directory, docker_socket, newest_image_tag, original_env_content)
+    return InstallContext(resolved_template, directory, docker_socket, resolved_image, original_env_content)
 
 
 def mergeable_field_names() -> frozenset[str]:
@@ -325,7 +324,6 @@ def resolve(
     context: InstallContext,
     *,
     port: int,
-    image: str,
     docker_config: Path,
     storage: Path,
     hugging_face_token: str | None,
@@ -355,7 +353,6 @@ def resolve(
     Args:
         context: Read-only values gathered by :func:`inspect`, including any resolved --template.
         port: Published port to serve the DeepFellow Infra from.
-        image: DeepFellow Infra docker image, before newest-tag resolution.
         docker_config: Path to the docker config file.
         storage: Storage directory for the DeepFellow Infra services.
         hugging_face_token: Optional Hugging Face token.
@@ -527,7 +524,7 @@ def resolve(
         df_name=df_name,
         infra_url=df_infra_url,
         infra_port=port,
-        df_infra_image=context.newest_image_tag or image,
+        df_infra_image=context.image,
         docker_network=docker_network,
         docker_config=docker_config,
         admin_api_key=admin_api_key,
@@ -760,7 +757,7 @@ def install(
     directory: Path = DF_INFRA_DIRECTORY,
     port: int = DF_INFRA_PORT,
     bind_address: str | None = None,
-    image: str = DF_INFRA_IMAGE,
+    image: str | None = None,
     local_image: bool = False,
     skip_version_check: bool = False,
     docker_config: Path | None = None,
@@ -798,7 +795,6 @@ def install(
     config = resolve(
         context,
         port=port,
-        image=image,
         docker_config=docker_config,
         storage=storage,
         hugging_face_token=hugging_face_token,

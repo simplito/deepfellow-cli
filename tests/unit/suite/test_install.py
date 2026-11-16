@@ -16,13 +16,13 @@ from deepfellow.common.defaults import (
     DF_FALKORDB_URL,
     DF_INFRA_DIRECTORY,
     DF_INFRA_DOCKER_NETWORK,
-    DF_INFRA_IMAGE,
+    DF_INFRA_IMAGE_HUB,
     DF_INFRA_PORT,
     DF_INFRA_STORAGE_DIR,
     DF_MONGO_PORT,
     DF_RABBITMQ_URL,
     DF_SERVER_DIRECTORY,
-    DF_SERVER_IMAGE,
+    DF_SERVER_IMAGE_HUB,
     DF_SERVER_PORT,
 )
 from deepfellow.common.exceptions import InstallError
@@ -30,6 +30,9 @@ from deepfellow.infra.utils.install import mergeable_field_names as infra_mergea
 from deepfellow.server.utils.install import mergeable_field_names as server_mergeable_field_names
 from deepfellow.suite.install import app
 from deepfellow.suite.install import install as install_command
+
+DF_INFRA_IMAGE = f"{DF_INFRA_IMAGE_HUB}:1.2.3"
+DF_SERVER_IMAGE = f"{DF_SERVER_IMAGE_HUB}:1.2.3"
 
 runner = CliRunner()
 
@@ -56,14 +59,14 @@ def default_install_kwargs() -> dict:
         "template": "suite",
         "infra_port": DF_INFRA_PORT,
         "infra_bind_address": None,
-        "infra_image": DF_INFRA_IMAGE,
+        "infra_image": None,
         "infra_local_image": False,
         "infra_directory": DF_INFRA_DIRECTORY,
         "infra_docker_config": None,
         "infra_storage": DF_INFRA_STORAGE_DIR,
         "server_port": DF_SERVER_PORT,
         "server_bind_address": None,
-        "server_image": DF_SERVER_IMAGE,
+        "server_image": None,
         "server_local_image": False,
         "skip_version_check": False,
         "server_directory": DF_SERVER_DIRECTORY.resolve(),

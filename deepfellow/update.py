@@ -13,8 +13,6 @@ import typer
 from deepfellow.cli.update import update as update_cli
 from deepfellow.common.defaults import (
     DF_INFRA_DIRECTORY,
-    DF_INFRA_IMAGE,
-    DF_SERVER_IMAGE,
     DOCKER_COMPOSE_CONFIG_FILENAME,
 )
 from deepfellow.common.docker import load_compose_file
@@ -70,7 +68,7 @@ def _update_components() -> bool:
             ok = _run_step(
                 lambda: update_infra(
                     directory=DF_INFRA_DIRECTORY,
-                    image=DF_INFRA_IMAGE,
+                    image=None,
                     local_image=False,
                     tag=None,
                     skip_version_check=False,
@@ -91,7 +89,7 @@ def _update_components() -> bool:
                 _run_step(
                     lambda: update_server(
                         directory=server_directory,
-                        image=DF_SERVER_IMAGE,
+                        image=None,
                         local_image=False,
                         tag=None,
                         skip_version_check=False,
