@@ -9,6 +9,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 - `changelog-check` fails on a repeated or non-standard `###` heading in `[Unreleased]`, read as merged with `main`.
 
+### Changed
+- Install and update no longer use the `latest` image tag
+- Without `--image` pin the newest release compatible with the CLI
+- Update pins an installation still on `latest` to a concrete version
+- `DF_INFRA_IMAGE` and `DF_SERVER_IMAGE` are checked like `--image`, so `:latest` is refused
+- `--local-image` requires an explicit tag; the error names the component and the flags of the command used (e.g. `--infra-local-image` in `suite install`)
+- `update --tag` always pulls the image, like `--image`
+
 ## [0.39.0] - 2026-11-12
 
 ### Added

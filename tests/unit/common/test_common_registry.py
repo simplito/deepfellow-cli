@@ -441,7 +441,7 @@ def test_warn_version_check_skipped_warns_about_the_flag(mock_echo: Mock) -> Non
 
 @mock.patch("deepfellow.common.registry.get_newest_image_tag", return_value=f"{HUB}:1.4.7")
 def test_resolve_install_image_returns_newest_tag_for_default_image(mock_newest: Mock) -> None:
-    result = resolve_install_image("Server", HUB, f"{HUB}:latest", f"{HUB}:latest", False, False)
+    result = resolve_install_image("Server", HUB, None, False, False)
 
     assert result == f"{HUB}:1.4.7"
     assert mock_newest.call_args == mock.call(HUB)
@@ -450,9 +450,9 @@ def test_resolve_install_image_returns_newest_tag_for_default_image(mock_newest:
 @mock.patch("deepfellow.common.registry.assert_cli_compatible")
 @mock.patch("deepfellow.common.registry.get_newest_image_tag")
 def test_resolve_install_image_checks_nothing_for_local_image(mock_newest: Mock, mock_assert: Mock) -> None:
-    result = resolve_install_image("Server", HUB, f"{HUB}:latest", f"{HUB}:latest", True, False)
+    result = resolve_install_image("Server", HUB, f"{HUB}:dev-build", True, False)
 
-    assert result is None
+    assert result == f"{HUB}:dev-build"
     assert mock_newest.call_count == 0
     assert mock_assert.call_count == 0
 
@@ -460,9 +460,9 @@ def test_resolve_install_image_checks_nothing_for_local_image(mock_newest: Mock,
 @mock.patch("deepfellow.common.registry.assert_cli_compatible")
 @mock.patch("deepfellow.common.registry.get_newest_image_tag")
 def test_resolve_install_image_checks_explicit_image(mock_newest: Mock, mock_assert: Mock) -> None:
-    result = resolve_install_image("Server", HUB, f"{HUB}:latest", f"{HUB}:1.4.0", False, False)
+    result = resolve_install_image("Server", HUB, f"{HUB}:1.4.0", False, False)
 
-    assert result is None
+    assert result == f"{HUB}:1.4.0"
     assert mock_newest.call_count == 0
     assert mock_assert.call_args == mock.call("Server", f"{HUB}:1.4.0")
 
@@ -470,8 +470,38 @@ def test_resolve_install_image_checks_explicit_image(mock_newest: Mock, mock_ass
 @mock.patch("deepfellow.common.registry.echo")
 @mock.patch("deepfellow.common.registry.assert_cli_compatible")
 def test_resolve_install_image_warns_instead_of_checking_when_skipped(mock_assert: Mock, mock_echo: Mock) -> None:
-    result = resolve_install_image("Server", HUB, f"{HUB}:latest", f"{HUB}:2.0.0", False, True)
+    result = resolve_install_image("Server", HUB, f"{HUB}:2.0.0", False, True)
 
-    assert result is None
+    assert result == f"{HUB}:2.0.0"
     assert mock_assert.call_count == 0
     assert mock_echo.warning.call_count == 1
+
+
+@pytest.mark.parametrize("image", [None, HUB, f"{HUB}@sha256:{'a' * 64}"])
+@mock.patch("deepfellow.common.registry.echo")
+def test_resolve_install_image_exits_for_local_image_without_tag(mock_echo: Mock, image: str | None) -> None:
+    with pytest.raises(typer.Exit):
+        resolve_install_image("Server", HUB, image, True, False)
+
+    assert "--local-image" in mock_echo.error.call_args.args[0]
+
+
+@mock.patch("deepfellow.common.registry.echo")
+def test_resolve_install_image_local_image_error_names_component_and_caller_flags(mock_echo: Mock) -> None:
+    with pytest.raises(typer.Exit):
+        resolve_install_image("Infra", HUB, None, True, False, "--infra-local-image", "--infra-image")
+
+    message = mock_echo.error.call_args.args[0]
+    assert message.startswith("Infra: `--infra-local-image` needs an explicit image tag")
+    assert "`--infra-image <name>:<tag>`" in message
+
+
+@mock.patch("deepfellow.common.registry.echo")
+def test_resolve_install_image_server_local_image_error_names_component_and_caller_flags(mock_echo: Mock) -> None:
+    with pytest.raises(typer.Exit):
+        resolve_install_image("Server", HUB, "srv", True, False, "--server-local-image", "--server-image")
+
+    message = mock_echo.error.call_args.args[0]
+    assert message.startswith("Server: `--server-local-image` needs an explicit image tag")
+    assert "`--server-image <name>:<tag>`" in message
+    assert "--infra" not in message

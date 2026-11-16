@@ -10,7 +10,6 @@ import typer
 
 from deepfellow.common.defaults import (
     DF_INFRA_DOCKER_NETWORK,
-    DF_INFRA_IMAGE,
     DF_INFRA_NAME,
     DF_INFRA_PORT,
     DF_INFRA_STORAGE_DIR,
@@ -50,8 +49,14 @@ def install(
         callback=validate_bind_address,
         help='Host address to publish the Infra port on, e.g. 127.0.0.1. Default: all interfaces ("").',
     ),
-    image: str = typer.Option(DF_INFRA_IMAGE, envvar="DF_INFRA_IMAGE", help="DeepFellow Infra docker image."),
-    local_image: bool = typer.Option(False, help="Use locally build DeepFellow Infra docker image."),
+    image: str | None = typer.Option(
+        None,
+        envvar="DF_INFRA_IMAGE",
+        help="DeepFellow Infra docker image with a version tag. Default: the newest release compatible with this CLI.",
+    ),
+    local_image: bool = typer.Option(
+        False, help="Use locally build DeepFellow Infra docker image. Requires an explicit tag in --image."
+    ),
     skip_version_check: Annotated[
         bool,
         typer.Option(

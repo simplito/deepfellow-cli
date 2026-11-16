@@ -14,14 +14,12 @@ from deepfellow.common.defaults import (
     DF_FALKORDB_URL,
     DF_INFRA_DIRECTORY,
     DF_INFRA_DOCKER_NETWORK,
-    DF_INFRA_IMAGE,
     DF_INFRA_IMAGE_HUB,
     DF_INFRA_PORT,
     DF_INFRA_STORAGE_DIR,
     DF_MONGO_PORT,
     DF_RABBITMQ_URL,
     DF_SERVER_DIRECTORY,
-    DF_SERVER_IMAGE,
     DF_SERVER_IMAGE_HUB,
     DF_SERVER_PORT,
     DF_SUITE_INSTALL_STATE_FILE,
@@ -54,6 +52,9 @@ from deepfellow.suite.utils.install import (
     install,
 )
 from deepfellow.suite.utils.state import SuiteInstallState
+
+DF_INFRA_IMAGE = f"{DF_INFRA_IMAGE_HUB}:1.2.3"
+DF_SERVER_IMAGE = f"{DF_SERVER_IMAGE_HUB}:1.2.3"
 
 PLAINTEXT_WARNING = (
     "The admin password, and once resolved, the full infra/server installation configuration, "
@@ -188,7 +189,10 @@ def _env_get_no_bind_address(env_file: Path, env_name: str, **kwargs: object) ->
 @pytest.fixture(autouse=True)
 def mock_resolve_install_image() -> Iterator[Mock]:
     """Stand in for the registry lookup and image check, so that no test reaches the real registry."""
-    with mock.patch("deepfellow.suite.utils.install.resolve_install_image", return_value=None) as mocked:
+    with mock.patch(
+        "deepfellow.suite.utils.install.resolve_install_image",
+        side_effect=lambda component, hub, *args: f"{hub}:1.2.3",
+    ) as mocked:
         yield mocked
 
 
@@ -289,7 +293,7 @@ def test_install_success_calls_all_steps_in_order(
         False,
         port=DF_INFRA_PORT,
         bind_address=None,
-        image=DF_INFRA_IMAGE,
+        image=None,
         local_image=False,
         directory=DF_INFRA_DIRECTORY,
         docker_config=None,
@@ -1322,7 +1326,7 @@ def test_install_resume_with_empty_completed_steps_does_not_force(
         False,
         port=DF_INFRA_PORT,
         bind_address=None,
-        image=DF_INFRA_IMAGE,
+        image=None,
         local_image=False,
         directory=DF_INFRA_DIRECTORY,
         docker_config=None,
@@ -2263,7 +2267,7 @@ def test_infra_config_forwards_allow_rootful_and_docker_socket(
     _infra_config(
         force_install=False,
         port=DF_INFRA_PORT,
-        image=DF_INFRA_IMAGE,
+        image=None,
         local_image=False,
         directory=DF_INFRA_DIRECTORY,
         docker_config=None,
@@ -3363,7 +3367,7 @@ def test_infra_config_forwards_the_given_template(mock_infra_inspect: Mock, mock
     _infra_config(
         force_install=True,
         port=DF_INFRA_PORT,
-        image=DF_INFRA_IMAGE,
+        image=None,
         local_image=False,
         directory=DF_INFRA_DIRECTORY,
         docker_config=None,
@@ -3390,7 +3394,7 @@ def test_infra_config_forwards_bind_address(mock_infra_inspect: Mock, mock_infra
         force_install=False,
         port=DF_INFRA_PORT,
         bind_address="127.0.0.1",
-        image=DF_INFRA_IMAGE,
+        image=None,
         local_image=False,
         directory=DF_INFRA_DIRECTORY,
         docker_config=None,
@@ -3413,7 +3417,7 @@ def test_infra_config_returns_resolve_result(mock_infra_inspect: Mock, mock_infr
     result = _infra_config(
         force_install=False,
         port=DF_INFRA_PORT,
-        image=DF_INFRA_IMAGE,
+        image=None,
         local_image=False,
         directory=DF_INFRA_DIRECTORY,
         docker_config=None,
@@ -4409,8 +4413,8 @@ def test_install_validates_infra_and_server_image_up_front(
     install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
 
     assert mock_resolve_install_image.call_args_list == [
-        mock.call("Infra", DF_INFRA_IMAGE_HUB, DF_INFRA_IMAGE, DF_INFRA_IMAGE, False, False),
-        mock.call("Server", DF_SERVER_IMAGE_HUB, DF_SERVER_IMAGE, DF_SERVER_IMAGE, False, False),
+        mock.call("Infra", DF_INFRA_IMAGE_HUB, None, False, False, "--infra-local-image", "--infra-image"),
+        mock.call("Server", DF_SERVER_IMAGE_HUB, None, False, False, "--server-local-image", "--server-image"),
     ]
 
 
@@ -4453,7 +4457,7 @@ def test_install_forwards_skip_version_check_to_validation_and_config_steps(
         skip_version_check=True,
     )
 
-    assert [call.args[-1] for call in mock_resolve_install_image.call_args_list] == [True, True]
+    assert [call.args[4] for call in mock_resolve_install_image.call_args_list] == [True, True]
     assert mock_infra_config.call_args.kwargs["skip_version_check"] is True
     assert mock_server_config.call_args.kwargs["skip_version_check"] is True
 

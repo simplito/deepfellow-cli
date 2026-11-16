@@ -199,34 +199,71 @@ def assert_cli_compatible(component: str, image: str) -> None:
     raise typer.Exit(1)
 
 
+def require_local_image_tag(
+    image: str | None,
+    component: str = "",
+    local_image_flag: str = "--local-image",
+    image_hint: str = "`--image <name>:<tag>`",
+) -> str:
+    """Return the image of a `--local-image` run, exiting when it carries no explicit tag.
+
+    A locally built image can't be looked up in the registry, so the tag must be named.
+
+    Args:
+        image: The image given to the command, `None` when none was.
+        component: Name put in front of the message, e.g. ``Infra``; none when empty.
+        local_image_flag: The flag of the calling command that selects a local image.
+        image_hint: How the caller names an image with a tag, shown as the way to fix the error.
+
+    Raises:
+        typer.Exit: If `image` is missing or has no tag.
+    """
+    if image is None or _image_tag(image) is None or "@" in image:
+        prefix = f"{component}: " if component else ""
+        echo.error(
+            f"{prefix}`{local_image_flag}` needs an explicit image tag, as a local build can't be matched to a "
+            f"release: pass {image_hint}."
+        )
+        raise typer.Exit(1)
+    return image
+
+
 def resolve_install_image(
-    component: str, hub: str, default_image: str, image: str, local_image: bool, skip_version_check: bool
-) -> str | None:
-    """Validate the image of an install before anything is changed; return the newest tag when none was chosen.
+    component: str,
+    hub: str,
+    image: str | None,
+    local_image: bool,
+    skip_version_check: bool,
+    local_image_flag: str = "--local-image",
+    image_flag: str = "--image",
+) -> str:
+    """Validate the image of an install before anything is changed; return the image reference to install.
 
     Args:
         component: Name for the message, e.g. ``Server``.
         hub: Image hub without tag, where the newest release is looked up.
-        default_image: The `--image` default, meaning that no image was chosen.
-        image: The image given to the command.
-        local_image: Whether a locally built image is used, which is never checked.
+        image: The image given to the command, `None` when none was chosen.
+        local_image: Whether a locally built image is used, which is never checked but needs an explicit tag.
         skip_version_check: Whether to bypass the compatibility check of an explicit image.
+        local_image_flag: The caller's flag that selects a local image, named in the error.
+        image_flag: The caller's flag that gives the image, named in the error.
 
     Returns:
-        The newest compatible image reference for the default image, otherwise `None`.
+        The image as given, or the newest compatible image reference when none was chosen.
 
     Raises:
-        typer.Exit: If the registry has no release this CLI can install, or the explicit image isn't compatible.
+        typer.Exit: If the registry has no release this CLI can install, the explicit image isn't compatible,
+            or a local image has no tag.
     """
     if local_image:
-        return None
-    if image == default_image:
+        return require_local_image_tag(image, component, local_image_flag, f"`{image_flag} <name>:<tag>`")
+    if image is None:
         return get_newest_image_tag(hub)
     if skip_version_check:
         warn_version_check_skipped()
     else:
         assert_cli_compatible(component, image)
-    return None
+    return image
 
 
 def assert_not_downgrade(component: str, current: str, newest: str) -> None:

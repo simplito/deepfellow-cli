@@ -18,7 +18,7 @@ from typer.models import OptionInfo
 from deepfellow.common.config import EnvDict
 from deepfellow.common.defaults import (
     DF_INFRA_DOCKER_NETWORK,
-    DF_INFRA_IMAGE,
+    DF_INFRA_IMAGE_HUB,
     DF_INFRA_NAME,
     DF_INFRA_PORT,
     DF_INFRA_STORAGE_DIR,
@@ -43,6 +43,8 @@ from deepfellow.infra.utils.install import (
 )
 from deepfellow.infra.utils.install import inspect as inspect_util
 from deepfellow.infra.utils.templates import BUILTIN_TEMPLATES
+
+DF_INFRA_IMAGE = f"{DF_INFRA_IMAGE_HUB}:1.2.3"
 
 if TYPE_CHECKING:
     from deepfellow.common.templates import PostStartAction
@@ -292,11 +294,9 @@ def test_inspect_resolves_newest_image_tag_for_default_image(
     mock_read_env_file_to_dict.return_value = {}
     mock_get_newest_image_tag.return_value = "v1.2.3"
 
-    context = inspect_util(
-        directory=directory, allow_rootful=False, force_install=False, image=DF_INFRA_IMAGE, local_image=False
-    )
+    context = inspect_util(directory=directory, allow_rootful=False, force_install=False, image=None, local_image=False)
 
-    assert context.newest_image_tag == "v1.2.3"
+    assert context.image == "v1.2.3"
     assert mock_get_newest_image_tag.call_count == 1
 
 
@@ -329,7 +329,7 @@ def test_inspect_skips_newest_image_tag_lookup(
         directory=directory, allow_rootful=False, force_install=False, image=image, local_image=local_image
     )
 
-    assert context.newest_image_tag is None
+    assert context.image == image
     assert mock_get_newest_image_tag.call_count == 0
 
 
@@ -1274,7 +1274,7 @@ def test_resolve_skips_storage_prompt_when_stored_value_equals_default(
         resolved_template=None,
         directory=directory,
         docker_socket="/var/run/docker.sock",
-        newest_image_tag=None,
+        image="deepfellow/infra:1.2.3",
         original_env_content={"df_infra_storage_dir": str(DF_INFRA_STORAGE_DIR)},
     )
     kwargs = dict(default_install_kwargs)
@@ -1282,6 +1282,8 @@ def test_resolve_skips_storage_prompt_when_stored_value_equals_default(
     del kwargs["force_install"]
     del kwargs["allow_rootful"]
     del kwargs["template"]
+
+    kwargs.pop("image")
 
     config = resolve(context, **kwargs)
 
@@ -2297,9 +2299,8 @@ def install_mocks() -> Iterator[InstallMocks]:
     }
     patchers = {name: mock.patch(target) for name, target in targets.items()}
     started = {name: patcher.start() for name, patcher in patchers.items()}
-    # Default to "no newer tag found" so tests stay hermetic - without this, a MagicMock (always
-    # truthy) would win over `image` in `context.newest_image_tag or image` in resolve().
-    started["get_newest_image_tag"].return_value = None
+    # Keep tests hermetic: the newest compatible release is a fixed image, never a MagicMock.
+    started["get_newest_image_tag"].return_value = DF_INFRA_IMAGE
     yield InstallMocks(**started)
     for patcher in patchers.values():
         patcher.stop()
@@ -3698,7 +3699,6 @@ def test_inspect_exits_before_changing_anything_when_custom_image_not_known_to_w
     [
         pytest.param("custom/image:1.2.9", False, id="same-minor"),
         pytest.param("custom/image:2.0.0", True, id="local-image-skips-check"),
-        pytest.param("custom/image", True, id="local-image-without-tag"),
     ],
 )
 @mock.patch("deepfellow.common.version.cli_version", return_value="1.2.0")
@@ -3722,7 +3722,7 @@ def test_inspect_accepts_custom_image_known_to_work(
         directory=directory, allow_rootful=False, force_install=False, image=image, local_image=local_image
     )
 
-    assert context.newest_image_tag is None
+    assert context.image == image
     assert mock_ensure_directory.call_count == 1
 
 

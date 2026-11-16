@@ -19,7 +19,6 @@ from deepfellow.common.defaults import (
     DF_MONGO_PORT,
     DF_MONGO_URL,
     DF_RABBITMQ_URL,
-    DF_SERVER_IMAGE,
     DF_SERVER_PORT,
     MILVUS_DATABASE,
     NightshiftModeChoice,
@@ -65,8 +64,14 @@ def install(
         callback=validate_bind_address,
         help='Host address to publish the Server port on, e.g. 127.0.0.1. Default: all interfaces ("").',
     ),
-    image: str = typer.Option(DF_SERVER_IMAGE, envvar="DF_SERVER_IMAGE", help="DeepFellow Server docker image."),
-    local_image: bool = typer.Option(False, help="Use locally build DeepFellow Server docker image."),
+    image: str | None = typer.Option(
+        None,
+        envvar="DF_SERVER_IMAGE",
+        help="DeepFellow Server docker image with a version tag. Default: the newest release compatible with this CLI.",
+    ),
+    local_image: bool = typer.Option(
+        False, help="Use locally build DeepFellow Server docker image. Requires an explicit tag in --image."
+    ),
     skip_version_check: Annotated[
         bool,
         typer.Option(
