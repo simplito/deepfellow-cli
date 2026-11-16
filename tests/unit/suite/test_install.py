@@ -24,6 +24,9 @@ from deepfellow.common.defaults import (
     DF_SERVER_DIRECTORY,
     DF_SERVER_IMAGE_HUB,
     DF_SERVER_PORT,
+    DF_WORKSPACE_DIRECTORY,
+    DF_WORKSPACE_IMAGE,
+    DF_WORKSPACE_SMALL_MODEL,
 )
 from deepfellow.common.exceptions import InstallError
 from deepfellow.infra.utils.install import mergeable_field_names as infra_mergeable_field_names
@@ -35,6 +38,28 @@ DF_INFRA_IMAGE = f"{DF_INFRA_IMAGE_HUB}:1.2.3"
 DF_SERVER_IMAGE = f"{DF_SERVER_IMAGE_HUB}:1.2.3"
 
 runner = CliRunner()
+
+_WORKSPACE_ENVVARS = (
+    "DF_WORKSPACE_DIRECTORY",
+    "DF_WORKSPACE_PORT",
+    "DF_WORKSPACE_PUBLIC_URL",
+    "DF_WORKSPACE_BIND_ADDRESS",
+    "DF_WORKSPACE_IMAGE",
+    "DF_WORKSPACE_SMALL_MODEL",
+    "DF_WORKSPACE_MONGO_DB_URL",
+    "DF_WORKSPACE_MONGO_DB_NAME",
+    "DF_WORKSPACE_REDIS_URL",
+    "DF_WORKSPACE_SMTP_HOST",
+    "DF_WORKSPACE_SMTP_PORT",
+    "DF_WORKSPACE_SMTP_SECURE",
+    "DF_WORKSPACE_SMTP_USERNAME",
+    "DF_WORKSPACE_SMTP_PASSWORD",
+    "DF_WORKSPACE_EMAIL_FROM_ADDRESS",
+    "DF_WORKSPACE_EMAIL_FROM_NAME",
+    "DF_WORKSPACE_TRUSTED_ORIGINS",
+    "DF_WORKSPACE_MCP_AUTH_TOKEN",
+)
+_ADMIN_ARGS = ["--admin-name", "Admin", "--admin-email", "admin@example.com", "--admin-password", "Sup3r$ecret!"]
 
 
 def dummy_ctx() -> Mock:
@@ -86,6 +111,29 @@ def default_install_kwargs() -> dict:
         "rabbitmq_password": "",
         "otel_local": False,
         "allow_rootful": False,
+        "workspace_directory": DF_WORKSPACE_DIRECTORY,
+        "workspace_port": None,
+        "workspace_public_url": None,
+        "workspace_bind_address": None,
+        "workspace_image": DF_WORKSPACE_IMAGE,
+        "workspace_local_image": False,
+        "workspace_small_model": DF_WORKSPACE_SMALL_MODEL,
+        "workspace_mongodb_url": None,
+        "workspace_mongodb_database_name": None,
+        "workspace_redis_url": None,
+        "workspace_smtp_host": None,
+        "workspace_smtp_port": None,
+        "workspace_smtp_secure": None,
+        "workspace_smtp_username": None,
+        "workspace_smtp_password": None,
+        "workspace_email_from_address": None,
+        "workspace_email_from_name": None,
+        "workspace_trusted_proxy": None,
+        "workspace_trusted_origins": None,
+        "workspace_mcp_auth_token": None,
+        "workspace_admin_name": None,
+        "workspace_admin_email": None,
+        "workspace_admin_password": None,
     }
 
 
@@ -353,3 +401,72 @@ def test_install_command_forwards_skip_version_check(mock_install_util: Mock, de
     install_command(ctx=dummy_ctx(), **{**default_install_kwargs, "skip_version_check": True})
 
     assert mock_install_util.call_args.kwargs["skip_version_check"] is True
+
+
+@mock.patch("deepfellow.suite.install.install_util")
+def test_install_command_validates_and_normalizes_workspace_options_through_click(
+    mock_install_util: Mock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for env_var in (*_ENVVAR_BOUND_OPTIONS, *_WORKSPACE_ENVVARS):
+        monkeypatch.delenv(env_var, raising=False)
+
+    result = runner.invoke(
+        app,
+        [
+            *_ADMIN_ARGS,
+            "--workspace-public-url",
+            "https://workspace.example.com/",
+            "--workspace-mongodb-url",
+            "mongodb://db:27017/?replicaSet=rs0",
+            "--workspace-redis-url",
+            "redis://cache:6379/0",
+            "--workspace-email-from-address",
+            "noreply@example.com",
+            "--workspace-trusted-origins",
+            "https://a.example.com/, https://b.example.com",
+            "--workspace-mcp-auth-token",
+            "  0123456789abcdef  ",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    kwargs = mock_install_util.call_args.kwargs
+    assert kwargs["workspace_public_url"] == "https://workspace.example.com"
+    assert kwargs["workspace_mongodb_url"] == "mongodb://db:27017/?replicaSet=rs0"
+    assert kwargs["workspace_redis_url"] == "redis://cache:6379/0"
+    assert kwargs["workspace_email_from_address"] == "noreply@example.com"
+    assert kwargs["workspace_trusted_origins"] == "https://a.example.com,https://b.example.com"
+    assert kwargs["workspace_mcp_auth_token"] == "0123456789abcdef"
+    assert {
+        "workspace_public_url",
+        "workspace_mongodb_url",
+        "workspace_redis_url",
+        "workspace_trusted_origins",
+    } <= kwargs["explicitly_provided"]
+
+
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [
+        ("--workspace-public-url", "workspace.example.com"),
+        ("--workspace-public-url", "https://workspace.example.com/path"),
+        ("--workspace-mongodb-url", "not-a-mongo-url"),
+        ("--workspace-redis-url", "http://cache:6379"),
+        ("--workspace-email-from-address", "not-an-email"),
+        ("--workspace-trusted-origins", "ftp://a.example.com"),
+        ("--workspace-mcp-auth-token", "short"),
+        ("--workspace-bind-address", "not an address"),
+        ("--workspace-port", "70000"),
+    ],
+)
+@mock.patch("deepfellow.suite.install.install_util")
+def test_install_command_rejects_invalid_workspace_option_before_installing(
+    mock_install_util: Mock, option: str, value: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for env_var in (*_ENVVAR_BOUND_OPTIONS, *_WORKSPACE_ENVVARS):
+        monkeypatch.delenv(env_var, raising=False)
+
+    result = runner.invoke(app, [*_ADMIN_ARGS, option, value])
+
+    assert result.exit_code == 2
+    assert mock_install_util.call_count == 0

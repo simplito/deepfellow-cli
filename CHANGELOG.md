@@ -7,7 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
-- `changelog-check` fails on a repeated or non-standard `###` heading in `[Unreleased]`, read as merged with `main`.
+
+- `suite install` also installs DeepFellow Workspace as its last step, configurable with `--workspace-*` options
+- `--local-image` on `workspace install` and `workspace update` runs a locally built Workspace image without pulling it
 
 ### Changed
 - Install and update no longer use the `latest` image tag
@@ -20,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [0.39.0] - 2026-11-12
 
 ### Added
+
 - `deepfellow prune` also removes DeepFellow Workspace (containers, volumes and the Server webhook)
 - `workspace install` and `workspace uninstall` set up and remove DeepFellow Workspace with its own Mongo and Redis; the organization and project ids and the small model are picked from DeepFellow Server when it supports it
 - `workspace install` asks for the address Workspace is opened at and warns when it is `http://` on a host other than localhost, where browsers block copying and adding attachments; for an `https://` address it trusts the reverse proxy and accepts other trusted origins with `--trusted-origins`

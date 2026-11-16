@@ -7,6 +7,7 @@ from unittest.mock import Mock
 import pytest
 import typer
 
+from deepfellow.common.exceptions import InstallError
 from deepfellow.common.state import state
 from deepfellow.workspace.utils.webhook import (
     NO_WEBHOOK_WARNING,
@@ -518,3 +519,41 @@ def test_remove_webhook_warns_and_goes_on_when_login_fails(
     remove_webhook(_PRUNE_ENV)
 
     assert "was not removed" in mock_echo.warning.call_args.args[0]
+
+
+@mock.patch(f"{_MODULE}.echo")
+@mock.patch(f"{_MODULE}._register")
+@mock.patch(f"{_MODULE}.get_token", return_value="token")
+@mock.patch(f"{_MODULE}.get_server_url")
+@mock.patch(f"{_MODULE}.check_health")
+def test_configure_webhook_uses_cli_server_url_without_default_server_prompt(
+    mock_health: Mock, mock_server: Mock, mock_token: Mock, mock_register: Mock, mock_echo: Mock
+) -> None:
+    passed: dict[str, str | None] = {
+        "DF_SERVER_URL": "http://server:8000/v1",
+        "DF_SERVER_ORGANIZATION_ID": "org",
+        "DF_SERVER_PROJECT_ID": "proj",
+    }
+
+    configure_webhook(passed, {}, "https://workspace.example.com", "http://localhost:8000")
+
+    assert mock_server.call_count == 0
+    assert mock_health.call_args == mock.call("http://localhost:8000")
+    assert mock_register.call_args.args[0] == "http://localhost:8000"
+
+
+@pytest.mark.parametrize("failure", [typer.Exit(1), ValueError("bad"), KeyError("k")])
+@mock.patch(f"{_MODULE}.echo")
+@mock.patch(f"{_MODULE}._register")
+@mock.patch(f"{_MODULE}.get_token", return_value="token")
+@mock.patch(f"{_MODULE}.check_health")
+def test_configure_webhook_raises_when_setup_fails_for_a_caller_naming_the_cli_server(
+    mock_health: Mock, mock_token: Mock, mock_register: Mock, mock_echo: Mock, failure: Exception
+) -> None:
+    mock_register.side_effect = failure
+    passed: dict[str, str | None] = {"DF_SERVER_ORGANIZATION_ID": "org", "DF_SERVER_PROJECT_ID": "proj"}
+
+    with pytest.raises(InstallError, match="--resume"):
+        configure_webhook(passed, {}, "https://workspace.example.com", "http://localhost:8000")
+
+    assert WEBHOOK_SECRET_KEY not in passed

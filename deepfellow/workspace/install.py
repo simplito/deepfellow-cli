@@ -29,9 +29,11 @@ from deepfellow.common.validation import (
 )
 from deepfellow.workspace.utils.configure import SMTP_KEYS, prompt_optional_settings
 from deepfellow.workspace.utils.install import (
+    DEFAULT_RETRY_HINT,
     REQUIRED_VALUES,
     confirm_overwrite,
     read_existing_env,
+    resolve_local_image,
     resolve_stack_settings,
 )
 from deepfellow.workspace.utils.install import install as install_util
@@ -303,7 +305,11 @@ def _collect_required_values(passed: dict[str, str | None], existing: dict[str, 
 
 
 def _resolve_address(
-    passed: dict[str, str | None], existing: dict[str, str], port: int, no_server_webhook: bool = False
+    passed: dict[str, str | None],
+    existing: dict[str, str],
+    port: int,
+    no_server_webhook: bool = False,
+    cli_server_url: str | None = None,
 ) -> None:
     """Choose the Workspace address, warn when the browser will block features on it, and set up https and webhook.
 
@@ -312,6 +318,7 @@ def _resolve_address(
         existing: Values kept from a previous installation.
         port: Published Workspace port, for the default address.
         no_server_webhook: Do not set up DeepFellow Server notifications (and skip the admin login they need).
+        cli_server_url: DeepFellow Server address as this host reaches it, for the notifications setup.
     """
     public_url = resolve_public_url(passed, existing, port)
     if warning := insecure_context_warning(public_url):
@@ -320,7 +327,82 @@ def _resolve_address(
     if no_server_webhook:
         echo.info("Skipping the DeepFellow Server notifications setup (--no-server-webhook).")
     else:
-        configure_webhook(passed, existing, public_url)
+        configure_webhook(passed, existing, public_url, cli_server_url)
+
+
+def install_workspace(
+    passed: dict[str, str | None],
+    *,
+    directory: Path,
+    image: str | None = None,
+    port: int | None = None,
+    bind_address: str | None = None,
+    docker_network: str | None = None,
+    force_install: bool = False,
+    reset: tuple[str, ...] = (),
+    local_image: bool | None = None,
+    no_server_webhook: bool = False,
+    ask_optional_settings: bool = True,
+    cli_server_url: str | None = None,
+    retry_hint: str = DEFAULT_RETRY_HINT,
+) -> dict[str, str]:
+    """Collect the missing settings, then write the Workspace stack and start it.
+
+    Shared by `workspace install` and `suite install`.
+
+    Args:
+        passed: Values given explicitly, keyed by .env name; updated in place with answers.
+        directory: Install directory.
+        image: Workspace image; `None` keeps the previous one, else the default.
+        port: Published port; `None` keeps the previous one, else the default.
+        bind_address: Host address to publish the port on; `None` keeps the previous one.
+        docker_network: Docker network shared with DeepFellow Server; `None` keeps the previous one.
+        force_install: Skip the question about overwriting an existing directory.
+        reset: .env keys of a previous installation to forget.
+        local_image: The image is built locally and never pulled; `None` keeps the previous choice.
+        no_server_webhook: Do not set up DeepFellow Server notifications.
+        ask_optional_settings: Ask about the optional settings (MongoDB, Redis, SMTP) in interactive mode.
+        cli_server_url: DeepFellow Server address as this host reaches it, used for the notifications setup when
+            the one Workspace uses (as its container reaches it) does not resolve here. A failed notifications setup
+            then fails the install instead of only warning.
+        retry_hint: What the error of a failed start tells to do after fixing the cause.
+
+    Returns:
+        The .env content that was written.
+
+    Raises:
+        InstallError: When a value is missing or invalid, or the stack fails to start.
+        typer.Exit: When the user declines to overwrite an existing directory.
+    """
+    assert_docker()
+    existing = read_existing_env(directory)
+    resolved_image, resolved_port, resolved_bind_address, resolved_network = resolve_stack_settings(
+        existing, image, port, bind_address, docker_network
+    )
+    overwrite = None
+    if directory.is_dir() and not force_install:
+        # Ask before the value prompts, so a refusal does not waste the answers.
+        overwrite = confirm_overwrite(directory)
+        if not overwrite:
+            raise typer.Exit(1)
+    _collect_required_values(passed, existing)
+    _resolve_address(passed, existing, resolved_port, no_server_webhook, cli_server_url)
+    if ask_optional_settings:
+        prompt_optional_settings(passed, existing)
+    return install_util(
+        directory=directory,
+        image=resolved_image,
+        port=resolved_port,
+        bind_address=resolved_bind_address,
+        docker_network=resolved_network,
+        existing=existing,
+        passed=passed,
+        force_install=force_install,
+        overwrite=overwrite,
+        reset=reset,
+        local_image=resolve_local_image(existing, local_image),
+        retry_hint=retry_hint,
+    )
 
 
 @app.command()
@@ -331,6 +413,12 @@ def install(
         envvar="DF_WORKSPACE_IMAGE",
         help=f"DeepFellow Workspace image. Default: {DF_WORKSPACE_IMAGE}; a reinstall keeps the previous value "
         "unless this is given.",
+    ),
+    local_image: bool | None = typer.Option(
+        None,
+        "--local-image/--no-local-image",
+        help="Use a locally built DeepFellow Workspace docker image (never pulled). A reinstall keeps the previous "
+        "choice unless this is given.",
     ),
     port: int | None = typer.Option(
         None,
@@ -509,31 +597,17 @@ def install(
     reset = _reset_keys(local_mongodb, local_redis, no_smtp)
     try:
         _check_reset_flags(passed, local_mongodb, local_redis, no_smtp)
-        assert_docker()
-        existing = read_existing_env(directory)
-        image, port, bind_address, docker_network = resolve_stack_settings(
-            existing, image, port, bind_address, docker_network
-        )
-        overwrite = None
-        if directory.is_dir() and not force_install:
-            # Ask before the value prompts, so a refusal does not waste the answers.
-            overwrite = confirm_overwrite(directory)
-            if not overwrite:
-                raise typer.Exit(1)
-        _collect_required_values(passed, existing)
-        _resolve_address(passed, existing, port, no_server_webhook)
-        prompt_optional_settings(passed, existing)
-        env = install_util(
+        env = install_workspace(
+            passed,
             directory=directory,
             image=image,
             port=port,
             bind_address=bind_address,
             docker_network=docker_network,
-            existing=existing,
-            passed=passed,
             force_install=force_install,
-            overwrite=overwrite,
             reset=reset,
+            local_image=local_image,
+            no_server_webhook=no_server_webhook,
         )
     except (InstallError, OSError, ValueError) as exc:
         echo.error(str(exc))

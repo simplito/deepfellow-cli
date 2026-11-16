@@ -26,9 +26,11 @@ from deepfellow.workspace.utils.docker import offer_restart
 from deepfellow.workspace.utils.images import choose_mongo_image, image_tag, image_version
 from deepfellow.workspace.utils.install import (
     IMAGE_KEY,
+    apply_local_image,
     build_stack_compose,
     current_service_images,
     read_installed_env,
+    resolve_local_image,
     write_stack,
 )
 from deepfellow.workspace.utils.options import directory_option
@@ -69,16 +71,23 @@ def _cli_service_images(old_images: Mapping[str, str]) -> dict[str, str]:
 
 
 def _pull_images(compose: Mapping[str, Any]) -> None:
-    """Pull every image of the new stack, so a failure leaves the installation untouched.
+    """Pull every image of the new stack (a locally built one is only checked), so a failure leaves it untouched.
 
     Args:
         compose: The compose dict of the updated stack.
 
     Raises:
-        typer.Exit: When an image cannot be pulled.
+        typer.Exit: When an image cannot be pulled, or a local one does not exist.
     """
     for service in compose["services"].values():
         image = service["image"]
+        if service.get("pull_policy") == "never":
+            try:
+                run(["docker", "image", "inspect", image], raises=DockerError)
+            except DockerError as exc:
+                echo.error(f"Local image {image} not found; nothing was changed.")
+                raise typer.Exit(1) from exc
+            continue
         try:
             run(["docker", "pull", image], raises=DockerError)
         except DockerError as exc:
@@ -95,17 +104,32 @@ def update(
     tag: str | None = typer.Option(
         None, help=f"DeepFellow Workspace image tag (e.g. v0.7.1) on {DF_WORKSPACE_IMAGE_HUB}."
     ),
+    local_image: bool | None = typer.Option(
+        None,
+        "--local-image/--no-local-image",
+        help="Use a locally built DeepFellow Workspace docker image (never pulled, must exist). Without --image "
+        "the installed one is kept; the previous choice is kept unless this is given. Cannot be used with --tag; "
+        "--tag alone switches back to the registry.",
+    ),
 ) -> None:
     """Update DeepFellow Workspace; its secrets, data and settings are kept."""
     if image and tag:
         raise typer.BadParameter("Only one of --image and --tag can be given.")
+    if tag and local_image:
+        raise typer.BadParameter("--tag is an image in the registry, so it cannot be used with --local-image.")
     check_workspace_directory(directory)
     assert_docker()
     existing = read_installed_env(directory)
 
     current = existing.get(IMAGE_KEY, "")
-    target = image or (f"{DF_WORKSPACE_IMAGE_HUB}:{tag}" if tag else DF_WORKSPACE_IMAGE)
-    if not image and not tag:
+    # --tag names an image in the registry, so it also ends a local-image install.
+    use_local_image = False if tag and local_image is None else resolve_local_image(existing, local_image)
+    if use_local_image and not image and not tag and current:
+        # A locally built image is not in the registry, so there is nothing newer to switch to.
+        target = current
+    else:
+        target = image or (f"{DF_WORKSPACE_IMAGE_HUB}:{tag}" if tag else DF_WORKSPACE_IMAGE)
+    if not image and not tag and not use_local_image:
         _assert_not_downgrade(current, target)
     try:
         old_images = current_service_images(directory)
@@ -118,6 +142,7 @@ def update(
     # Compared with the images chosen above, so a declined Mongo move does not count as a pending update.
     if (
         current == target
+        and use_local_image == resolve_local_image(existing, None)
         and images == old_images
         and get_running_service_image(WORKSPACE_APP_SERVICE, directory) == target
     ):
@@ -125,6 +150,7 @@ def update(
         return
 
     env = {**existing, IMAGE_KEY: target}
+    reset = apply_local_image(env, use_local_image)
     try:
         compose = build_stack_compose(env, images)
     except InstallError as exc:
@@ -132,7 +158,7 @@ def update(
         raise typer.Exit(1) from exc
     _pull_images(compose)
     try:
-        write_stack(directory, env, images=images)
+        write_stack(directory, env, reset, images=images)
     except InstallError as exc:
         echo.error(str(exc))
         raise typer.Exit(1) from exc

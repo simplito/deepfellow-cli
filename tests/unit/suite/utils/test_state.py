@@ -216,3 +216,28 @@ def test_save_then_load_round_trips_template(tmp_path: Path) -> None:
     result = load(state_file)
 
     assert result == install_state
+
+
+def test_save_and_load_round_trip_workspace_configuration(tmp_path: Path) -> None:
+    state_file = tmp_path / "suite_install_state.json"
+    config = {"PUBLIC_URL": "https://workspace.example.com", "BOOTSTRAP_ADMIN_NAME": "W"}
+    apply = {"directory": "/ws", "port": 3100, "overrides": {"SMTP_HOST": "smtp.example.com", "REDIS_URL": None}}
+    original = SuiteInstallState(completed_steps=["workspace_config"], workspace_config=config, workspace_apply=apply)
+
+    save(original, state_file)
+    result = load(state_file)
+
+    assert result is not None
+    assert result.workspace_config == config
+    assert result.workspace_apply == apply
+
+
+def test_load_defaults_workspace_configuration_when_absent(tmp_path: Path) -> None:
+    state_file = tmp_path / "suite_install_state.json"
+    state_file.write_text('{"completed_steps": ["infra_config"]}', encoding="utf-8")
+
+    result = load(state_file)
+
+    assert result is not None
+    assert result.workspace_config is None
+    assert result.workspace_apply is None
