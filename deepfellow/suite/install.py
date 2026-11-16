@@ -19,14 +19,27 @@ from deepfellow.common.defaults import (
     DF_RABBITMQ_URL,
     DF_SERVER_DIRECTORY,
     DF_SERVER_PORT,
+    DF_WORKSPACE_DIRECTORY,
+    DF_WORKSPACE_IMAGE,
+    DF_WORKSPACE_PORT,
+    DF_WORKSPACE_SMALL_MODEL,
     NightshiftModeChoice,
 )
 from deepfellow.common.echo import echo
 from deepfellow.common.exceptions import InstallError, reraise_if_debug
-from deepfellow.common.validation import validate_bind_address, validate_email, validate_password
+from deepfellow.common.validation import (
+    validate_bind_address,
+    validate_email,
+    validate_mongo_url,
+    validate_origin,
+    validate_origins,
+    validate_password,
+    validate_redis_url,
+)
 from deepfellow.infra.utils.templates import BUILTIN_TEMPLATES as INFRA_BUILTIN_TEMPLATES
 from deepfellow.server.utils.templates import BUILTIN_TEMPLATES as SERVER_BUILTIN_TEMPLATES
 from deepfellow.suite.utils.install import install as install_util
+from deepfellow.workspace.utils.validation import validate_mcp_auth_token
 
 app = typer.Typer()
 
@@ -78,6 +91,29 @@ _EXPLICITLY_PROVIDED_FIELDS = frozenset(
         "rabbitmq_username",
         "rabbitmq_password",
         "otel_local",
+        "workspace_directory",
+        "workspace_port",
+        "workspace_bind_address",
+        "workspace_image",
+        "workspace_local_image",
+        "workspace_public_url",
+        "workspace_small_model",
+        "workspace_mongodb_url",
+        "workspace_mongodb_database_name",
+        "workspace_redis_url",
+        "workspace_smtp_host",
+        "workspace_smtp_port",
+        "workspace_smtp_secure",
+        "workspace_smtp_username",
+        "workspace_smtp_password",
+        "workspace_email_from_address",
+        "workspace_email_from_name",
+        "workspace_trusted_proxy",
+        "workspace_trusted_origins",
+        "workspace_mcp_auth_token",
+        "workspace_admin_name",
+        "workspace_admin_email",
+        "workspace_admin_password",
     }
 )
 
@@ -206,8 +242,127 @@ def install(
     rabbitmq_password: str = typer.Option("", help="Password for RabbitMQ authentication"),
     otel_local: bool = typer.Option(False, "--otel-local", help="Install a local debug-only OpenTelemetry collector."),
     allow_rootful: bool = typer.Option(False, help="Allow rootful Docker without asking user for permission"),
+    workspace_directory: Path = typer.Option(
+        DF_WORKSPACE_DIRECTORY,
+        envvar="DF_WORKSPACE_DIRECTORY",
+        help="Target directory for the DeepFellow Workspace installation.",
+    ),
+    workspace_port: int | None = typer.Option(
+        None,
+        envvar="DF_WORKSPACE_PORT",
+        min=1,
+        max=65535,
+        help=f"Port to serve Workspace from. Default: {DF_WORKSPACE_PORT}.",
+    ),
+    workspace_public_url: str | None = typer.Option(
+        None,
+        envvar="DF_WORKSPACE_PUBLIC_URL",
+        callback=validate_origin,
+        help="Origin browsers reach Workspace at; asked for when not given (unless --yes or --non-interactive). "
+        "Only a public https:// origin makes DeepFellow Server notify Workspace when files finish indexing.",
+    ),
+    workspace_bind_address: str | None = typer.Option(
+        None,
+        envvar="DF_WORKSPACE_BIND_ADDRESS",
+        callback=validate_bind_address,
+        help='Host address to publish the Workspace port on, e.g. 127.0.0.1. Default: all interfaces ("").',
+    ),
+    workspace_image: str = typer.Option(
+        DF_WORKSPACE_IMAGE, envvar="DF_WORKSPACE_IMAGE", help="DeepFellow Workspace docker image."
+    ),
+    workspace_local_image: bool = typer.Option(False, help="Use locally build DeepFellow Workspace docker image."),
+    workspace_small_model: str = typer.Option(
+        DF_WORKSPACE_SMALL_MODEL,
+        envvar="DF_WORKSPACE_SMALL_MODEL",
+        help="Model served by DeepFellow Server that Workspace uses for background tasks (session titles, "
+        "suggestions, ...). It has to be one of the models granted to the workspace project.",
+    ),
+    workspace_mongodb_url: str | None = typer.Option(
+        None,
+        envvar="DF_WORKSPACE_MONGO_DB_URL",
+        callback=validate_mongo_url,
+        help="Use this external MongoDB (a replica set) for Workspace instead of installing one.",
+    ),
+    workspace_mongodb_database_name: str | None = typer.Option(
+        None,
+        envvar="DF_WORKSPACE_MONGO_DB_NAME",
+        help="Database name in the external Workspace MongoDB; overrides the one in --workspace-mongodb-url.",
+    ),
+    workspace_redis_url: str | None = typer.Option(
+        None,
+        envvar="DF_WORKSPACE_REDIS_URL",
+        callback=validate_redis_url,
+        help="Use this external Redis for Workspace instead of installing one.",
+    ),
+    workspace_smtp_host: str | None = typer.Option(
+        None, envvar="DF_WORKSPACE_SMTP_HOST", help="Workspace SMTP server host, to send e-mails."
+    ),
+    workspace_smtp_port: int | None = typer.Option(
+        None, envvar="DF_WORKSPACE_SMTP_PORT", min=1, max=65535, help="Workspace SMTP server port. Default: 587."
+    ),
+    workspace_smtp_secure: bool | None = typer.Option(
+        None,
+        "--workspace-smtp-secure/--no-workspace-smtp-secure",
+        envvar="DF_WORKSPACE_SMTP_SECURE",
+        help="Use TLS from the start of the Workspace SMTP connection (usually with port 465). Default: no.",
+    ),
+    workspace_smtp_username: str | None = typer.Option(
+        None, envvar="DF_WORKSPACE_SMTP_USERNAME", help="Workspace SMTP username."
+    ),
+    workspace_smtp_password: str | None = typer.Option(
+        None, envvar="DF_WORKSPACE_SMTP_PASSWORD", help="Workspace SMTP password."
+    ),
+    workspace_email_from_address: str | None = typer.Option(
+        None,
+        envvar="DF_WORKSPACE_EMAIL_FROM_ADDRESS",
+        callback=validate_email,
+        help="Workspace sender e-mail address.",
+    ),
+    workspace_email_from_name: str | None = typer.Option(
+        None, envvar="DF_WORKSPACE_EMAIL_FROM_NAME", help="Workspace sender name."
+    ),
+    workspace_trusted_proxy: bool | None = typer.Option(
+        None,
+        "--workspace-trusted-proxy/--no-workspace-trusted-proxy",
+        envvar="DF_WORKSPACE_TRUSTED_PROXY_ENABLED",
+        help="Trust X-Forwarded-For / X-Real-IP in Workspace; enable only behind a reverse proxy that sets them. "
+        "Default: on for an https --workspace-public-url.",
+    ),
+    workspace_trusted_origins: str | None = typer.Option(
+        None,
+        envvar="DF_WORKSPACE_TRUSTED_ORIGINS",
+        callback=validate_origins,
+        help="Other origins Workspace trusts besides --workspace-public-url, comma-separated (e.g. more addresses "
+        "of the reverse proxy).",
+    ),
+    workspace_mcp_auth_token: str | None = typer.Option(
+        None,
+        envvar="DF_WORKSPACE_MCP_AUTH_TOKEN",
+        callback=validate_mcp_auth_token,
+        help="Require this bearer token (min 16 characters) on Workspace's /mcp endpoint.",
+    ),
+    workspace_admin_name: str | None = typer.Option(
+        None,
+        "--workspace-admin-name",
+        envvar="DF_WORKSPACE_BOOTSTRAP_ADMIN_NAME",
+        help="Name of the initial Workspace admin, a separate account from the Server admin. Asked when not given.",
+    ),
+    workspace_admin_email: str | None = typer.Option(
+        None,
+        "--workspace-admin-email",
+        envvar="DF_WORKSPACE_BOOTSTRAP_ADMIN_EMAIL",
+        callback=validate_email,
+        help="E-mail of the initial Workspace admin (may be the Server admin's). Asked when not given.",
+    ),
+    workspace_admin_password: str | None = typer.Option(
+        None,
+        "--workspace-admin-password",
+        envvar="DF_WORKSPACE_BOOTSTRAP_ADMIN_PASSWORD",
+        callback=validate_password,
+        help="Password of the initial Workspace admin; must differ from --admin-password. Asked when not given.",
+    ),
 ) -> None:
-    """Provision a complete DeepFellow suite: Infra, Server, admin user, and a ready-to-use workspace.
+    """Provision a complete DeepFellow suite: Infra, Server, admin user, a project, and Workspace.
 
     Runs a sequence of granular steps, in order: infra configuration, server configuration, infra
     install, infra start, one step per service/model the resolved `--template` installs (the
@@ -215,9 +370,10 @@ def install(
     step per post-start action the resolved `--template` runs on server (the "suite" template
     creates the admin account), server login, one call to the server's atomic workspace-creation endpoint
     (organization "Workspace", project "Default", API key "app"), and a follow-up call granting the
-    created project access to exactly the models the resolved template installed. The two
-    configuration steps resolve and persist every infra and server prompt (directory-overwrite
-    decisions, DF_NAME, MongoDB, vector DB, OTel, FalkorDB, ...) before any of the later,
+    created project access to exactly the models the resolved template installed, then installs
+    DeepFellow Workspace with that project's API key. The three
+    configuration steps resolve and persist every infra, server and Workspace prompt (directory-overwrite
+    decisions, DF_NAME, MongoDB, vector DB, OTel, FalkorDB, the Workspace address, ...) before any of the later,
     apply-only steps run, so all questions are answered once at the start instead of partway
     through a long-running install.
 
@@ -292,6 +448,29 @@ def install(
             otel_local=otel_local,
             allow_rootful=allow_rootful,
             explicitly_provided=explicitly_provided,
+            workspace_directory=workspace_directory,
+            workspace_port=workspace_port,
+            workspace_public_url=workspace_public_url,
+            workspace_bind_address=workspace_bind_address,
+            workspace_image=workspace_image,
+            workspace_local_image=workspace_local_image,
+            workspace_small_model=workspace_small_model,
+            workspace_mongodb_url=workspace_mongodb_url,
+            workspace_mongodb_database_name=workspace_mongodb_database_name,
+            workspace_redis_url=workspace_redis_url,
+            workspace_smtp_host=workspace_smtp_host,
+            workspace_smtp_port=workspace_smtp_port,
+            workspace_smtp_secure=workspace_smtp_secure,
+            workspace_smtp_username=workspace_smtp_username,
+            workspace_smtp_password=workspace_smtp_password,
+            workspace_email_from_address=workspace_email_from_address,
+            workspace_email_from_name=workspace_email_from_name,
+            workspace_trusted_proxy=workspace_trusted_proxy,
+            workspace_trusted_origins=workspace_trusted_origins,
+            workspace_mcp_auth_token=workspace_mcp_auth_token,
+            workspace_admin_name=workspace_admin_name,
+            workspace_admin_email=workspace_admin_email,
+            workspace_admin_password=workspace_admin_password,
         )
     except InstallError as exc:
         echo.error(str(exc))

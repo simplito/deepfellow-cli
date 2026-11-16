@@ -19,6 +19,7 @@ from deepfellow.common.defaults import (
 from deepfellow.common.docker import load_compose_file
 from deepfellow.common.exceptions import DockerNetworkError, InstallError
 from deepfellow.workspace.utils.install import (
+    apply_local_image,
     apply_service_images,
     build_compose,
     build_env,
@@ -30,6 +31,7 @@ from deepfellow.workspace.utils.install import (
     protect_existing_mongo,
     read_existing_env,
     read_installed_env,
+    resolve_local_image,
     resolve_stack_settings,
     validate_env,
     write_stack,
@@ -63,6 +65,64 @@ def _install(
 
 def test_default_image_is_pinned_to_v0_7_1() -> None:
     assert DF_WORKSPACE_IMAGE.endswith("deepfellow-workspace:v0.7.1")
+
+
+def test_build_compose_local_image_never_pulls_the_app_image() -> None:
+    compose = build_compose("img:1", 3000, "", "net", local_image=True)
+
+    assert compose["services"]["workspace"]["pull_policy"] == "never"
+
+
+def test_build_compose_registry_image_has_no_pull_policy() -> None:
+    compose = build_compose("img:1", 3000, "", "net")
+
+    assert "pull_policy" not in compose["services"]["workspace"]
+
+
+@pytest.mark.parametrize(
+    ("existing", "given", "expected"),
+    [
+        ({}, None, False),
+        ({"DF_WORKSPACE_LOCAL_IMAGE": "true"}, None, True),
+        ({"DF_WORKSPACE_LOCAL_IMAGE": "true"}, False, False),
+        ({}, True, True),
+    ],
+)
+def test_resolve_local_image_prefers_given_choice_then_previous_install(
+    existing: dict[str, str], given: bool | None, expected: bool
+) -> None:
+    assert resolve_local_image(existing, given) is expected
+
+
+def test_apply_local_image_sets_marker_when_local() -> None:
+    env: dict[str, str] = {}
+
+    reset = apply_local_image(env, True)
+
+    assert env == {"DF_WORKSPACE_LOCAL_IMAGE": "true"}
+    assert reset == ()
+
+
+def test_apply_local_image_drops_marker_when_not_local() -> None:
+    env = {"DF_WORKSPACE_LOCAL_IMAGE": "true"}
+
+    reset = apply_local_image(env, False)
+
+    assert env == {}
+    assert reset == ("DF_WORKSPACE_LOCAL_IMAGE",)
+
+
+@mock.patch("deepfellow.workspace.utils.install.run")
+@mock.patch("deepfellow.workspace.utils.install.ensure_network")
+def test_install_local_image_writes_marker_and_pull_policy(
+    mock_ensure_network: Mock, mock_run: Mock, tmp_path: Path
+) -> None:
+    directory = tmp_path / "ws"
+
+    install(directory, "img:1", 3000, "", "net", {}, PASSED, False, local_image=True)
+
+    assert read_existing_env(directory)["DF_WORKSPACE_LOCAL_IMAGE"] == "true"
+    assert load_compose_file(directory / "compose.yaml")["services"]["workspace"]["pull_policy"] == "never"
 
 
 def test_build_compose_data_services_are_private() -> None:
@@ -340,6 +400,19 @@ def test_install_compose_up_failure_explains_recovery(
     assert "see the Docker output above" in message
     assert "--force-install" in message
     assert str(directory) in message
+
+
+@mock.patch("deepfellow.workspace.utils.install.run", side_effect=InstallError(None))
+@mock.patch("deepfellow.workspace.utils.install.ensure_network")
+def test_install_compose_up_failure_uses_the_callers_retry_hint(
+    mock_ensure_network: Mock, mock_run: Mock, tmp_path: Path
+) -> None:
+    with pytest.raises(InstallError) as exc_info:
+        install(tmp_path / "ws", "img:1", 3000, "", "net", {}, PASSED, False, retry_hint="run 'suite install --resume'")
+
+    message = str(exc_info.value)
+    assert "run 'suite install --resume'" in message
+    assert "--force-install" not in message
 
 
 @mock.patch("deepfellow.workspace.utils.install.echo")

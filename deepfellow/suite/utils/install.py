@@ -3,8 +3,8 @@
 
 """Install suite core logic."""
 
-from collections.abc import Callable, Collection
-from dataclasses import asdict
+from collections.abc import Callable, Collection, Mapping
+from dataclasses import asdict, dataclass
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -31,12 +31,15 @@ from deepfellow.common.defaults import (
     DF_SERVER_IMAGE_HUB,
     DF_SERVER_PORT,
     DF_SUITE_INSTALL_STATE_FILE,
+    DF_WORKSPACE_DIRECTORY,
+    DF_WORKSPACE_SMALL_MODEL,
     DOC_CHUNKER_STT_MODEL,
     MILVUS_DATABASE,
+    SERVER_CONTAINER_NAME,
     VectorDBTypeChoice,
 )
 from deepfellow.common.docker import get_socket, is_service_running, local_url
-from deepfellow.common.echo import echo
+from deepfellow.common.echo import echo, is_interactive
 from deepfellow.common.env import env_get
 from deepfellow.common.exceptions import DockerNetworkError, InstallError, reraise_if_debug, translate_to_install_error
 from deepfellow.common.install import (
@@ -78,10 +81,66 @@ from deepfellow.suite.utils.state import delete as delete_state
 from deepfellow.suite.utils.state import load as load_state
 from deepfellow.suite.utils.state import save as save_state
 from deepfellow.suite.utils.vram import print_vram_estimate
+from deepfellow.workspace.install import install_workspace
+from deepfellow.workspace.utils.install import (
+    confirm_overwrite,
+    incomplete_groups,
+    read_existing_env,
+    resolve_stack_settings,
+)
+from deepfellow.workspace.utils.public_url import (
+    PUBLIC_URL_KEY,
+    TRUSTED_ORIGINS_KEY,
+    TRUSTED_PROXY_KEY,
+    apply_https_settings,
+    insecure_context_warning,
+    resolve_public_url,
+)
 
 WORKSPACE_ORGANIZATION_NAME = "Workspace"
 WORKSPACE_PROJECT_NAME = "Default"
 WORKSPACE_API_KEY_NAME = "app"
+# .env keys of an external MongoDB/Redis, which `_workspace_install()` forgets so the bundled ones are used.
+_WORKSPACE_LOCAL_SERVICE_KEYS = ("MONGO_DB_URL", "MONGO_DB_NAME", "REDIS_URL")
+# DeepFellow Server as the Workspace container reaches it, on the Docker network shared with Server.
+_SERVER_URL_IN_DOCKER_NETWORK = f"http://{SERVER_CONTAINER_NAME}:{DF_SERVER_PORT}/v1"
+# Steps asking and installing Workspace; see `_build_steps()`.
+STEP_WORKSPACE_CONFIG = "workspace_config"
+STEP_WORKSPACE_INSTALL = "workspace_install"
+# Asked for up front by STEP_WORKSPACE_CONFIG; the rest is only read by STEP_WORKSPACE_INSTALL.
+_WORKSPACE_ADMIN_KEYS = ("BOOTSTRAP_ADMIN_NAME", "BOOTSTRAP_ADMIN_EMAIL", "BOOTSTRAP_ADMIN_PASSWORD")
+_WORKSPACE_ADDRESS_FIELDS = frozenset(
+    {
+        "workspace_public_url",
+        "workspace_trusted_proxy",
+        "workspace_trusted_origins",
+        "workspace_admin_name",
+        "workspace_admin_email",
+        "workspace_admin_password",
+    }
+)
+# Settings saved with the answers above (`SuiteInstallState.workspace_apply`), so they are fixed from the first run.
+_WORKSPACE_APPLY_FIELDS = frozenset(
+    {
+        "workspace_directory",
+        "workspace_port",
+        "workspace_bind_address",
+        "workspace_image",
+        "workspace_local_image",
+        "workspace_small_model",
+        "workspace_mongodb_url",
+        "workspace_mongodb_database_name",
+        "workspace_redis_url",
+        "workspace_smtp_host",
+        "workspace_smtp_port",
+        "workspace_smtp_secure",
+        "workspace_smtp_username",
+        "workspace_smtp_password",
+        "workspace_email_from_address",
+        "workspace_email_from_name",
+        "workspace_mcp_auth_token",
+    }
+)
 
 # suite install only accepts a built-in template name recognized by BOTH infra and server, since one
 # --template value is forwarded to each of their independently-schemaed template resolution
@@ -174,6 +233,7 @@ def _build_steps(
     return (
         (STEP_INFRA_CONFIG, "infra configuration"),
         (STEP_SERVER_CONFIG, "server configuration"),
+        (STEP_WORKSPACE_CONFIG, "workspace configuration"),
         (STEP_INFRA_INSTALL, "infra install"),
         (STEP_INFRA_START, "infra start"),
         *(
@@ -189,6 +249,7 @@ def _build_steps(
         (STEP_SERVER_LOGIN, "server login"),
         (STEP_WORKSPACE_CREATION, "workspace creation"),
         (STEP_GRANT_MODEL_ACCESS, "grant model access"),
+        (STEP_WORKSPACE_INSTALL, "workspace install"),
     )
 
 
@@ -774,6 +835,369 @@ def _run_server_post_start_actions(
         )
 
 
+@dataclass(frozen=True)
+class _WorkspaceApply:
+    """What Workspace is installed with besides the answers of `_workspace_config()`.
+
+    Saved in `SuiteInstallState.workspace_apply`, so `--resume` installs the Workspace its address was given for.
+
+    Attributes:
+        directory: Workspace install directory.
+        port: Published Workspace port; `None` keeps the default.
+        image: Workspace docker image; `None` keeps the default.
+        local_image: Use a locally built Workspace image, which is never pulled.
+        bind_address: Host address to publish the Workspace port on; `None` keeps the default.
+        small_model: Model Workspace uses for background tasks.
+        docker_network: Docker network shared with Server, the one Server was installed on.
+        overrides: Further Workspace .env values given explicitly (external MongoDB/Redis, SMTP, MCP token);
+            those left `None` are ignored.
+    """
+
+    directory: str
+    port: int | None
+    image: str | None
+    local_image: bool
+    bind_address: str | None
+    small_model: str
+    docker_network: str
+    overrides: dict[str, str | None]
+
+
+def _workspace_apply_from_dict(data: dict[str, Any]) -> _WorkspaceApply:
+    """Rebuild what Workspace is installed with from the saved state.
+
+    Raises:
+        InstallError: If `data` isn't what `asdict()` of a `_WorkspaceApply` gives.
+    """
+    try:
+        return _WorkspaceApply(**data)
+    except TypeError as exc:
+        raise InstallError(
+            "Suite install state file's saved Workspace settings are invalid or corrupted; remove "
+            f"{DF_SUITE_INSTALL_STATE_FILE} and start over."
+        ) from exc
+
+
+def _validate_workspace_apply(
+    apply: _WorkspaceApply, address: Mapping[str, str], granted_models: Collection[str]
+) -> None:
+    """Refuse Workspace settings that `workspace install` would only refuse at the very end of the suite install.
+
+    Args:
+        apply: What Workspace is going to be installed with.
+        address: Answers of `_workspace_config()`.
+        granted_models: Models the Workspace project is granted.
+
+    Raises:
+        InstallError: When the small model isn't granted, the database name comes without an external MongoDB, or
+            the SMTP settings are only partly given.
+    """
+    given = {key: value for key, value in apply.overrides.items() if value is not None}
+    if apply.small_model not in granted_models:
+        raise InstallError(
+            f"--workspace-small-model {apply.small_model} is not one of the models granted to the workspace project: "
+            f"{', '.join(sorted(granted_models))}."
+        )
+    if given.get("MONGO_DB_NAME") and not given.get("MONGO_DB_URL"):
+        raise InstallError(
+            "--workspace-mongodb-database-name applies to an external MongoDB only; "
+            "give --workspace-mongodb-url as well."
+        )
+    # A directory left by an earlier install may already hold part of a group, which a flag completes.
+    existing = read_existing_env(Path(apply.directory))
+    if problems := incomplete_groups({**existing, **address, **given}):
+        raise InstallError("; ".join(problems) + ".")
+
+
+def _workspace_install(
+    workspace: Workspace, server_url: str, address: Mapping[str, str], apply: _WorkspaceApply
+) -> None:
+    """Install DeepFellow Workspace against the Server just installed, using the workspace's project API key.
+
+    The initial Workspace admin is a separate account from the Server admin: its credentials are part of `address`
+    (see `_workspace_config()`). Notifications from Server are set up only when the address is a public https
+    address (see `configure_webhook()`). Workspace always runs its own MongoDB and Redis in Docker unless an
+    external one is given in `apply.overrides`; no questions about them (or SMTP) are asked, and any external ones
+    left from an earlier Workspace install are forgotten unless given again. `workspace env set` changes them
+    afterwards.
+
+    Args:
+        workspace: The organization, project and API key created for Workspace.
+        server_url: DeepFellow Server address as this host reaches it.
+        address: Answers of `_workspace_config()` (the address Workspace is opened at, trusted origins, the initial
+            admin account), so nothing is asked here. A directory left by an earlier attempt is reinstalled over
+            without asking, since the question was asked, and answered, there.
+        apply: The remaining settings Workspace is installed with, as saved by the first run.
+
+    Raises:
+        InstallError: If Workspace can't be installed.
+    """
+    passed: dict[str, str | None] = {
+        "DF_SERVER_URL": _SERVER_URL_IN_DOCKER_NETWORK,
+        "DF_SERVER_API_KEY": workspace.api_key.value,
+        "DF_SERVER_ORGANIZATION_ID": workspace.organization.id,
+        "DF_SERVER_PROJECT_ID": workspace.project.id,
+        "SMALL_MODEL": apply.small_model,
+        **address,
+    }
+    given = {key: value for key, value in apply.overrides.items() if value is not None}
+    passed.update(given)
+    try:
+        install_workspace(
+            passed,
+            directory=Path(apply.directory),
+            image=apply.image,
+            local_image=apply.local_image,
+            port=apply.port,
+            bind_address=apply.bind_address,
+            docker_network=apply.docker_network,
+            force_install=True,
+            # The Mongo and Redis bundled in Workspace's own Docker stack, even over an earlier Workspace
+            # install that was pointed at external ones - unless an external one is given now.
+            reset=tuple(key for key in _WORKSPACE_LOCAL_SERVICE_KEYS if key not in given),
+            ask_optional_settings=False,
+            cli_server_url=server_url,
+            # The state file is deleted only by a suite install that succeeds; `workspace install` would leave it.
+            retry_hint="run 'suite install --resume'",
+        )
+    except (OSError, ValueError) as exc:
+        raise InstallError(str(exc)) from exc
+
+
+def _workspace_config(
+    apply: _WorkspaceApply,
+    public_url: str | None,
+    trusted_proxy: bool | None,
+    trusted_origins: str | None,
+    force_install: bool,
+    admin_name: str | None,
+    admin_email: str | None,
+    admin_password: str | None,
+    server_admin_password: str,
+    granted_models: Collection[str],
+) -> dict[str, str]:
+    """Ask every question Workspace's installation has, before anything is installed.
+
+    That is whether to reinstall over an existing Workspace directory, the initial Workspace admin account (its
+    password must differ from the Server admin's), the address Workspace is opened at and, for an https one, the other
+    trusted origins. `_workspace_install()` is handed the answers. The other Workspace settings are checked here too,
+    so a mistake in them doesn't surface only after everything else has been installed.
+
+    Args:
+        apply: The remaining Workspace settings (directory, port, Docker network, ...).
+        public_url: Address given explicitly; `None` asks (or takes the default when not asking).
+        trusted_proxy: Trust the reverse proxy in front of Workspace; `None` enables it for an https address.
+        trusted_origins: Other trusted origins, comma-separated; `None` asks for them with an https address.
+        force_install: Skip the question about overwriting an existing Workspace directory.
+        admin_name: Initial Workspace admin's name; `None` asks.
+        admin_email: Initial Workspace admin's e-mail; `None` asks.
+        admin_password: Initial Workspace admin's password; `None` asks.
+        server_admin_password: Password of the Server admin, which the Workspace admin must not reuse.
+        granted_models: Models the Workspace project is granted.
+
+    Returns:
+        The Workspace .env values answered, keyed by their .env name.
+
+    Raises:
+        typer.Exit: When the user declines to reinstall over an existing Workspace directory.
+        InstallError: When the address is not valid, or the admin account is missing (`--non-interactive`) or
+            has the Server admin's password, or `apply` is not valid - see `_validate_workspace_apply()`.
+    """
+    directory = Path(apply.directory)
+    existing = read_existing_env(directory)
+    _, resolved_port, _, _ = resolve_stack_settings(existing, None, apply.port, None, apply.docker_network)
+    if directory.is_dir() and not force_install and not confirm_overwrite(directory):
+        raise typer.Exit(1)
+    admin = _resolve_workspace_admin(admin_name, admin_email, admin_password, server_admin_password)
+    given = {
+        PUBLIC_URL_KEY: public_url,
+        TRUSTED_PROXY_KEY: None if trusted_proxy is None else str(trusted_proxy).lower(),
+        TRUSTED_ORIGINS_KEY: trusted_origins,
+    }
+    passed: dict[str, str | None] = {key: value for key, value in given.items() if value is not None}
+    address = resolve_public_url(passed, existing, resolved_port)
+    if warning := insecure_context_warning(address):
+        echo.warning(warning)
+    apply_https_settings(passed, existing, address)
+    config = {
+        **{key: value or "" for key, value in passed.items() if key != PUBLIC_URL_KEY},
+        PUBLIC_URL_KEY: address,
+        **admin,
+    }
+    _validate_workspace_apply(apply, config, granted_models)
+    return config
+
+
+def _workspace_overrides(
+    mongodb_url: str | None, mongodb_database_name: str | None, redis_url: str | None, others: Mapping[str, str | None]
+) -> dict[str, str | None]:
+    """Collect the Workspace .env values that are only set when given: external Mongo/Redis, SMTP, MCP token."""
+    return {
+        "MONGO_DB_URL": mongodb_url,
+        "MONGO_DB_NAME": mongodb_database_name,
+        "REDIS_URL": redis_url,
+        **others,
+    }
+
+
+def _save_workspace_config(install_state: SuiteInstallState, apply: _WorkspaceApply, config: dict[str, str]) -> None:
+    """`on_success` for `STEP_WORKSPACE_CONFIG`: keep the answers together with the settings they were given for."""
+    install_state.workspace_config = config
+    install_state.workspace_apply = asdict(apply)
+
+
+def _saved_workspace_apply(install_state: SuiteInstallState) -> _WorkspaceApply:
+    """Return the Workspace settings the Workspace configuration step saved (it always does, run or skipped).
+
+    Raises:
+        InstallError: If the saved settings are missing or corrupted - see `_workspace_apply_from_dict()`.
+    """
+    return _workspace_apply_from_dict(install_state.workspace_apply or {})
+
+
+def _different_password(value: str | None, server_password: str) -> str | None:
+    """Validate a Workspace admin password, which must differ from the Server admin's (compared trimmed).
+
+    Raises:
+        typer.BadParameter: When `value` is not a valid password, or equals `server_password`.
+    """
+    valid = validate_password(value)
+    if valid and valid.strip() == server_password.strip():
+        raise typer.BadParameter("The Workspace admin must have a different password than the Server admin.")
+    return valid
+
+
+def _validate_workspace_admin_given(
+    name: str | None, email: str | None, password: str | None, server_password: str
+) -> None:
+    """Refuse a Workspace admin that `--non-interactive` can't complete, or a password given equal to Server admin's.
+
+    Raises:
+        InstallError: When a value is missing and `--non-interactive` can't prompt, or the password given equals the
+            Server admin's.
+    """
+    missing = [flag for flag, value in (("name", name), ("email", email), ("password", password)) if not value]
+    if missing and not is_interactive():
+        flags = ", ".join(f"--workspace-admin-{flag}" for flag in missing)
+        raise InstallError(
+            f"The Workspace admin is missing {', '.join(missing)}; --non-interactive can't ask. Pass {flags}."
+        )
+    if password:
+        try:
+            _different_password(password, server_password)
+        except typer.BadParameter as exc:
+            raise InstallError(exc.message) from exc
+
+
+def _validate_workspace_admin_up_front(
+    install_state: SuiteInstallState, name: str | None, email: str | None, password: str | None, server_password: str
+) -> None:
+    """Refuse a Workspace admin the install can't use, before anything is installed.
+
+    See `_validate_workspace_admin_given()`. Otherwise only the Workspace configuration step refuses it, after the
+    infra and server directories exist.
+    """
+    if STEP_WORKSPACE_CONFIG not in install_state.completed_steps:
+        _validate_workspace_admin_given(name, email, password, server_password)
+
+
+def _resolve_workspace_admin(
+    name: str | None, email: str | None, password: str | None, server_password: str
+) -> dict[str, str]:
+    """Resolve the initial Workspace admin account, whose password must differ from Server admin's.
+
+    The e-mail may be the Server admin's. Values not given are prompted for; a password given equal to the Server
+    admin's fails, a prompted one is asked again. Passwords are compared trimmed, as Workspace trims them.
+
+    Args:
+        name: Workspace admin's name; `None` prompts.
+        email: Workspace admin's e-mail; `None` prompts.
+        password: Workspace admin's password; `None` prompts.
+        server_password: Password of the Server admin.
+
+    Returns:
+        The `BOOTSTRAP_ADMIN_*` Workspace .env values.
+
+    Raises:
+        InstallError: When a value is missing and `--non-interactive` can't prompt, or password given
+            equals the Server admin's.
+    """
+    _validate_workspace_admin_given(name, email, password, server_password)
+    echo.info("The Workspace admin is a separate account from the Server admin and needs its own password.")
+    name = name or echo.prompt_until_valid("Provide Workspace admin name", validate_truthy)
+    email = email or echo.prompt_until_valid("Provide Workspace admin email", validate_email)
+    if not password:
+        echo.info(PASSWORD_REQUIREMENTS)
+        password = echo.prompt_until_valid(
+            "Provide Workspace admin password",
+            partial(_different_password, server_password=server_password),
+            password=True,
+        )
+    return {
+        "BOOTSTRAP_ADMIN_NAME": str(name),
+        "BOOTSTRAP_ADMIN_EMAIL": str(email),
+        "BOOTSTRAP_ADMIN_PASSWORD": str(password),
+    }
+
+
+def _saved_workspace_config(install_state: SuiteInstallState) -> dict[str, str]:
+    """Return the Workspace answers the Workspace configuration step saved, checked to be what it saves.
+
+    Raises:
+        InstallError: If they are missing, aren't a mapping of strings, or have no admin account.
+    """
+    saved = install_state.workspace_config
+    if (
+        not isinstance(saved, dict)
+        or not all(isinstance(key, str) and isinstance(value, str) for key, value in saved.items())
+        or not all(saved.get(key) for key in _WORKSPACE_ADMIN_KEYS)
+    ):
+        raise InstallError(
+            "Suite install state file's saved Workspace answers are invalid or corrupted; remove "
+            f"{DF_SUITE_INSTALL_STATE_FILE} and start over."
+        )
+    return saved
+
+
+def _workspace_config_on_skip(
+    install_state: SuiteInstallState,
+    explicitly_provided: Collection[str],
+    admin_password: str | None,
+    server_admin_password: str,
+) -> dict[str, str]:
+    """`on_skip` for `STEP_WORKSPACE_CONFIG` - see `_infra_config_on_skip()`.
+
+    The saved Workspace admin password is checked against the Server admin's again, since `--admin-password` may
+    have changed on the resuming run; the password is then asked for (or taken from `--workspace-admin-password`)
+    again, and saved.
+
+    Args:
+        install_state: This run's progress state, holding the persisted answers.
+        explicitly_provided: Names of the options given on this invocation.
+        admin_password: Initial Workspace admin's password given on this invocation; `None` asks.
+        server_admin_password: Password of the Server admin, which the Workspace admin must not reuse.
+
+    Returns:
+        The persisted Workspace answers.
+
+    Raises:
+        InstallError: When the saved answers are invalid, or a new admin password can't be resolved - see
+            `_saved_workspace_config()` and `_resolve_workspace_admin()`.
+    """
+    config = dict(_saved_workspace_config(install_state))
+    ignored = _WORKSPACE_ADDRESS_FIELDS | _WORKSPACE_APPLY_FIELDS
+    if config["BOOTSTRAP_ADMIN_PASSWORD"].strip() == server_admin_password.strip():
+        echo.warning("The saved Workspace admin password is now the Server admin's; asking for another one.")
+        config |= _resolve_workspace_admin(
+            config["BOOTSTRAP_ADMIN_NAME"], config["BOOTSTRAP_ADMIN_EMAIL"], admin_password, server_admin_password
+        )
+        ignored = ignored - {"workspace_admin_password"}  # used just now
+        install_state.workspace_config = config
+        save_state(install_state)
+    _warn_config_flags_ignored("workspace", explicitly_provided, ignored)
+    return config
+
+
 def _run_step(
     install_state: SuiteInstallState,
     steps: tuple[tuple[str, str], ...],
@@ -884,6 +1308,29 @@ def install(
     otel_local: bool = False,
     allow_rootful: bool = False,
     explicitly_provided: Collection[str] = frozenset(),
+    workspace_directory: Path = DF_WORKSPACE_DIRECTORY,
+    workspace_port: int | None = None,
+    workspace_public_url: str | None = None,
+    workspace_bind_address: str | None = None,
+    workspace_image: str | None = None,
+    workspace_local_image: bool = False,
+    workspace_small_model: str = DF_WORKSPACE_SMALL_MODEL,
+    workspace_mongodb_url: str | None = None,
+    workspace_mongodb_database_name: str | None = None,
+    workspace_redis_url: str | None = None,
+    workspace_smtp_host: str | None = None,
+    workspace_smtp_port: int | None = None,
+    workspace_smtp_secure: bool | None = None,
+    workspace_smtp_username: str | None = None,
+    workspace_smtp_password: str | None = None,
+    workspace_email_from_address: str | None = None,
+    workspace_email_from_name: str | None = None,
+    workspace_trusted_proxy: bool | None = None,
+    workspace_trusted_origins: str | None = None,
+    workspace_mcp_auth_token: str | None = None,
+    workspace_admin_name: str | None = None,
+    workspace_admin_email: str | None = None,
+    workspace_admin_password: str | None = None,
 ) -> None:
     """Provision a complete DeepFellow workspace: Infra, Server, admin user, and a ready-to-use workspace.
 
@@ -891,10 +1338,10 @@ def install(
     install, infra start, one step per service/model the resolved `template` installs on infra (the
     "suite" template installs the Ollama service and 3 models), server install, server start,
     one step per post-start action the resolved `template` runs on server (the "suite" template
-    creates the admin account), server login, workspace creation, and grant model access. The two
-    configuration steps resolve every infra- and server-side prompt (directory-overwrite decisions,
-    DF_NAME, vector DB, MongoDB, FalkorDB, ...) before any of the later, purely programmatic steps
-    run - so a user answers every question once at the start instead of partway through a
+    creates the admin account), server login, workspace creation, grant model access and Workspace install. The three
+    configuration steps resolve every infra-, server- and Workspace-side prompt (directory-overwrite decisions,
+    DF_NAME, vector DB, MongoDB, FalkorDB, the Workspace address, ...) before any of the later, purely
+    programmatic steps run - so a user answers every question once at the start instead of partway through a
     long-running install.
 
     `template` selects the built-in template forwarded to both infra's and server's own
@@ -970,6 +1417,34 @@ def install(
             template-value merge precedence; (b) any of them landing in this set is what lets
             install() warn when it had no effect because its install step was already done and
             skipped (see `_warn_config_flags_ignored`).
+        workspace_directory: Target directory for the DeepFellow Workspace installation.
+        workspace_port: Published port to serve Workspace from; `None` keeps the Workspace default.
+        workspace_public_url: Address Workspace is opened at. Only a public https address makes Server
+            notify Workspace (file indexing); `None` asks (or defaults to localhost without asking).
+        workspace_bind_address: Host address to publish the Workspace port on; `None` keeps the default.
+        workspace_image: Workspace docker image; `None` keeps the default.
+        workspace_local_image: Use a locally built Workspace image, which is never pulled.
+        workspace_small_model: Model Workspace uses for background tasks.
+        workspace_mongodb_url: External MongoDB for Workspace; `None` installs one with Workspace.
+        workspace_mongodb_database_name: Database name in the external MongoDB.
+        workspace_redis_url: External Redis for Workspace; `None` installs one with Workspace.
+        workspace_smtp_host: Workspace SMTP host. This and the other `workspace_smtp_*` and
+            `workspace_email_from_*` values are left unset when `None`.
+        workspace_smtp_port: Workspace SMTP port.
+        workspace_smtp_secure: Use TLS from the start of the Workspace SMTP connection.
+        workspace_smtp_username: Workspace SMTP username.
+        workspace_smtp_password: Workspace SMTP password.
+        workspace_email_from_address: Workspace sender e-mail address.
+        workspace_email_from_name: Workspace sender name.
+        workspace_trusted_proxy: Trust X-Forwarded-For / X-Real-IP in Workspace; `None` enables it for an https
+            public URL.
+        workspace_trusted_origins: Other origins Workspace trusts besides its public URL, comma-separated.
+        workspace_mcp_auth_token: Bearer token required on Workspace's /mcp endpoint.
+        workspace_admin_name: Initial Workspace admin's name; asked when `None`. A separate account from
+            the Server admin.
+        workspace_admin_email: Initial Workspace admin's e-mail; asked when `None`. May be the same as `admin_email`.
+        workspace_admin_password: Initial Workspace admin's password; asked when `None`. Must differ from
+            `admin_password`.
 
     Raises:
         InstallError: If `template` isn't a built-in template name known to both infra and server,
@@ -1088,6 +1563,13 @@ def install(
     # collected, while an --admin-* flag passed on the resuming invocation still wins over it.
     effective = resolve_admin_kwargs(install_state.admin or {}, admin_name, admin_email, admin_password)
     validate_non_interactive_admin_values(effective, "suite install")
+    _validate_workspace_admin_up_front(
+        install_state,
+        workspace_admin_name,
+        workspace_admin_email,
+        workspace_admin_password,
+        effective["password"] or "",
+    )
     # Whether THIS invocation supplied an admin value that wasn't just a passthrough of a prior
     # run's persisted one - either via an explicit --admin-*/env var, or (set further below) by
     # being prompted for it, which only happens when neither a flag nor persisted state had a
@@ -1121,7 +1603,7 @@ def install(
     install_state.admin = {"name": name, "email": email, "password": password}
     save_state(install_state)
     echo.warning(
-        f"The admin password, and once resolved, the full infra/server installation configuration, "
+        f"The admin passwords, and once resolved, the full infra/server/workspace installation configuration, "
         f"are being saved in plain text to {DF_SUITE_INSTALL_STATE_FILE}, so `--resume` can reuse "
         "them without re-prompting. It's removed automatically once this install fully succeeds - "
         "if you abandon this run, remove it yourself."
@@ -1198,6 +1680,64 @@ def install(
         on_success=lambda cfg: setattr(install_state, "server_config", _server_config_to_dict(cfg)),
         on_skip=partial(_server_config_on_skip, install_state, explicitly_provided),
     )
+    # Derived from the resolved post-start actions the install steps run, so the two can never drift apart; also
+    # known up front, to check Workspace's small model against.
+    granted_models = [
+        action["kwargs"]["model_name"]
+        for action in infra_post_start_actions
+        if action["function"] == "infra.model.install"
+        and action["kwargs"]["service_name"] != "custom"
+        and action["kwargs"]["model_name"] not in _DOC_CHUNKER_ONLY_MODELS
+    ]
+
+    # Settled by infra/server (a network of an earlier install wins over the flag), so Workspace joins the network
+    # Server is really on.
+    workspace_apply = _WorkspaceApply(
+        directory=str(workspace_directory.expanduser().resolve()),
+        port=workspace_port,
+        image=workspace_image,
+        local_image=workspace_local_image,
+        bind_address=workspace_bind_address,
+        small_model=workspace_small_model,
+        docker_network=server_config.docker_network,
+        overrides=_workspace_overrides(
+            workspace_mongodb_url,
+            workspace_mongodb_database_name,
+            workspace_redis_url,
+            {
+                "SMTP_HOST": workspace_smtp_host,
+                "SMTP_PORT": None if workspace_smtp_port is None else str(workspace_smtp_port),
+                "SMTP_SECURE": None if workspace_smtp_secure is None else str(workspace_smtp_secure).lower(),
+                "SMTP_USERNAME": workspace_smtp_username,
+                "SMTP_PASSWORD": workspace_smtp_password,
+                "EMAIL_FROM_ADDRESS": workspace_email_from_address,
+                "EMAIL_FROM_NAME": workspace_email_from_name,
+                "MCP_AUTH_TOKEN": workspace_mcp_auth_token,
+            },
+        ),
+    )
+    # Workspace's own questions, asked now with the rest so none is left for the end of a long install.
+    workspace_config: dict[str, str] = run_step(
+        STEP_WORKSPACE_CONFIG,
+        lambda: _workspace_config(
+            workspace_apply,
+            workspace_public_url,
+            workspace_trusted_proxy,
+            workspace_trusted_origins,
+            force_install,
+            workspace_admin_name,
+            workspace_admin_email,
+            workspace_admin_password,
+            password,
+            granted_models,
+        ),
+        on_success=partial(_save_workspace_config, install_state, workspace_apply),
+        on_skip=partial(
+            _workspace_config_on_skip, install_state, explicitly_provided, workspace_admin_password, password
+        ),
+    )
+    # What the first run settled; `workspace_config` is only skipped once saved together with it.
+    workspace_apply = _saved_workspace_apply(install_state)
 
     # True when a step already marked complete has since gone missing/incomplete on disk
     # (self-healing rerun). `_infra_install_apply()` itself needs no such flag - it always
@@ -1278,6 +1818,7 @@ def install(
 
     # Always run: cheap and idempotent, and its result (the token) is needed below - unlike the
     # other steps, skipping it on resume would lose that result rather than merely redo cheap work.
+
     token = run_step(
         STEP_SERVER_LOGIN,
         lambda: get_token_from_login(state.cli_secrets_file, server_url, email=email, password=password),
@@ -1307,13 +1848,6 @@ def install(
     # the two can never drift apart. Models of the "custom" service (e.g. doc_chunker) are skipped:
     # Server gates those by the project's custom_endpoints, never by its models list. So are the
     # models only Doc Chunker uses, which Server reaches through Doc Chunker, not through a project.
-    granted_models = [
-        action["kwargs"]["model_name"]
-        for action in infra_post_start_actions
-        if action["function"] == "infra.model.install"
-        and action["kwargs"]["service_name"] != "custom"
-        and action["kwargs"]["model_name"] not in _DOC_CHUNKER_ONLY_MODELS
-    ]
     run_step(
         STEP_GRANT_MODEL_ACCESS,
         lambda: update_project(
@@ -1324,6 +1858,15 @@ def install(
             {"models": granted_models},
         ),
         always_run=True,
+    )
+
+    # Last, since Workspace needs the project's models granted above. Re-runs when its directory
+    # is gone; its questions were asked by STEP_WORKSPACE_CONFIG, so rewriting over its own earlier,
+    # interrupted attempt does not ask again (secrets are kept, like `workspace install --force-install`).
+    run_step(
+        STEP_WORKSPACE_INSTALL,
+        lambda: _workspace_install(workspace, server_url, workspace_config, workspace_apply),
+        is_done=partial(_install_still_done, install_state, STEP_WORKSPACE_INSTALL, Path(workspace_apply.directory)),
     )
 
     delete_state()

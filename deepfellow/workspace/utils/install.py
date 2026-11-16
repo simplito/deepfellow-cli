@@ -58,6 +58,10 @@ IMAGE_KEY = "DF_WORKSPACE_IMAGE"
 PORT_KEY = "DF_WORKSPACE_PORT"
 BIND_ADDRESS_KEY = "DF_WORKSPACE_BIND_ADDRESS"
 DOCKER_NETWORK_KEY = "DF_WORKSPACE_DOCKER_NETWORK"
+# Set to "true" while the app runs a locally built image, which must never be pulled.
+LOCAL_IMAGE_KEY = "DF_WORKSPACE_LOCAL_IMAGE"
+# What a failed start tells to do once the cause is fixed; a caller with its own way to retry passes another.
+DEFAULT_RETRY_HINT = "run 'workspace install --force-install' again (secrets are kept)"
 MONGO_MIGRATION_ATTEMPTS = 30
 MONGO_MIGRATION_DELAY = 2.0
 # Services of the stack's own Mongo and Redis, whose images `env set` keeps and `update` may change.
@@ -108,6 +112,38 @@ def resolve_stack_settings(
         bind_address,
         docker_network or existing.get(DOCKER_NETWORK_KEY) or DF_INFRA_DOCKER_NETWORK,
     )
+
+
+def resolve_local_image(existing: Mapping[str, str], local_image: bool | None) -> bool:
+    """Tell whether the app uses a locally built image: the given choice, else the previous install's.
+
+    Args:
+        existing: The .env of a previous install (empty on a fresh install).
+        local_image: Choice given explicitly, or `None`.
+
+    Returns:
+        True when the image must not be pulled.
+    """
+    if local_image is not None:
+        return local_image
+    return existing.get(LOCAL_IMAGE_KEY, "").lower() == "true"
+
+
+def apply_local_image(env: dict[str, str], local_image: bool) -> tuple[str, ...]:
+    """Record the local-image choice in `env`.
+
+    Args:
+        env: The .env content, changed in place.
+        local_image: Whether the app uses a locally built image.
+
+    Returns:
+        The keys to drop from a previous `.env` (the marker, when the image is not local).
+    """
+    if local_image:
+        env[LOCAL_IMAGE_KEY] = "true"
+        return ()
+    env.pop(LOCAL_IMAGE_KEY, None)
+    return (LOCAL_IMAGE_KEY,)
 
 
 def read_existing_env(directory: Path) -> dict[str, str]:
@@ -229,6 +265,7 @@ def build_compose(
     docker_network: str,
     local_mongo: bool = True,
     local_redis: bool = True,
+    local_image: bool = False,
 ) -> dict[str, Any]:
     """Build the Workspace stack: the app, its own password-protected single-node replica-set Mongo, and Redis.
 
@@ -244,6 +281,7 @@ def build_compose(
         docker_network: Existing external network shared with DeepFellow Server.
         local_mongo: Run Mongo in the stack; otherwise `MONGO_DB_URL` in `.env` is used.
         local_redis: Run Redis in the stack; otherwise `REDIS_URL` in `.env` is used.
+        local_image: The app image is built locally, so it is never pulled.
 
     Returns:
         The compose dict.
@@ -296,6 +334,8 @@ def build_compose(
             "start_period": "60s",
         },
     }
+    if local_image:
+        app["pull_policy"] = "never"
     if depends_on:
         app["depends_on"] = depends_on
     compose: dict[str, Any] = {"services": {WORKSPACE_APP_SERVICE: app, **services}}
@@ -442,6 +482,7 @@ def build_stack_compose(env: Mapping[str, str], images: Mapping[str, str] | None
         docker_network,
         local_mongo=not env.get("MONGO_DB_URL"),
         local_redis=not env.get("REDIS_URL"),
+        local_image=resolve_local_image(env, None),
     )
     return apply_service_images(compose, images or {})
 
@@ -515,6 +556,8 @@ def install(
     force_install: bool,
     overwrite: bool | None = None,
     reset: Iterable[str] = (),
+    local_image: bool = False,
+    retry_hint: str = DEFAULT_RETRY_HINT,
 ) -> dict[str, str]:
     """Write the stack to `directory` and start it.
 
@@ -529,6 +572,9 @@ def install(
         force_install: Skip the overwrite question for an existing directory.
         overwrite: Answer to the overwrite question when already asked (see `confirm_overwrite`); `None` asks here.
         reset: .env keys of a previous install to forget (to go back to the local Mongo/Redis or turn SMTP off).
+        local_image: The app image is built locally, so it is never pulled.
+        retry_hint: What the error message tells to do after fixing the cause, for a caller with its own way to
+            retry (`suite install --resume`).
 
     Returns:
         The .env content that was written.
@@ -539,6 +585,7 @@ def install(
     """
     resets = tuple(reset)
     env = build_env(existing, passed, port, resets)
+    resets += apply_local_image(env, local_image)
     if problems := validate_env(env):
         raise InstallError("; ".join(problems) + ".")
     env |= {
@@ -576,7 +623,6 @@ def install(
         detail = str(exc) if str(exc) not in ("", "None") else "see the Docker output above"
         raise InstallError(
             f"Starting DeepFellow Workspace failed: {detail}. The configuration stays in {directory}; "
-            "fix the cause and run 'workspace install --force-install' again (secrets are kept), "
-            "or run 'workspace uninstall' to remove the containers."
+            f"fix the cause and {retry_hint}, or run 'workspace uninstall' to remove the containers."
         ) from exc
     return env

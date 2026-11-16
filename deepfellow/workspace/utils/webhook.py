@@ -14,6 +14,7 @@ import typer
 
 from deepfellow.common.config import read_env_file
 from deepfellow.common.echo import echo
+from deepfellow.common.exceptions import InstallError
 from deepfellow.common.rest import check_health, delete, get_server_url, make_request, post
 from deepfellow.common.rest import get as rest_get
 from deepfellow.common.state import state
@@ -151,17 +152,27 @@ def _has_stored_login() -> bool:
     return secrets_file.is_file() and bool(read_env_file(secrets_file).get("DF_USER_TOKEN"))
 
 
-def configure_webhook(passed: Passed, existing: Mapping[str, str], public_url: str) -> None:
+def configure_webhook(
+    passed: Passed, existing: Mapping[str, str], public_url: str, cli_server_url: str | None = None
+) -> None:
     """Make DeepFellow Server notify Workspace about finished file indexing, when the address allows it.
 
     Needs an organization admin of DeepFellow Server (the CLI login is used). The secret is generated on the first
     run and kept from the previous install afterwards; it is stored in `passed` only when Server has accepted it,
-    so Workspace never gets a secret Server does not know. A failure is reported, but does not stop the install.
+    so Workspace never gets a secret Server does not know. A failure is reported, but does not stop the install,
+    unless `cli_server_url` is given: then it raises, so the caller (`suite install`) can fail the step and have it
+    repeated on `--resume`, instead of finishing as a success without the notifications.
 
     Args:
         passed: Values given explicitly; the secret is stored in it.
         existing: The .env of a previous install (empty on a fresh install).
         public_url: The Workspace address that will be written.
+        cli_server_url: DeepFellow Server address as this host reaches it; used instead of the one Workspace is
+            given when that one only resolves inside the Docker network. When given, the CLI default Server is not
+            changed and nothing is asked about it.
+
+    Raises:
+        InstallError: When the notifications could not be set up and `cli_server_url` is given.
     """
     if not is_public_https(public_url):
         echo.warning(NO_WEBHOOK_WARNING)
@@ -188,11 +199,15 @@ def configure_webhook(passed: Passed, existing: Mapping[str, str], public_url: s
         return
     secret = passed.get(WEBHOOK_SECRET_KEY) or existing.get(WEBHOOK_SECRET_KEY) or secrets.token_urlsafe(_SECRET_BYTES)
     url = webhook_url(public_url)
-    echo.info("Setting up DeepFellow Server notifications for Workspace (requires an organization admin login).")
+    echo.info(
+        "Setting up DeepFellow Server notifications for Workspace "
+        "(the CLI must be signed in to DeepFellow Server as an organization admin)."
+    )
     try:
-        workspace_server = _workspace_server_url(passed, existing)
-        if state.yes and workspace_server:
-            # --yes keeps the CLI default Server; the Workspace's Server is only used here.
+        workspace_server = cli_server_url or _workspace_server_url(passed, existing)
+        if (state.yes or cli_server_url) and workspace_server:
+            # --yes keeps the CLI default Server, and so does a Server the caller names (`suite install`, which
+            # has just installed it): no "make it the default?" question this late. The address is only used here.
             check_health(workspace_server)
             server = workspace_server
         else:
@@ -200,7 +215,12 @@ def configure_webhook(passed: Passed, existing: Mapping[str, str], public_url: s
         echo.info(f"Using DeepFellow Server {server}. Signing in there replaces the stored CLI login.")
         token = get_token(state.cli_secrets_file, server)
         _register(server, token, organization_id, project_id, url, secret)
-    except (typer.Exit, ValueError, KeyError):
+    except (typer.Exit, ValueError, KeyError) as exc:
+        if cli_server_url:
+            raise InstallError(
+                "DeepFellow Server notifications for Workspace were not set up (see above), so indexing files in "
+                "Workspace would not be fully working. Fix the problem and run the install again with --resume."
+            ) from exc
         echo.warning(
             "DeepFellow Server notifications were not set up, so indexing files in Workspace will not be fully "
             "working. Fix the problem above and reinstall to try again."
@@ -231,7 +251,10 @@ def remove_webhook(env: Mapping[str, str]) -> None:
     if not public_url or not is_public_https(public_url) or not organization_id or not project_id:
         return
     url = webhook_url(public_url)
-    echo.info("Removing the DeepFellow Server notifications for Workspace (requires an organization admin login).")
+    echo.info(
+        "Removing the DeepFellow Server notifications for Workspace "
+        "(the CLI must be signed in to DeepFellow Server as an organization admin)."
+    )
     try:
         server = get_server_url(None)
         token = get_token(state.cli_secrets_file, server)

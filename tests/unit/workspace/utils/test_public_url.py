@@ -310,3 +310,16 @@ def test_resolve_public_url_invalid_answer_is_asked_again(mock_interactive: Mock
 
     assert mock_ask.call_count == 2
     assert result == "https://ws.example.com"
+
+
+@mock.patch("deepfellow.workspace.utils.public_url.is_interactive", return_value=True)
+@mock.patch("deepfellow.workspace.utils.public_url.echo")
+def test_apply_https_settings_does_not_ask_again_for_an_empty_given_answer(
+    mock_echo: Mock, mock_interactive: Mock
+) -> None:
+    passed: dict[str, str | None] = {"TRUSTED_PROXY_ENABLED": "true", "TRUSTED_ORIGINS": ""}
+
+    apply_https_settings(passed, {}, "https://ws.example.com")
+
+    assert mock_echo.prompt_until_valid.call_count == 0
+    assert passed["TRUSTED_ORIGINS"] == ""

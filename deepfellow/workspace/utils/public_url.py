@@ -133,7 +133,7 @@ def apply_https_settings(passed: Passed, existing: Mapping[str, str], public_url
     if passed.get(TRUSTED_PROXY_KEY) is None and existing.get(TRUSTED_PROXY_KEY) != "false":
         passed[TRUSTED_PROXY_KEY] = "true"
         echo.info("The address is https, so the reverse proxy in front of Workspace is trusted (--trusted-proxy).")
-    if passed.get(TRUSTED_ORIGINS_KEY) or not _asks():
+    if passed.get(TRUSTED_ORIGINS_KEY) is not None or not _asks():
         return
     passed[TRUSTED_ORIGINS_KEY] = echo.prompt_until_valid(
         "Other trusted origins, comma-separated (optional)",

@@ -35,6 +35,15 @@ class SuiteInstallState:
     special-case that, since a `None` config is indistinguishable from "not yet resolved" and the
     corresponding step just runs (and re-prompts) once more, exactly as if it were a fresh install.
 
+    `workspace_config` holds the Workspace answers asked for up front (its address and trusted origins), once
+    the Workspace configuration step succeeds - persisted so a later `--resume` run installs Workspace
+    without asking again.
+
+    `workspace_apply` holds the rest of what Workspace is installed with (directory, port, image, bind address,
+    small model, Docker network, external Mongo/Redis, SMTP, MCP token), saved with `workspace_config` so a
+    `--resume` run installs the Workspace its address and admin answers were given for, whatever flags it is
+    invoked with. It can hold the SMTP password and MCP token, like the file holds the admin passwords.
+
     `template` holds the `--template` name this run resolved `infra_config`/`server_config`
     against, once resolved - persisted (unlike the *result* of resolving it, which is cheap and
     deterministic to recompute) so a later `--resume` run always reuses it instead of trusting
@@ -57,6 +66,8 @@ class SuiteInstallState:
     admin: dict[str, str] | None = None
     infra_config: dict[str, Any] | None = None
     server_config: dict[str, Any] | None = None
+    workspace_config: dict[str, str] | None = None
+    workspace_apply: dict[str, Any] | None = None
     template: str | None = None
 
 
@@ -95,6 +106,8 @@ def load(state_file: Path = DF_SUITE_INSTALL_STATE_FILE) -> SuiteInstallState | 
         admin=data.get("admin"),
         infra_config=data.get("infra_config"),
         server_config=data.get("server_config"),
+        workspace_config=data.get("workspace_config"),
+        workspace_apply=data.get("workspace_apply"),
         template=data.get("template"),
     )
 

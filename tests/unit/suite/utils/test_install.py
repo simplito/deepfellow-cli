@@ -2,7 +2,9 @@
 # SPDX-FileCopyrightText: 2026 Simplito sp. z o.o.
 
 from collections.abc import Callable, Iterator
+from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 from unittest import mock
 from unittest.mock import Mock
 
@@ -23,6 +25,8 @@ from deepfellow.common.defaults import (
     DF_SERVER_IMAGE_HUB,
     DF_SERVER_PORT,
     DF_SUITE_INSTALL_STATE_FILE,
+    DF_WORKSPACE_DIRECTORY,
+    DF_WORKSPACE_SMALL_MODEL,
     DOC_CHUNKER_STT_MODEL,
 )
 from deepfellow.common.exceptions import InstallError
@@ -40,15 +44,23 @@ from deepfellow.server.utils.workspace import Workspace
 from deepfellow.suite.utils.install import (
     STEP_INFRA_CONFIG,
     STEP_SERVER_CONFIG,
+    STEP_WORKSPACE_CONFIG,
+    STEP_WORKSPACE_INSTALL,
     _build_steps,
     _infra_config_from_dict,
     _infra_config_to_dict,
     _install_directory_intact,
     _resolve_effective_template,
+    _resolve_workspace_admin,
     _server_config_from_dict,
     _server_config_to_dict,
     _validate_template,
+    _validate_workspace_apply,
+    _workspace_config,
+    _workspace_config_on_skip,
+    _workspace_install,
     _workspace_to_dict,
+    _WorkspaceApply,
     install,
 )
 from deepfellow.suite.utils.state import SuiteInstallState
@@ -57,7 +69,7 @@ DF_INFRA_IMAGE = f"{DF_INFRA_IMAGE_HUB}:1.2.3"
 DF_SERVER_IMAGE = f"{DF_SERVER_IMAGE_HUB}:1.2.3"
 
 PLAINTEXT_WARNING = (
-    "The admin password, and once resolved, the full infra/server installation configuration, "
+    "The admin passwords, and once resolved, the full infra/server/workspace installation configuration, "
     f"are being saved in plain text to {DF_SUITE_INSTALL_STATE_FILE}, so `--resume` can reuse "
     "them without re-prompting. It's removed automatically once this install fully succeeds - "
     "if you abandon this run, remove it yourself."
@@ -75,6 +87,16 @@ _SERVER_SUITE_POST_START_ACTIONS: list[PostStartAction] = SERVER_BUILTIN_TEMPLAT
 # so every existing STEPS/TOTAL_STEPS usage below needs no further change.
 STEPS = _build_steps(_SUITE_POST_START_ACTIONS, _SERVER_SUITE_POST_START_ACTIONS)
 TOTAL_STEPS = len(STEPS)
+_WORKSPACE_ADMIN_ENV = {
+    "BOOTSTRAP_ADMIN_NAME": "W",
+    "BOOTSTRAP_ADMIN_EMAIL": "w@example.com",
+    "BOOTSTRAP_ADMIN_PASSWORD": "Wk3y$ecret!",
+}
+_WORKSPACE_ADMIN_ARGS: dict[str, Any] = {
+    "workspace_admin_name": "W",
+    "workspace_admin_email": "w@example.com",
+    "workspace_admin_password": "Wk3y$ecret!",
+}
 
 
 def _step_ids_through(last_step_id: str) -> list[str]:
@@ -84,6 +106,46 @@ def _step_ids_through(last_step_id: str) -> list[str]:
 
 
 DOCKER_SOCKET = "/var/run/docker.sock"
+# The Docker network the resolved Server config says Server is on, which Workspace joins.
+mock.sentinel.server_config.docker_network = DF_INFRA_DOCKER_NETWORK
+# Models the Workspace project is granted by the "suite" template.
+_GRANTED_MODELS = ["gemma4:e4b", "mxbai-embed-large"]
+_NO_OVERRIDES: dict[str, str | None] = {
+    "MONGO_DB_URL": None,
+    "MONGO_DB_NAME": None,
+    "REDIS_URL": None,
+    "SMTP_HOST": None,
+    "SMTP_PORT": None,
+    "SMTP_SECURE": None,
+    "SMTP_USERNAME": None,
+    "SMTP_PASSWORD": None,
+    "EMAIL_FROM_ADDRESS": None,
+    "EMAIL_FROM_NAME": None,
+    "MCP_AUTH_TOKEN": None,
+}
+
+
+def _workspace_apply(directory: Path | str = DF_WORKSPACE_DIRECTORY, **overrides: object) -> _WorkspaceApply:
+    """What a default `suite install` installs Workspace with, with `overrides` on top."""
+    base: dict[str, object] = {
+        "directory": str(directory),
+        "port": None,
+        "image": None,
+        "local_image": False,
+        "bind_address": None,
+        "small_model": DF_WORKSPACE_SMALL_MODEL,
+        "docker_network": DF_INFRA_DOCKER_NETWORK,
+        "overrides": dict(_NO_OVERRIDES),
+    }
+    base.update(overrides)
+    return _WorkspaceApply(**base)  # type: ignore[arg-type]
+
+
+# What a finished Workspace configuration step leaves in the state file, for resuming tests.
+_SAVED_WORKSPACE: dict[str, Any] = {
+    "workspace_config": {"PUBLIC_URL": "http://localhost:3000", **_WORKSPACE_ADMIN_ENV},
+    "workspace_apply": asdict(_workspace_apply()),
+}
 
 
 def _infra_install_apply_call() -> mock._Call:
@@ -216,9 +278,10 @@ def _patch_all_steps(func: Callable[..., None]) -> Callable[..., None]:
     DF_SERVER_PORT and DF_SERVER_BIND_ADDRESS) - independent of whichever step functions a test
     overrides. Bind address reads return None (all interfaces, i.e. localhost) via
     `_env_get_no_bind_address`; every other key falls through to the mock's `return_value`.
-    `get_socket` is patched with a fixed `new=` mock returning `DOCKER_SOCKET`, so it injects no
-    parameter; a test that checks its calls patches it again with its own outer decorator, which
-    takes precedence and is passed as the last parameter.
+    `get_socket` is patched with a fixed `new=` mock returning `DOCKER_SOCKET`, and
+    `_workspace_config` and `_workspace_install` with fixed `new=` mocks, so none injects a parameter; a test
+    that checks its calls patches it again with its own outer decorator, which takes precedence and is passed
+    as the last parameter.
     """
     # Explicit statements, not a loop: parameter order must match this exact wrap order (first
     # wrapped = innermost decorator = first parameter), and a loop over a reordered tuple is an
@@ -240,6 +303,8 @@ def _patch_all_steps(func: Callable[..., None]) -> Callable[..., None]:
     func = mock.patch("deepfellow.suite.utils.install.load_state")(func)
     func = mock.patch("deepfellow.suite.utils.install.save_state")(func)
     func = mock.patch("deepfellow.suite.utils.install.delete_state")(func)
+    func = mock.patch("deepfellow.suite.utils.install._workspace_install", new=Mock())(func)
+    func = mock.patch("deepfellow.suite.utils.install._workspace_config", new=Mock(return_value={}))(func)
     func = mock.patch("deepfellow.suite.utils.install.update_project")(func)
     func = mock.patch("deepfellow.suite.utils.install.create_workspace")(func)
     func = mock.patch("deepfellow.suite.utils.install.get_token_from_login")(func)
@@ -372,13 +437,21 @@ def test_install_config_steps_run_before_any_apply_step(
     mock_get_token_from_login.return_value = "token"
     mock_create_workspace.return_value = _make_workspace()
     call_order: list[str] = []
+
+    def record(name: str) -> Callable[..., object]:
+        def side_effect(*args: object, **kwargs: object) -> object:
+            call_order.append(name)
+            return mock.sentinel.server_config
+
+        return side_effect
+
     for name, m in (
         ("infra_config", mock_infra_config),
         ("server_config", mock_server_config),
         ("infra_install_apply", mock_infra_install_apply),
         ("server_install_apply", mock_server_install_apply),
     ):
-        m.side_effect = lambda *a, _name=name, **kw: call_order.append(_name)
+        m.side_effect = record(name)
 
     install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
 
@@ -472,9 +545,9 @@ def test_install_stops_after_infra_install_error_and_does_not_delete_state(
 
     assert mock_infra_start.call_count == 0
     assert mock_server_install_apply.call_count == 0
-    # +2: admin credentials + both config steps' own successful saves, all persisted before this failure.
-    assert mock_save_state.call_count == 3
-    assert mock_save_state.call_args.args[0].completed_steps == ["infra_config", "server_config"]
+    # +3: admin credentials + the three config steps' own successful saves, all persisted before this failure.
+    assert mock_save_state.call_count == 4
+    assert mock_save_state.call_args.args[0].completed_steps == ["infra_config", "server_config", "workspace_config"]
     assert mock_delete_state.call_count == 0
 
 
@@ -516,9 +589,14 @@ def test_install_stops_after_infra_start_error_does_not_call_service_install(
     assert mock_infra_install_apply.call_count == 1
     assert mock_infra_post_start_action.call_count == 0
     assert mock_server_install_apply.call_count == 0
-    # +3: admin credentials + both config steps + infra_install, all persisted before this failure.
-    assert mock_save_state.call_count == 4
-    assert mock_save_state.call_args.args[0].completed_steps == ["infra_config", "server_config", "infra_install"]
+    # +4: admin credentials + the three config steps + infra_install, all persisted before this failure.
+    assert mock_save_state.call_count == 5
+    assert mock_save_state.call_args.args[0].completed_steps == [
+        "infra_config",
+        "server_config",
+        "workspace_config",
+        "infra_install",
+    ]
 
 
 @_patch_all_steps
@@ -917,7 +995,7 @@ def test_install_infra_start_reruns_when_container_no_longer_running_despite_com
     assert mock_infra_post_start_action.call_count == len(_SUITE_POST_START_ACTIONS)
     warning_messages = [call.args[0] for call in mock_echo.warning.call_args_list]
     assert (
-        f"Step 4/{TOTAL_STEPS}: infra start... was marked complete previously, but is no longer detected as up; "
+        f"Step 5/{TOTAL_STEPS}: infra start... was marked complete previously, but is no longer detected as up; "
         "re-running." in warning_messages
     )
 
@@ -964,7 +1042,7 @@ def test_install_infra_install_reruns_when_directory_missing_despite_completed_s
     assert mock_infra_install_apply.call_args == _infra_install_apply_call()
     warning_messages = [call.args[0] for call in mock_echo.warning.call_args_list]
     assert (
-        f"Step 3/{TOTAL_STEPS}: infra install... was marked complete previously, but is no longer detected as up; "
+        f"Step 4/{TOTAL_STEPS}: infra install... was marked complete previously, but is no longer detected as up; "
         "re-running." in warning_messages
     )
 
@@ -1090,7 +1168,7 @@ def test_install_server_start_reruns_when_container_no_longer_running_despite_co
     mock_env_get: Mock,
 ) -> None:
     completed_through_server_start = _step_ids_through("server_start")
-    mock_load_state.return_value = SuiteInstallState(completed_steps=completed_through_server_start)
+    mock_load_state.return_value = SuiteInstallState(**_SAVED_WORKSPACE, completed_steps=completed_through_server_start)
     mock_install_directory_intact.return_value = True
     mock_is_service_running.side_effect = lambda service, cwd: service == "infra"  # infra up, server down
     mock_get_token_from_login.return_value = "token"
@@ -1131,7 +1209,9 @@ def test_install_server_install_reruns_when_directory_missing_despite_completed_
     mock_env_get: Mock,
 ) -> None:
     completed_through_server_install = _step_ids_through("server_install")
-    mock_load_state.return_value = SuiteInstallState(completed_steps=completed_through_server_install)
+    mock_load_state.return_value = SuiteInstallState(
+        **_SAVED_WORKSPACE, completed_steps=completed_through_server_install
+    )
     mock_install_directory_intact.side_effect = lambda directory: directory != DF_SERVER_DIRECTORY
     mock_is_service_running.return_value = True
     mock_get_token_from_login.return_value = "token"
@@ -1176,6 +1256,7 @@ def test_install_infra_self_heal_no_longer_forces_server_repair(
     server install must stay skipped, not be force-repaired just because infra was."""
     completed_through_server_start = _step_ids_through("server_start")
     mock_load_state.return_value = SuiteInstallState(
+        **_SAVED_WORKSPACE,
         completed_steps=completed_through_server_start,
         infra_config={"api_key": "persisted-infra-key"},
         server_config={},
@@ -1222,7 +1303,7 @@ def test_install_create_admin_always_executes_even_when_completed(
     """create_admin is not cheaply live-checkable (an admin is a DB record, not a docker service) -
     it must always re-attempt, relying on create_admin_util's own idempotency for an existing admin."""
     completed_through_create_admin = _step_ids_through("server_post_start_action_0")
-    mock_load_state.return_value = SuiteInstallState(completed_steps=completed_through_create_admin)
+    mock_load_state.return_value = SuiteInstallState(**_SAVED_WORKSPACE, completed_steps=completed_through_create_admin)
     mock_get_token_from_login.return_value = "token"
     mock_create_workspace.return_value = _make_workspace()
 
@@ -1262,7 +1343,7 @@ def test_install_grant_model_access_always_executes_even_when_completed(
     must re-attempt it even when already marked complete, unlike workspace_creation."""
     workspace = _make_workspace()
     mock_load_state.return_value = SuiteInstallState(
-        completed_steps=[step_id for step_id, _ in STEPS], workspace=_workspace_to_dict(workspace)
+        **_SAVED_WORKSPACE, completed_steps=[step_id for step_id, _ in STEPS], workspace=_workspace_to_dict(workspace)
     )
     mock_get_token_from_login.return_value = "token"
 
@@ -1270,6 +1351,357 @@ def test_install_grant_model_access_always_executes_even_when_completed(
 
     assert mock_create_workspace.call_count == 0
     assert mock_update_project.call_count == 1
+
+
+@mock.patch(
+    "deepfellow.suite.utils.install._workspace_config", return_value={"PUBLIC_URL": "https://workspace.example.com"}
+)
+@mock.patch("deepfellow.suite.utils.install._workspace_install")
+@_patch_all_steps
+def test_install_runs_workspace_install_last_with_created_workspace(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_workspace_install: Mock,
+    mock_workspace_config: Mock,
+) -> None:
+    workspace = _make_workspace()
+    mock_load_state.return_value = None
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = workspace
+
+    install(
+        admin_name="Admin",
+        admin_email="admin@example.com",
+        admin_password="Sup3r$ecret!",
+        workspace_port=3100,
+        workspace_public_url="https://workspace.example.com",
+    )
+
+    apply = _workspace_apply(port=3100)
+    assert mock_workspace_config.call_count == 1
+    assert mock_workspace_config.call_args == mock.call(
+        apply,
+        "https://workspace.example.com",
+        None,
+        None,
+        False,
+        None,
+        None,
+        None,
+        "Sup3r$ecret!",
+        _GRANTED_MODELS,
+    )
+    assert mock_workspace_install.call_count == 1
+    assert mock_workspace_install.call_args == mock.call(
+        workspace,
+        f"http://localhost:{mock_env_get.return_value}",
+        {"PUBLIC_URL": "https://workspace.example.com"},
+        apply,
+    )
+    assert mock_save_state.call_args.args[0].completed_steps[-1] == STEP_WORKSPACE_INSTALL
+    assert mock_delete_state.call_count == 1
+
+
+@mock.patch(
+    "deepfellow.suite.utils.install._workspace_config", return_value={"PUBLIC_URL": "https://workspace.example.com"}
+)
+@mock.patch("deepfellow.suite.utils.install._workspace_install")
+@_patch_all_steps
+def test_install_passes_workspace_address_options_to_workspace_config(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_workspace_install: Mock,
+    mock_workspace_config: Mock,
+) -> None:
+    workspace = _make_workspace()
+    mock_load_state.return_value = None
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = workspace
+
+    install(
+        admin_name="Admin",
+        admin_email="admin@example.com",
+        admin_password="Sup3r$ecret!",
+        workspace_port=3100,
+        workspace_public_url="https://workspace.example.com",
+        workspace_trusted_proxy=False,
+        workspace_trusted_origins="https://proxy.example.com",
+    )
+
+    assert mock_workspace_config.call_args == mock.call(
+        _workspace_apply(port=3100),
+        "https://workspace.example.com",
+        False,
+        "https://proxy.example.com",
+        False,
+        None,
+        None,
+        None,
+        "Sup3r$ecret!",
+        _GRANTED_MODELS,
+    )
+
+
+@mock.patch("deepfellow.suite.utils.install._workspace_config")
+@mock.patch("deepfellow.suite.utils.install._workspace_install")
+@_patch_all_steps
+def test_install_resume_reruns_only_workspace_install_when_it_failed_before(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_workspace_install: Mock,
+    mock_workspace_config: Mock,
+) -> None:
+    workspace = _make_workspace()
+    mock_load_state.return_value = SuiteInstallState(
+        completed_steps=[step_id for step_id, _ in STEPS if step_id != STEP_WORKSPACE_INSTALL],
+        workspace=_workspace_to_dict(workspace),
+        workspace_config={"PUBLIC_URL": "https://persisted.example.com", **_WORKSPACE_ADMIN_ENV},
+        workspace_apply=asdict(_workspace_apply(port=3100)),
+    )
+    mock_get_token_from_login.return_value = "token"
+
+    install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", resume=True)
+
+    assert mock_create_workspace.call_count == 0
+    assert mock_workspace_install.call_count == 1
+    assert mock_workspace_install.call_args.args[0] == workspace
+    # The answers asked for up front are reused, not asked again.
+    assert mock_workspace_config.call_count == 0
+    assert mock_workspace_install.call_args.args[2] == {
+        "PUBLIC_URL": "https://persisted.example.com",
+        **_WORKSPACE_ADMIN_ENV,
+    }
+    # ... and so are the settings they were given for, not the (default) flags of the resuming run.
+    assert mock_workspace_install.call_args.args[3] == _workspace_apply(port=3100)
+
+
+@mock.patch("deepfellow.suite.utils.install._workspace_install")
+@_patch_all_steps
+def test_install_resume_skips_workspace_install_when_done_and_directory_intact(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_workspace_install: Mock,
+) -> None:
+    workspace = _make_workspace()
+    mock_load_state.return_value = SuiteInstallState(
+        **_SAVED_WORKSPACE, completed_steps=[step_id for step_id, _ in STEPS], workspace=_workspace_to_dict(workspace)
+    )
+    mock_get_token_from_login.return_value = "token"
+
+    install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", resume=True)
+
+    assert mock_workspace_install.call_count == 0
+
+
+@mock.patch("deepfellow.suite.utils.install._workspace_install")
+@_patch_all_steps
+def test_install_exits_when_workspace_install_fails(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_workspace_install: Mock,
+) -> None:
+    mock_load_state.return_value = None
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = _make_workspace()
+    mock_workspace_install.side_effect = InstallError("boom")
+
+    with pytest.raises(InstallError):
+        install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
+
+    assert STEP_WORKSPACE_INSTALL not in mock_save_state.call_args.args[0].completed_steps
+    assert mock_delete_state.call_count == 0
+
+
+@mock.patch("deepfellow.suite.utils.install.install_workspace")
+def test_workspace_install_passes_project_key_admin_and_small_model(mock_install_workspace: Mock, tmp_path) -> None:
+    workspace = _make_workspace()
+
+    _workspace_install(
+        workspace,
+        "http://localhost:8000",
+        {
+            "PUBLIC_URL": "https://workspace.example.com",
+            "BOOTSTRAP_ADMIN_NAME": "Admin",
+            "BOOTSTRAP_ADMIN_EMAIL": "admin@example.com",
+            "BOOTSTRAP_ADMIN_PASSWORD": "Sup3r$ecret!",
+        },
+        _workspace_apply(tmp_path, port=3100, docker_network="net"),
+    )
+
+    assert mock_install_workspace.call_count == 1
+    assert mock_install_workspace.call_args == mock.call(
+        {
+            "DF_SERVER_URL": "http://server:8000/v1",
+            "DF_SERVER_API_KEY": "secret-key",
+            "DF_SERVER_ORGANIZATION_ID": "org-1",
+            "DF_SERVER_PROJECT_ID": "project-1",
+            "SMALL_MODEL": "gemma4:e4b",
+            "PUBLIC_URL": "https://workspace.example.com",
+            "BOOTSTRAP_ADMIN_NAME": "Admin",
+            "BOOTSTRAP_ADMIN_EMAIL": "admin@example.com",
+            "BOOTSTRAP_ADMIN_PASSWORD": "Sup3r$ecret!",
+        },
+        directory=tmp_path,
+        image=None,
+        local_image=False,
+        port=3100,
+        bind_address=None,
+        docker_network="net",
+        force_install=True,
+        reset=("MONGO_DB_URL", "MONGO_DB_NAME", "REDIS_URL"),
+        ask_optional_settings=False,
+        cli_server_url="http://localhost:8000",
+        retry_hint="run 'suite install --resume'",
+    )
+
+
+@mock.patch("deepfellow.suite.utils.install.install_workspace")
+def test_workspace_install_forwards_image_bind_address_small_model_and_overrides(
+    mock_install_workspace: Mock, tmp_path
+) -> None:
+    _workspace_install(
+        _make_workspace(),
+        "http://localhost:8000",
+        {},
+        _workspace_apply(
+            tmp_path,
+            image="registry/workspace:1",
+            local_image=True,
+            bind_address="127.0.0.1",
+            small_model="small-model",
+            overrides={
+                "MONGO_DB_URL": "mongodb://db:27017/?replicaSet=rs0",
+                "SMTP_HOST": "smtp.example.com",
+                "REDIS_URL": None,
+            },
+        ),
+    )
+
+    passed = mock_install_workspace.call_args.args[0]
+    assert passed["SMALL_MODEL"] == "small-model"
+    assert passed["MONGO_DB_URL"] == "mongodb://db:27017/?replicaSet=rs0"
+    assert passed["SMTP_HOST"] == "smtp.example.com"
+    assert "REDIS_URL" not in passed
+    assert mock_install_workspace.call_args.kwargs["image"] == "registry/workspace:1"
+    assert mock_install_workspace.call_args.kwargs["local_image"] is True
+    assert mock_install_workspace.call_args.kwargs["bind_address"] == "127.0.0.1"
+    assert mock_install_workspace.call_args.kwargs["reset"] == ("MONGO_DB_NAME", "REDIS_URL")
+
+
+@mock.patch("deepfellow.suite.utils.install.install_workspace", side_effect=OSError("disk full"))
+def test_workspace_install_wraps_os_error_in_install_error(mock_install_workspace: Mock, tmp_path) -> None:
+    with pytest.raises(InstallError, match="disk full"):
+        _workspace_install(_make_workspace(), "http://localhost:8000", {}, _workspace_apply(tmp_path))
 
 
 def test_install_directory_intact_returns_true_when_directory_and_env_exist(tmp_path) -> None:
@@ -1495,7 +1927,7 @@ def test_install_resume_reuses_persisted_workspace_without_recreating(
     workspace = _make_workspace(organization_id="org-1", project_id="project-1")
     all_but_grant = [step_id for step_id, _ in STEPS if step_id != "grant_model_access"]
     mock_load_state.return_value = SuiteInstallState(
-        completed_steps=all_but_grant, workspace=_workspace_to_dict(workspace)
+        **_SAVED_WORKSPACE, completed_steps=all_but_grant, workspace=_workspace_to_dict(workspace)
     )
     mock_get_token_from_login.return_value = "token"
 
@@ -1943,7 +2375,7 @@ def test_install_non_interactive_resume_uses_persisted_admin_without_error(
     mock_create_workspace.return_value = _make_workspace()
     state.non_interactive = True
 
-    install(admin_name=None, admin_email=None, admin_password=None, resume=True)
+    install(admin_name=None, admin_email=None, admin_password=None, resume=True, **_WORKSPACE_ADMIN_ARGS)
 
     assert mock_server_config.call_args.args[1:4] == ("Persisted Admin", "persisted@example.com", "Pers1sted$ecret!")
 
@@ -2200,7 +2632,13 @@ def test_install_non_interactive_completes_on_rootful_docker_with_allow_rootful(
     mock_create_workspace.return_value = _make_workspace()
     state.non_interactive = True
 
-    install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", allow_rootful=True)
+    install(
+        admin_name="Admin",
+        admin_email="admin@example.com",
+        admin_password="Sup3r$ecret!",
+        **_WORKSPACE_ADMIN_ARGS,
+        allow_rootful=True,
+    )
 
     assert mock_get_socket.call_args == mock.call(allow_rootful=True)
     assert mock_infra_config.call_args.kwargs["allow_rootful"] is True
@@ -2366,7 +2804,7 @@ def test_install_warns_about_plaintext_secrets_exactly_once(
     plaintext_warnings = [call for call in mock_echo.warning.call_args_list if "plain text" in call.args[0]]
     assert len(plaintext_warnings) == 1
     assert plaintext_warnings[0] == mock.call(PLAINTEXT_WARNING)
-    assert "infra/server installation configuration" in plaintext_warnings[0].args[0]
+    assert "infra/server/workspace installation configuration" in plaintext_warnings[0].args[0]
     assert mock_save_state.call_count > 1
 
 
@@ -2400,7 +2838,7 @@ def test_install_resumed_create_admin_step_succeeds_and_continues(
     """create_admin is idempotent (see server/utils/users.py) - a resumed run whose admin already
     existed from before the interruption must succeed, not abort."""
     completed_through_server_start = _step_ids_through("server_start")
-    mock_load_state.return_value = SuiteInstallState(completed_steps=completed_through_server_start)
+    mock_load_state.return_value = SuiteInstallState(**_SAVED_WORKSPACE, completed_steps=completed_through_server_start)
     mock_server_post_start_action.return_value = None  # idempotent no-op, not an error
     mock_get_token_from_login.return_value = "token"
     mock_create_workspace.return_value = _make_workspace()
@@ -4331,7 +4769,7 @@ def test_install_non_interactive_prints_vram_estimate_without_extra_prompt(
     mock_create_workspace.return_value = _make_workspace()
     state.non_interactive = True
 
-    install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
+    install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", **_WORKSPACE_ADMIN_ARGS)
 
     assert mock_vram_echo.info.call_count == 1
     assert mock_echo.confirm.call_count == 0
@@ -4497,3 +4935,712 @@ def test_install_resume_does_not_validate_images_of_completed_config_steps(
     install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", resume=True)
 
     assert mock_resolve_install_image.call_count == 0
+
+
+def _answer_address(passed: dict[str, str | None], existing: object, port: int) -> str:
+    """Stand in for `resolve_public_url()`: the given address, else the one 'typed in'."""
+    address = passed.get("PUBLIC_URL") or "https://asked.example.com"
+    passed["PUBLIC_URL"] = address
+    return address
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+@mock.patch("deepfellow.suite.utils.install.apply_https_settings")
+@mock.patch("deepfellow.suite.utils.install.resolve_public_url", side_effect=_answer_address)
+@mock.patch("deepfellow.suite.utils.install.confirm_overwrite")
+def test_workspace_config_returns_address_answers(
+    mock_confirm_overwrite: Mock,
+    mock_resolve_public_url: Mock,
+    mock_apply_https_settings: Mock,
+    mock_echo: Mock,
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "workspace"
+
+    result = _workspace_config(
+        _workspace_apply(directory, port=3100, docker_network="net"),
+        None,
+        None,
+        None,
+        False,
+        "W",
+        "w@example.com",
+        "Wk3y$ecret!",
+        "Sup3r$ecret!",
+        _GRANTED_MODELS,
+    )
+
+    assert result == {"PUBLIC_URL": "https://asked.example.com", **_WORKSPACE_ADMIN_ENV}
+    assert mock_confirm_overwrite.call_count == 0
+    assert mock_resolve_public_url.call_args.args[2] == 3100
+    assert mock_apply_https_settings.call_args == mock.call(
+        {"PUBLIC_URL": "https://asked.example.com"}, {}, "https://asked.example.com"
+    )
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+@mock.patch("deepfellow.suite.utils.install.apply_https_settings")
+@mock.patch("deepfellow.suite.utils.install.resolve_public_url", side_effect=_answer_address)
+def test_workspace_config_passes_given_values_on_and_keeps_answers_for_resume(
+    mock_resolve_public_url: Mock, mock_apply_https_settings: Mock, mock_echo: Mock, tmp_path: Path
+) -> None:
+    def answer_origins(passed: dict[str, str | None], existing: object, address: str) -> None:
+        passed.setdefault("TRUSTED_ORIGINS", None)  # an empty answer to the question
+
+    mock_apply_https_settings.side_effect = answer_origins
+
+    result = _workspace_config(
+        _workspace_apply(tmp_path / "w", port=None, docker_network="net"),
+        "https://given.example.com",
+        False,
+        None,
+        False,
+        "W",
+        "w@example.com",
+        "Wk3y$ecret!",
+        "Sup3r$ecret!",
+        _GRANTED_MODELS,
+    )
+
+    assert mock_resolve_public_url.call_args.args[0]["TRUSTED_PROXY_ENABLED"] == "false"
+    # The empty answer is kept (as "", not dropped), so the install step does not ask again.
+    assert result == {
+        "PUBLIC_URL": "https://given.example.com",
+        "TRUSTED_PROXY_ENABLED": "false",
+        "TRUSTED_ORIGINS": "",
+        **_WORKSPACE_ADMIN_ENV,
+    }
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+@mock.patch("deepfellow.suite.utils.install.insecure_context_warning", return_value="blocked in browsers")
+@mock.patch("deepfellow.suite.utils.install.apply_https_settings")
+@mock.patch("deepfellow.suite.utils.install.resolve_public_url", return_value="http://example.com:3000")
+def test_workspace_config_warns_about_insecure_address(
+    mock_resolve_public_url: Mock,
+    mock_apply_https_settings: Mock,
+    mock_insecure_context_warning: Mock,
+    mock_echo: Mock,
+    tmp_path: Path,
+) -> None:
+    _workspace_config(
+        _workspace_apply(tmp_path / "w", port=None, docker_network="net"),
+        None,
+        None,
+        None,
+        False,
+        "W",
+        "w@example.com",
+        "Wk3y$ecret!",
+        "Sup3r$ecret!",
+        _GRANTED_MODELS,
+    )
+
+    assert mock_echo.warning.call_args == mock.call("blocked in browsers")
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+@mock.patch("deepfellow.suite.utils.install.resolve_public_url", return_value="http://localhost:3000")
+@mock.patch("deepfellow.suite.utils.install.confirm_overwrite", return_value=False)
+def test_workspace_config_exits_when_reinstall_over_existing_directory_is_declined(
+    mock_confirm_overwrite: Mock, mock_resolve_public_url: Mock, mock_echo: Mock, tmp_path: Path
+) -> None:
+    with pytest.raises(typer.Exit):
+        _workspace_config(
+            _workspace_apply(tmp_path, port=None, docker_network="net"),
+            None,
+            None,
+            None,
+            False,
+            "W",
+            "w@example.com",
+            "Wk3y$ecret!",
+            "Sup3r$ecret!",
+            _GRANTED_MODELS,
+        )
+
+    assert mock_confirm_overwrite.call_args == mock.call(tmp_path)
+    # Declined before anything else is asked.
+    assert mock_resolve_public_url.call_count == 0
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+@mock.patch("deepfellow.suite.utils.install.apply_https_settings")
+@mock.patch("deepfellow.suite.utils.install.resolve_public_url", return_value="http://localhost:3000")
+@mock.patch("deepfellow.suite.utils.install.confirm_overwrite")
+def test_workspace_config_does_not_ask_about_existing_directory_with_force_install(
+    mock_confirm_overwrite: Mock,
+    mock_resolve_public_url: Mock,
+    mock_apply_https_settings: Mock,
+    mock_echo: Mock,
+    tmp_path: Path,
+) -> None:
+    _workspace_config(
+        _workspace_apply(tmp_path, port=None, docker_network="net"),
+        None,
+        None,
+        None,
+        True,
+        "W",
+        "w@example.com",
+        "Wk3y$ecret!",
+        "Sup3r$ecret!",
+        _GRANTED_MODELS,
+    )
+
+    assert mock_confirm_overwrite.call_count == 0
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+@mock.patch("deepfellow.suite.utils.install.apply_https_settings")
+@mock.patch("deepfellow.suite.utils.install.resolve_public_url", return_value="http://localhost:4000")
+def test_workspace_config_uses_port_of_existing_installation_for_default_address(
+    mock_resolve_public_url: Mock, mock_apply_https_settings: Mock, mock_echo: Mock, tmp_path: Path
+) -> None:
+    (tmp_path / ".env").write_text("DF_WORKSPACE_PORT=4000\n")
+
+    _workspace_config(
+        _workspace_apply(tmp_path, port=None, docker_network="net"),
+        None,
+        None,
+        None,
+        True,
+        "W",
+        "w@example.com",
+        "Wk3y$ecret!",
+        "Sup3r$ecret!",
+        _GRANTED_MODELS,
+    )
+
+    assert mock_resolve_public_url.call_args.args[2] == 4000
+    assert mock_resolve_public_url.call_args.args[1]["DF_WORKSPACE_PORT"] == "4000"
+
+
+def test_workspace_config_on_skip_returns_persisted_answers(tmp_path: Path) -> None:
+    persisted = {"PUBLIC_URL": "https://persisted.example.com", **_WORKSPACE_ADMIN_ENV}
+    install_state = SuiteInstallState(workspace_config=persisted, workspace_apply=asdict(_workspace_apply(tmp_path)))
+
+    result = _workspace_config_on_skip(install_state, set(), None, "Sup3r$ecret!")
+
+    assert result == persisted
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+def test_workspace_config_on_skip_warns_when_address_flag_is_ignored(mock_echo: Mock, tmp_path: Path) -> None:
+    install_state = SuiteInstallState(
+        workspace_config={"PUBLIC_URL": "https://persisted.example.com", **_WORKSPACE_ADMIN_ENV},
+        workspace_apply=asdict(_workspace_apply(tmp_path)),
+    )
+
+    _workspace_config_on_skip(install_state, {"workspace_public_url", "workspace_port"}, None, "Sup3r$ecret!")
+
+    warning = mock_echo.warning.call_args.args[0]
+    assert "--workspace-public-url" in warning
+    assert "--workspace-port" in warning
+
+
+@pytest.mark.parametrize(
+    "saved",
+    [
+        None,
+        ["PUBLIC_URL"],
+        {"PUBLIC_URL": "https://persisted.example.com"},
+        {"PUBLIC_URL": 3000, **_WORKSPACE_ADMIN_ENV},
+        {"PUBLIC_URL": "https://persisted.example.com", **_WORKSPACE_ADMIN_ENV, "BOOTSTRAP_ADMIN_NAME": ""},
+    ],
+)
+def test_workspace_config_on_skip_rejects_saved_answers_that_are_corrupted_or_without_admin(saved: object) -> None:
+    install_state = SuiteInstallState(workspace_config=saved)  # type: ignore[arg-type]
+
+    with pytest.raises(InstallError, match="invalid or corrupted"):
+        _workspace_config_on_skip(install_state, set(), None, "Sup3r$ecret!")
+
+
+def test_workspace_config_step_comes_after_server_configuration_and_before_any_install() -> None:
+    step_ids = [step_id for step_id, _ in STEPS]
+
+    assert step_ids.index(STEP_WORKSPACE_CONFIG) == step_ids.index(STEP_SERVER_CONFIG) + 1
+    assert step_ids.index(STEP_WORKSPACE_CONFIG) < step_ids.index("infra_install")
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+def test_resolve_workspace_admin_returns_given_values(mock_echo: Mock) -> None:
+    result = _resolve_workspace_admin("W", "w@example.com", "Wk3y$ecret!", "Sup3r$ecret!")
+
+    assert result == _WORKSPACE_ADMIN_ENV
+    assert mock_echo.prompt_until_valid.call_count == 0
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+def test_resolve_workspace_admin_allows_email_equal_to_server_admin_email(mock_echo: Mock) -> None:
+    result = _resolve_workspace_admin("W", "admin@example.com", "Wk3y$ecret!", "Sup3r$ecret!")
+
+    assert result["BOOTSTRAP_ADMIN_EMAIL"] == "admin@example.com"
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+def test_resolve_workspace_admin_fails_when_password_equals_server_admin_password_after_trim(mock_echo: Mock) -> None:
+    with pytest.raises(InstallError, match="different password"):
+        _resolve_workspace_admin("W", "w@example.com", "Sup3r$ecret! ", "Sup3r$ecret!")
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+def test_resolve_workspace_admin_fails_when_password_equals_server_admin_password(mock_echo: Mock) -> None:
+    with pytest.raises(InstallError, match="different password"):
+        _resolve_workspace_admin("W", "w@example.com", "Sup3r$ecret!", "Sup3r$ecret!")
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+@mock.patch("deepfellow.suite.utils.install.is_interactive", return_value=False)
+def test_resolve_workspace_admin_fails_in_non_interactive_mode_when_values_missing(
+    mock_is_interactive: Mock, mock_echo: Mock
+) -> None:
+    with pytest.raises(InstallError, match="--workspace-admin-email, --workspace-admin-password"):
+        _resolve_workspace_admin("W", None, None, "Sup3r$ecret!")
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+@mock.patch("deepfellow.suite.utils.install.is_interactive", return_value=True)
+def test_resolve_workspace_admin_prompts_for_missing_values(mock_is_interactive: Mock, mock_echo: Mock) -> None:
+    mock_echo.prompt_until_valid.side_effect = ["W", "w@example.com", "Wk3y$ecret!"]
+
+    result = _resolve_workspace_admin(None, None, None, "Sup3r$ecret!")
+
+    assert result == _WORKSPACE_ADMIN_ENV
+    assert mock_echo.prompt_until_valid.call_count == 3
+
+
+@mock.patch("deepfellow.suite.utils.install._workspace_install")
+@mock.patch("deepfellow.suite.utils.install._workspace_config", return_value={"PUBLIC_URL": "http://localhost:3000"})
+@_patch_all_steps
+def test_install_joins_workspace_to_the_docker_network_server_settled_on(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_workspace_config: Mock,
+    mock_workspace_install: Mock,
+) -> None:
+    # An earlier install's network wins over --docker-network, so Server's resolved config is the source of truth.
+    mock_server_config.return_value = Mock(docker_network="settled-net")
+    mock_load_state.return_value = None
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = _make_workspace()
+
+    install(
+        admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", docker_network="flag-net"
+    )
+
+    assert mock_workspace_config.call_args.args[0].docker_network == "settled-net"
+    assert mock_workspace_install.call_args.args[3].docker_network == "settled-net"
+
+
+@mock.patch("deepfellow.suite.utils.install._workspace_install")
+@_patch_all_steps
+def test_install_resume_installs_workspace_into_saved_directory_not_the_one_of_the_flags(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_workspace_install: Mock,
+    tmp_path: Path,
+) -> None:
+    mock_install_directory_intact.side_effect = lambda directory: directory != tmp_path
+    mock_load_state.return_value = SuiteInstallState(
+        completed_steps=[step_id for step_id, _ in STEPS if step_id != STEP_WORKSPACE_INSTALL],
+        workspace=_workspace_to_dict(_make_workspace()),
+        workspace_config={"PUBLIC_URL": "http://localhost:3100", **_WORKSPACE_ADMIN_ENV},
+        workspace_apply=asdict(_workspace_apply(tmp_path, port=3100)),
+    )
+    mock_get_token_from_login.return_value = "token"
+
+    install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", resume=True)
+
+    assert mock_workspace_install.call_count == 1
+    assert mock_workspace_install.call_args.args[3].directory == str(tmp_path)
+
+
+@mock.patch("deepfellow.suite.utils.install._workspace_install")
+@_patch_all_steps
+def test_install_resume_warns_that_workspace_flags_are_ignored(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_workspace_install: Mock,
+    tmp_path: Path,
+) -> None:
+    mock_load_state.return_value = SuiteInstallState(
+        completed_steps=[step_id for step_id, _ in STEPS if step_id != STEP_WORKSPACE_INSTALL],
+        workspace=_workspace_to_dict(_make_workspace()),
+        workspace_config={"PUBLIC_URL": "http://localhost:3100", **_WORKSPACE_ADMIN_ENV},
+        workspace_apply=asdict(_workspace_apply(tmp_path, port=3100)),
+    )
+    mock_get_token_from_login.return_value = "token"
+
+    install(
+        admin_name="Admin",
+        admin_email="admin@example.com",
+        admin_password="Sup3r$ecret!",
+        resume=True,
+        workspace_port=3200,
+        explicitly_provided={"workspace_port"},
+    )
+
+    assert mock_workspace_install.call_args.args[3].port == 3100
+    assert any("--workspace-port" in str(call) for call in mock_echo.warning.call_args_list)
+
+
+def test_validate_workspace_apply_accepts_default_settings(tmp_path: Path) -> None:
+    _validate_workspace_apply(_workspace_apply(tmp_path), _WORKSPACE_ADMIN_ENV, _GRANTED_MODELS)
+
+
+def test_validate_workspace_apply_rejects_small_model_that_is_not_granted(tmp_path: Path) -> None:
+    with pytest.raises(InstallError, match="--workspace-small-model typo-model is not one of the models granted"):
+        _validate_workspace_apply(_workspace_apply(tmp_path, small_model="typo-model"), {}, _GRANTED_MODELS)
+
+
+def test_validate_workspace_apply_rejects_database_name_without_external_mongodb(tmp_path: Path) -> None:
+    apply = _workspace_apply(tmp_path, overrides={**_NO_OVERRIDES, "MONGO_DB_NAME": "db"})
+
+    with pytest.raises(InstallError, match="external MongoDB only"):
+        _validate_workspace_apply(apply, {}, _GRANTED_MODELS)
+
+
+def test_validate_workspace_apply_rejects_partly_given_smtp_settings(tmp_path: Path) -> None:
+    apply = _workspace_apply(tmp_path, overrides={**_NO_OVERRIDES, "SMTP_HOST": "smtp.example.com"})
+
+    with pytest.raises(InstallError, match="must be given together"):
+        _validate_workspace_apply(apply, _WORKSPACE_ADMIN_ENV, _GRANTED_MODELS)
+
+
+def test_validate_workspace_apply_accepts_smtp_flag_completing_group_of_existing_installation(tmp_path: Path) -> None:
+    (tmp_path / ".env").write_text("SMTP_USERNAME=u\nSMTP_PASSWORD=p\nEMAIL_FROM_ADDRESS=a@example.com\n")
+    apply = _workspace_apply(tmp_path, overrides={**_NO_OVERRIDES, "SMTP_HOST": "smtp.example.com"})
+
+    _validate_workspace_apply(apply, _WORKSPACE_ADMIN_ENV, _GRANTED_MODELS)
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+@mock.patch("deepfellow.suite.utils.install.apply_https_settings")
+@mock.patch("deepfellow.suite.utils.install.resolve_public_url", return_value="http://localhost:3000")
+def test_workspace_config_fails_on_invalid_settings_before_anything_is_installed(
+    mock_resolve_public_url: Mock, mock_apply_https_settings: Mock, mock_echo: Mock, tmp_path: Path
+) -> None:
+    with pytest.raises(InstallError, match="external MongoDB only"):
+        _workspace_config(
+            _workspace_apply(tmp_path, overrides={**_NO_OVERRIDES, "MONGO_DB_NAME": "db"}),
+            None,
+            None,
+            None,
+            True,
+            "W",
+            "w@example.com",
+            "Wk3y$ecret!",
+            "Sup3r$ecret!",
+            _GRANTED_MODELS,
+        )
+
+
+@mock.patch("deepfellow.suite.utils.install.save_state")
+@mock.patch("deepfellow.suite.utils.install.echo")
+def test_workspace_config_on_skip_asks_again_when_server_admin_password_became_the_workspace_one(
+    mock_echo: Mock, mock_save_state: Mock, tmp_path: Path
+) -> None:
+    install_state = SuiteInstallState(
+        workspace_config={"PUBLIC_URL": "https://persisted.example.com", **_WORKSPACE_ADMIN_ENV},
+        workspace_apply=asdict(_workspace_apply(tmp_path)),
+    )
+
+    result = _workspace_config_on_skip(install_state, set(), "N3w$ecretPass!", "Wk3y$ecret!")
+
+    assert result["BOOTSTRAP_ADMIN_PASSWORD"] == "N3w$ecretPass!"
+    assert result["BOOTSTRAP_ADMIN_NAME"] == "W"
+    assert install_state.workspace_config == result
+    assert mock_save_state.call_count == 1
+
+
+@mock.patch("deepfellow.suite.utils.install._workspace_install")
+@_patch_all_steps
+def test_install_resume_with_corrupted_saved_workspace_settings_fails_cleanly(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+    mock_workspace_install: Mock,
+) -> None:
+    mock_load_state.return_value = SuiteInstallState(
+        completed_steps=[step_id for step_id, _ in STEPS if step_id != STEP_WORKSPACE_INSTALL],
+        workspace=_workspace_to_dict(_make_workspace()),
+        workspace_config={"PUBLIC_URL": "http://localhost:3100", **_WORKSPACE_ADMIN_ENV},
+        workspace_apply={"unexpected": 1},
+    )
+    mock_get_token_from_login.return_value = "token"
+
+    with pytest.raises(InstallError, match="saved Workspace settings are invalid or corrupted"):
+        install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", resume=True)
+
+    assert mock_workspace_install.call_count == 0
+
+
+@mock.patch("deepfellow.suite.utils.install.echo")
+def test_workspace_config_on_skip_does_not_warn_about_workspace_admin_password_flag_it_used(
+    mock_echo: Mock, tmp_path: Path
+) -> None:
+    install_state = SuiteInstallState(
+        workspace_config={"PUBLIC_URL": "https://persisted.example.com", **_WORKSPACE_ADMIN_ENV},
+        workspace_apply=asdict(_workspace_apply(tmp_path)),
+    )
+
+    with mock.patch("deepfellow.suite.utils.install.save_state"):
+        _workspace_config_on_skip(install_state, {"workspace_admin_password"}, "N3w$ecretPass!", "Wk3y$ecret!")
+
+    assert not any("ignored" in str(call) for call in mock_echo.warning.call_args_list)
+
+
+@_patch_all_steps
+def test_install_non_interactive_fails_before_any_step_without_workspace_admin(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+) -> None:
+    mock_load_state.return_value = None
+    state.non_interactive = True
+
+    with pytest.raises(InstallError, match="--workspace-admin-name, --workspace-admin-email"):
+        install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
+
+    assert mock_infra_config.call_count == 0
+    assert mock_save_state.call_count == 0
+
+
+@_patch_all_steps
+def test_install_fails_before_any_step_when_workspace_admin_password_is_the_server_admin_one(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+) -> None:
+    mock_load_state.return_value = None
+    state.non_interactive = True
+
+    with pytest.raises(InstallError, match="different password"):
+        install(
+            admin_name="Admin",
+            admin_email="admin@example.com",
+            admin_password="Sup3r$ecret!",
+            **{**_WORKSPACE_ADMIN_ARGS, "workspace_admin_password": "Sup3r$ecret!"},
+        )
+
+    assert mock_infra_config.call_count == 0
+
+
+@_patch_all_steps
+def test_install_does_not_ask_for_workspace_admin_again_once_its_configuration_is_saved(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+) -> None:
+    mock_load_state.return_value = SuiteInstallState(
+        **_SAVED_WORKSPACE, completed_steps=["infra_config", "server_config", "workspace_config"]
+    )
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = _make_workspace()
+    state.non_interactive = True
+
+    install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", resume=True)
+
+    assert mock_delete_state.call_count == 1
+
+
+@_patch_all_steps
+def test_install_saves_workspace_configuration_in_state_after_its_step(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+) -> None:
+    mock_load_state.return_value = None
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = _make_workspace()
+    answers = {"PUBLIC_URL": "https://workspace.example.com", **_WORKSPACE_ADMIN_ENV}
+    snapshots: list[tuple[list[str], dict[str, str] | None, dict | None]] = []
+    mock_save_state.side_effect = lambda st: snapshots.append(
+        (list(st.completed_steps), st.workspace_config, st.workspace_apply)
+    )
+
+    with mock.patch("deepfellow.suite.utils.install._workspace_config", return_value=answers):
+        install(
+            admin_name="Admin",
+            admin_email="admin@example.com",
+            admin_password="Sup3r$ecret!",
+            workspace_port=3100,
+            **_WORKSPACE_ADMIN_ARGS,
+        )
+
+    saved = [snapshot for snapshot in snapshots if "workspace_config" in snapshot[0]]
+    assert saved
+    assert all(config == answers for _, config, _ in saved)
+    assert all(apply is not None and apply["port"] == 3100 for _, _, apply in saved)

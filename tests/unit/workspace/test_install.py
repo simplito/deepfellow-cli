@@ -11,8 +11,15 @@ import pytest
 import typer
 
 from deepfellow.common.exceptions import InstallError
-from deepfellow.workspace.install import _not_empty, install
+from deepfellow.workspace.install import _not_empty, install, install_workspace
 
+_REQUIRED_KEYS = (
+    "DF_SERVER_URL",
+    "DF_SERVER_API_KEY",
+    "DF_SERVER_ORGANIZATION_ID",
+    "DF_SERVER_PROJECT_ID",
+    "SMALL_MODEL",
+)
 _OPTIONAL_FLAGS = (
     "admin_name",
     "admin_email",
@@ -68,6 +75,7 @@ def _call(directory: Path, **overrides: Any) -> None:
     kwargs: dict[str, Any] = {
         "directory": directory,
         "image": "img:1",
+        "local_image": None,
         "port": 3000,
         "bind_address": "",
         "docker_network": "net",
@@ -129,6 +137,8 @@ def test_install_passes_values_to_util_and_reports_stored_url(
         "force_install": False,
         "overwrite": True,
         "reset": (),
+        "local_image": False,
+        "retry_hint": "run 'workspace install --force-install' again (secrets are kept)",
     }
     assert mock_echo.success.call_args == mock.call("DeepFellow Workspace installed. Open it at http://localhost:3000.")
 
@@ -1187,3 +1197,30 @@ def test_install_skips_webhook_setup_with_no_server_webhook(
 
     assert mock_configure_webhook.call_count == 0
     assert mock_util.call_count == 1
+
+
+@mock.patch("deepfellow.workspace.install.prompt_optional_settings")
+@mock.patch("deepfellow.workspace.install.configure_webhook")
+@mock.patch("deepfellow.workspace.install.install_util", return_value={"PUBLIC_URL": "http://localhost:3000"})
+@mock.patch("deepfellow.workspace.install.assert_docker")
+def test_install_workspace_skips_optional_questions_and_forwards_cli_server_url(
+    mock_assert_docker: Mock,
+    mock_install_util: Mock,
+    mock_configure_webhook: Mock,
+    mock_prompt_optional: Mock,
+    tmp_path: Path,
+) -> None:
+    passed: dict[str, str | None] = dict.fromkeys(_REQUIRED_KEYS, "value")
+    passed["PUBLIC_URL"] = "https://ws.example.com"
+
+    env = install_workspace(
+        passed,
+        directory=tmp_path / "workspace",
+        ask_optional_settings=False,
+        cli_server_url="http://localhost:8000",
+    )
+
+    assert env == {"PUBLIC_URL": "http://localhost:3000"}
+    assert mock_prompt_optional.call_count == 0
+    assert mock_configure_webhook.call_args == mock.call(passed, {}, "https://ws.example.com", "http://localhost:8000")
+    assert mock_install_util.call_count == 1
