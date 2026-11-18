@@ -3,6 +3,7 @@
 
 """Install suite core logic."""
 
+import json
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import asdict, dataclass
 from functools import partial
@@ -190,6 +191,35 @@ STEP_GRANT_MODEL_ACCESS = "grant_model_access"
 
 # Never granted to the project: Server reaches them only through Doc Chunker (see STEP_GRANT_MODEL_ACCESS).
 _DOC_CHUNKER_ONLY_MODELS = frozenset({DOC_CHUNKER_STT_MODEL})
+
+# GLiNER extracts entities for the Knowledge Graph. Its image is large (~10 GB), so it's only installed
+# when the graph is enabled. An empty spec skips the prompts: Infra picks GPU or CPU and the default
+# `gliner` prefix, which is the server's default DF_GRAPH__ENTITY_EXTRACTOR_PREFIX.
+_GLINER_POST_START_ACTION: PostStartAction = {
+    "function": "infra.model.install",
+    "kwargs": {"service_name": "custom", "model_name": "gliner", "spec": json.dumps({})},
+}
+
+
+def _with_knowledge_graph_actions(
+    infra_post_start_actions: list[PostStartAction], server_config: ServerInstallConfig
+) -> list[PostStartAction]:
+    """Append the GLiNER install to the infra post-start actions when the Knowledge Graph is enabled.
+
+    Appended last, so the index-based step ids of the template's own actions stay the same on
+    `--resume`. The decision comes from the resolved (or persisted) server configuration, so a resumed
+    run makes the same one.
+
+    Args:
+        infra_post_start_actions: The resolved infra template's post-start actions.
+        server_config: The resolved server configuration.
+
+    Returns:
+        The actions, with the GLiNER install appended when the Knowledge Graph is enabled.
+    """
+    if server_config.falkordb.envs.get("DF_GRAPH__ENABLED") != "true":
+        return infra_post_start_actions
+    return [*infra_post_start_actions, _GLINER_POST_START_ACTION]
 
 
 def _infra_post_start_action_step_id(index: int) -> str:
@@ -1680,6 +1710,12 @@ def install(
         on_success=lambda cfg: setattr(install_state, "server_config", _server_config_to_dict(cfg)),
         on_skip=partial(_server_config_on_skip, install_state, explicitly_provided),
     )
+
+    # Only known now: whether the Knowledge Graph is enabled is part of the server configuration.
+    infra_post_start_actions = _with_knowledge_graph_actions(infra_post_start_actions, server_config)
+    steps = _build_steps(infra_post_start_actions, server_post_start_actions)
+    run_step = partial(_run_step, install_state, steps)
+
     # Derived from the resolved post-start actions the install steps run, so the two can never drift apart; also
     # known up front, to check Workspace's small model against.
     granted_models = [

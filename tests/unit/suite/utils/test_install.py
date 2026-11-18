@@ -56,6 +56,7 @@ from deepfellow.suite.utils.install import (
     _server_config_to_dict,
     _validate_template,
     _validate_workspace_apply,
+    _with_knowledge_graph_actions,
     _workspace_config,
     _workspace_config_on_skip,
     _workspace_install,
@@ -87,6 +88,13 @@ _SERVER_SUITE_POST_START_ACTIONS: list[PostStartAction] = SERVER_BUILTIN_TEMPLAT
 # so every existing STEPS/TOTAL_STEPS usage below needs no further change.
 STEPS = _build_steps(_SUITE_POST_START_ACTIONS, _SERVER_SUITE_POST_START_ACTIONS)
 TOTAL_STEPS = len(STEPS)
+# The resolved server configuration every test gets by default: the Knowledge Graph is off, so the
+# step list is exactly the template's. Its Docker network is the one Server is on, which Workspace joins.
+SERVER_CONFIG = Mock(
+    name="server_config",
+    falkordb=FalkorDBConfig(envs={"DF_GRAPH__ENABLED": "false"}, docker_compose={}),
+    docker_network=DF_INFRA_DOCKER_NETWORK,
+)
 _WORKSPACE_ADMIN_ENV = {
     "BOOTSTRAP_ADMIN_NAME": "W",
     "BOOTSTRAP_ADMIN_EMAIL": "w@example.com",
@@ -106,8 +114,6 @@ def _step_ids_through(last_step_id: str) -> list[str]:
 
 
 DOCKER_SOCKET = "/var/run/docker.sock"
-# The Docker network the resolved Server config says Server is on, which Workspace joins.
-mock.sentinel.server_config.docker_network = DF_INFRA_DOCKER_NETWORK
 # Models the Workspace project is granted by the "suite" template.
 _GRANTED_MODELS = ["gemma4:e4b", "mxbai-embed-large"]
 _NO_OVERRIDES: dict[str, str | None] = {
@@ -156,8 +162,8 @@ def _infra_install_apply_call() -> mock._Call:
 
 
 def _server_install_apply_call() -> mock._Call:
-    """See `_infra_install_apply_call()` - server's counterpart, pinned to `mock.sentinel.server_config`."""
-    return mock.call(mock.sentinel.server_config)
+    """See `_infra_install_apply_call()` - server's counterpart, pinned to `SERVER_CONFIG`."""
+    return mock.call(SERVER_CONFIG)
 
 
 def _make_infra_config(**overrides: object) -> InfraInstallConfig:
@@ -268,7 +274,7 @@ def _patch_all_steps(func: Callable[..., None]) -> Callable[..., None]:
     and `_install_directory_intact` default to `return_value=True` ("still there") so every test not
     specifically exercising the live-state fix keeps today's "skip a step already in completed_steps"
     behavior unchanged. `_infra_config`/`_infra_config_from_dict` both default to returning the same
-    `mock.sentinel.infra_config` (and the server pair to `mock.sentinel.server_config`) so a test
+    `mock.sentinel.infra_config` (and the server pair to `SERVER_CONFIG`) so a test
     doesn't need to care whether the config step ran fresh or was skipped-and-reconstructed this run -
     either way, `_infra_install_apply`/`_server_install_apply` see the same, predictable value. The
     `_to_dict` pair defaults to an empty dict, since round-tripping through them isn't what these
@@ -287,10 +293,8 @@ def _patch_all_steps(func: Callable[..., None]) -> Callable[..., None]:
     # wrapped = innermost decorator = first parameter), and a loop over a reordered tuple is an
     # easy way to silently break that pairing.
     func = mock.patch("deepfellow.suite.utils.install._server_config_to_dict", return_value={})(func)
-    func = mock.patch(
-        "deepfellow.suite.utils.install._server_config_from_dict", return_value=mock.sentinel.server_config
-    )(func)
-    func = mock.patch("deepfellow.suite.utils.install._server_config", return_value=mock.sentinel.server_config)(func)
+    func = mock.patch("deepfellow.suite.utils.install._server_config_from_dict", return_value=SERVER_CONFIG)(func)
+    func = mock.patch("deepfellow.suite.utils.install._server_config", return_value=SERVER_CONFIG)(func)
     func = mock.patch("deepfellow.suite.utils.install._infra_config_to_dict", return_value={})(func)
     func = mock.patch(
         "deepfellow.suite.utils.install._infra_config_from_dict", return_value=mock.sentinel.infra_config
@@ -438,10 +442,11 @@ def test_install_config_steps_run_before_any_apply_step(
     mock_create_workspace.return_value = _make_workspace()
     call_order: list[str] = []
 
-    def record(name: str) -> Callable[..., object]:
-        def side_effect(*args: object, **kwargs: object) -> object:
+    def record(name: str, result: Any) -> Callable[..., Any]:
+        # Still returns the patched config: install() reads the resolved server config right away.
+        def side_effect(*args: Any, **kwargs: Any) -> Any:
             call_order.append(name)
-            return mock.sentinel.server_config
+            return result
 
         return side_effect
 
@@ -451,7 +456,7 @@ def test_install_config_steps_run_before_any_apply_step(
         ("infra_install_apply", mock_infra_install_apply),
         ("server_install_apply", mock_server_install_apply),
     ):
-        m.side_effect = record(name)
+        m.side_effect = record(name, m.return_value)
 
     install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
 
@@ -4935,6 +4940,160 @@ def test_install_resume_does_not_validate_images_of_completed_config_steps(
     install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", resume=True)
 
     assert mock_resolve_install_image.call_count == 0
+
+
+GRAPH_SERVER_CONFIG = Mock(
+    name="graph_server_config",
+    falkordb=FalkorDBConfig(envs={"DF_GRAPH__ENABLED": "true"}, docker_compose={}),
+    docker_network=DF_INFRA_DOCKER_NETWORK,
+)
+GLINER_ACTION: PostStartAction = {
+    "function": "infra.model.install",
+    "kwargs": {"service_name": "custom", "model_name": "gliner", "spec": "{}"},
+}
+
+
+def test_with_knowledge_graph_actions_appends_gliner_last_when_graph_enabled() -> None:
+    result = _with_knowledge_graph_actions(_SUITE_POST_START_ACTIONS, GRAPH_SERVER_CONFIG)
+
+    assert result == [*_SUITE_POST_START_ACTIONS, GLINER_ACTION]
+
+
+def test_with_knowledge_graph_actions_returns_actions_unchanged_when_graph_disabled() -> None:
+    result = _with_knowledge_graph_actions(_SUITE_POST_START_ACTIONS, SERVER_CONFIG)
+
+    assert result == _SUITE_POST_START_ACTIONS
+
+
+@_patch_all_steps
+def test_install_installs_gliner_when_knowledge_graph_enabled(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+) -> None:
+    mock_server_config.return_value = GRAPH_SERVER_CONFIG
+    mock_load_state.return_value = None
+    mock_get_token_from_login.return_value = "token"
+    workspace = _make_workspace()
+    mock_create_workspace.return_value = workspace
+    graph_actions = [*_SUITE_POST_START_ACTIONS, GLINER_ACTION]
+    graph_steps = _build_steps(graph_actions, _SERVER_SUITE_POST_START_ACTIONS)
+
+    install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
+
+    assert mock_infra_post_start_action.call_args_list == [
+        mock.call(action, DF_INFRA_DIRECTORY, False) for action in graph_actions
+    ]
+    assert mock_save_state.call_args.args[0].completed_steps == [step_id for step_id, _ in graph_steps]
+    # GLiNER is a "custom" service model: Server reaches it with its own Infra key, not through the project.
+    assert mock_update_project.call_args.args[4] == {"models": ["gemma4:e4b", "mxbai-embed-large"]}
+
+
+@_patch_all_steps
+def test_install_counts_gliner_in_step_total_from_workspace_config_on_when_knowledge_graph_enabled(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+) -> None:
+    mock_server_config.return_value = GRAPH_SERVER_CONFIG
+    mock_load_state.return_value = None
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = _make_workspace()
+    graph_steps = _build_steps([*_SUITE_POST_START_ACTIONS, GLINER_ACTION], _SERVER_SUITE_POST_START_ACTIONS)
+
+    install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!")
+
+    # The Knowledge Graph is only known once the server is configured, so the first two steps still count
+    # without GLiNER; every later one, starting with Workspace's questions, counts it.
+    assert mock_echo.info.call_args_list[:3] == [
+        mock.call(f"Step 1/{TOTAL_STEPS}: infra configuration..."),
+        mock.call(f"Step 2/{TOTAL_STEPS}: server configuration..."),
+        mock.call(f"Step 3/{len(graph_steps)}: workspace configuration..."),
+    ]
+
+
+@_patch_all_steps
+def test_install_resume_installs_gliner_when_persisted_server_config_has_graph_enabled(
+    mock_server_config_to_dict: Mock,
+    mock_server_config_from_dict: Mock,
+    mock_server_config: Mock,
+    mock_infra_config_to_dict: Mock,
+    mock_infra_config_from_dict: Mock,
+    mock_infra_config: Mock,
+    mock_install_directory_intact: Mock,
+    mock_is_service_running: Mock,
+    mock_assert_docker: Mock,
+    mock_load_state: Mock,
+    mock_save_state: Mock,
+    mock_delete_state: Mock,
+    mock_update_project: Mock,
+    mock_create_workspace: Mock,
+    mock_get_token_from_login: Mock,
+    mock_set_default_server_directory: Mock,
+    mock_server_post_start_action: Mock,
+    mock_server_start: Mock,
+    mock_server_install_apply: Mock,
+    mock_infra_post_start_action: Mock,
+    mock_infra_start: Mock,
+    mock_infra_install_apply: Mock,
+    mock_echo: Mock,
+    mock_env_get: Mock,
+) -> None:
+    mock_server_config_from_dict.return_value = GRAPH_SERVER_CONFIG
+    mock_load_state.return_value = SuiteInstallState(
+        completed_steps=["infra_config", "server_config", "infra_install", "infra_start"]
+    )
+    mock_get_token_from_login.return_value = "token"
+    mock_create_workspace.return_value = _make_workspace()
+
+    install(admin_name="Admin", admin_email="admin@example.com", admin_password="Sup3r$ecret!", resume=True)
+
+    assert mock_server_config.call_count == 0
+    assert mock_infra_post_start_action.call_args_list == [
+        mock.call(action, DF_INFRA_DIRECTORY, True) for action in [*_SUITE_POST_START_ACTIONS, GLINER_ACTION]
+    ]
 
 
 def _answer_address(passed: dict[str, str | None], existing: object, port: int) -> str:

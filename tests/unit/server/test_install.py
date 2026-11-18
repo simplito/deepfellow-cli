@@ -3566,6 +3566,10 @@ def test_apply_adds_default_falkordb_service_when_docker_compose_present(
     assert "DF_GRAPH__PORT=${DF_GRAPH__PORT}" in environment
     assert "DF_GRAPH__USERNAME=${DF_GRAPH__USERNAME}" in environment
     assert "DF_GRAPH__PASSWORD=${DF_GRAPH__PASSWORD}" in environment
+    assert "DF_GRAPH__LLM_MODEL=${DF_GRAPH__LLM_MODEL}" in environment
+    assert "DF_GRAPH__ONTOLOGY_DISCOVERY_LLM_MODEL=${DF_GRAPH__ONTOLOGY_DISCOVERY_LLM_MODEL}" in environment
+    assert "DF_GRAPH__EMBEDDING_MODEL=${DF_GRAPH__EMBEDDING_MODEL}" in environment
+    assert "DF_GRAPH__EMBEDDING_DIM=${DF_GRAPH__EMBEDDING_DIM}" in environment
 
 
 @mock.patch("deepfellow.server.utils.install.run")
@@ -5813,3 +5817,68 @@ def test_install_command_forwards_skip_version_check(mock_install_util, mock_set
     install_command(ctx=dummy_ctx(), **{**install_kwargs(tmp_path), "skip_version_check": True})
 
     assert mock_install_util.call_args.kwargs["skip_version_check"] is True
+
+
+@pytest.mark.parametrize(
+    ("vectordb_envs", "expected_model", "expected_size"),
+    [
+        (
+            {
+                "DF_VECTOR_DATABASE__PROVIDER__ACTIVE": "1",
+                "DF_VECTOR_DATABASE__EMBEDDING__MODEL": "vdb-embed",
+                "DF_VECTOR_DATABASE__EMBEDDING__SIZE": "768",
+            },
+            "vdb-embed",
+            "768",
+        ),
+        (
+            {"DF_VECTOR_DATABASE__PROVIDER__ACTIVE": "0"},
+            DEFAULT_VECTOR_DATABASE["embedding"]["model"],
+            DEFAULT_VECTOR_DATABASE["embedding"]["size"],
+        ),
+    ],
+    ids=["vector-db-embedding", "no-vector-db-default-embedding"],
+)
+@mock.patch("deepfellow.server.utils.install.configure_falkordb")
+@mock.patch("deepfellow.server.utils.install.configure_nightshift")
+@MOCK_CONFIGURE_OTEL
+@MOCK_CONFIGURE_VECTOR_DB
+@MOCK_CONFIGURE_INFRA
+@MOCK_CONFIGURE_MONGO
+@MOCK_ECHO
+def test_resolve_passes_vector_db_embedding_to_knowledge_graph(
+    mock_echo: Mock,
+    mock_configure_mongo: Mock,
+    mock_configure_infra: Mock,
+    mock_configure_vector_db: Mock,
+    mock_configure_otel: Mock,
+    mock_configure_nightshift: Mock,
+    mock_configure_falkordb: Mock,
+    vectordb_envs: dict[str, str],
+    expected_model: str,
+    expected_size: str,
+    tmp_path: Path,
+) -> None:
+    configure_install_mocks(
+        mock_echo, mock_configure_mongo, mock_configure_infra, mock_configure_vector_db, mock_configure_otel
+    )
+    mock_configure_vector_db.return_value = (False, vectordb_envs)
+    mock_configure_nightshift.return_value = NightshiftConfig(envs={}, docker_compose={})
+    mock_configure_falkordb.return_value = FalkorDBConfig(envs={"DF_GRAPH__ENABLED": "false"}, docker_compose={})
+    context = InstallContext(
+        resolved_template=None,
+        directory=tmp_path,
+        image="deepfellow/server:1.2.3",
+        original_env_content={},
+        log_level="INFO",
+        plugins_setup="{}",
+    )
+    kwargs = install_kwargs(tmp_path)
+    for key in ("directory", "force_install", "template", "admin_name", "admin_email", "admin_password"):
+        del kwargs[key]
+    del kwargs["image"]
+
+    resolve(context, **kwargs)
+
+    assert mock_configure_falkordb.call_count == 1
+    assert mock_configure_falkordb.call_args.args[4:6] == (expected_model, expected_size)
