@@ -816,8 +816,16 @@ def resolve(
 
     otel = configure_otel(directory, otel_url, original_env_content, otel_local)
 
+    # The Knowledge Graph embeds with the vector DB's embedding model (a dense one is asked for instead if it's
+    # sparse); without a vector DB, the CLI's default one.
     falkordb = configure_falkordb(
-        falkordb_active, falkordb_url, falkordb_username, falkordb_password, original_env_content
+        falkordb_active,
+        falkordb_url,
+        falkordb_username,
+        falkordb_password,
+        str(vectordb_envs.get("DF_VECTOR_DATABASE__EMBEDDING__MODEL", DEFAULT_VECTOR_DATABASE["embedding"]["model"])),
+        str(vectordb_envs.get("DF_VECTOR_DATABASE__EMBEDDING__SIZE", DEFAULT_VECTOR_DATABASE["embedding"]["size"])),
+        original_env_content,
     )
 
     nightshift = configure_nightshift(

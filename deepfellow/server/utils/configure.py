@@ -21,6 +21,10 @@ from deepfellow.common.defaults import (
     DEFAULT_VECTOR_DATABASE_TYPE,
     DF_FALKORDB_PORT,
     DF_FALKORDB_URL,
+    DF_GRAPH_EMBEDDING_DIM,
+    DF_GRAPH_EMBEDDING_MODEL,
+    DF_GRAPH_LLM_MODEL,
+    DF_GRAPH_ONTOLOGY_DISCOVERY_LLM_MODEL,
     DF_INFRA_URL,
     DF_MONGO_DB,
     DF_MONGO_PORT,
@@ -690,14 +694,105 @@ def _split_falkordb_host_port(value: str) -> tuple[str, str]:
     return host, port or str(DF_FALKORDB_PORT)
 
 
+def _configure_graph_embedding(
+    original_graph: dict[str, Any], embedding_model: str | int, embedding_size: str | int
+) -> tuple[str, str]:
+    """Pick the Knowledge Graph's embedding model and its size.
+
+    The graph embeds over Infra's OpenAI /v1/embeddings route, so it reuses the vector DB's embedding
+    model only when that one is dense. The sparse model is a `custom` Infra model the route doesn't
+    serve, so a dense model is asked for instead (defaulting to a prior install's dense graph model,
+    then to the CLI default).
+
+    Args:
+        original_graph: The prior install's `DF_GRAPH__*` .env content, if any.
+        embedding_model: The vector DB's embedding model.
+        embedding_size: The vector DB's embedding vector size.
+
+    Returns:
+        The graph's embedding model and its size.
+    """
+    if str(embedding_model) != SPARSE_EMBEDDING_MODEL:
+        return str(embedding_model), str(embedding_size)
+
+    echo.warning(
+        f"The Knowledge Graph can't embed with {SPARSE_EMBEDDING_MODEL} (sparse embeddings) - it needs a dense "
+        "embedding model served by DeepFellow Infra. Make sure the model you provide is installed on Infra."
+    )
+    prior_model = original_graph.get("embedding_model")
+    reuse_prior = bool(prior_model) and str(prior_model) != SPARSE_EMBEDDING_MODEL
+    model = echo.prompt(
+        "Provide the dense embedding model for the Knowledge Graph",
+        default=str(prior_model if reuse_prior else DF_GRAPH_EMBEDDING_MODEL),
+    )
+    size = echo.prompt(
+        "Provide the embedding size of the Knowledge Graph's embedding model",
+        default=str(original_graph.get("embedding_dim") if reuse_prior else DF_GRAPH_EMBEDDING_DIM),
+    )
+    return str(model), str(size)
+
+
+def configure_graph_models(
+    original_env: dict[str, Any], embedding_model: str | int, embedding_size: str | int
+) -> dict[str, str]:
+    """Collect the models the Knowledge Graph uses.
+
+    The LLMs are asked for (defaulting to a prior install's values, then to the CLI defaults). The
+    embedding model and its size are taken from the vector DB configuration when it's dense; when
+    it's sparse, which the graph can't use, a dense embedding model is asked for instead.
+
+    Args:
+        original_env: The prior install's .env content, if any.
+        embedding_model: The vector DB's embedding model.
+        embedding_size: The vector DB's embedding vector size.
+
+    Returns:
+        The `DF_GRAPH__*` model envs.
+    """
+    original_graph = original_env.get("df_graph")
+    original_graph = original_graph if isinstance(original_graph, dict) else {}
+    llm_model = echo.prompt(
+        "Provide the LLM model for Knowledge Graph ingestion",
+        default=str(original_graph.get("llm_model") or DF_GRAPH_LLM_MODEL),
+    )
+    ontology_discovery_llm_model = echo.prompt(
+        "Provide the LLM model for Knowledge Graph ontology discovery",
+        default=str(original_graph.get("ontology_discovery_llm_model") or DF_GRAPH_ONTOLOGY_DISCOVERY_LLM_MODEL),
+    )
+    graph_embedding_model, graph_embedding_size = _configure_graph_embedding(
+        original_graph, embedding_model, embedding_size
+    )
+    return {
+        "DF_GRAPH__LLM_MODEL": llm_model,
+        "DF_GRAPH__ONTOLOGY_DISCOVERY_LLM_MODEL": ontology_discovery_llm_model,
+        "DF_GRAPH__EMBEDDING_MODEL": graph_embedding_model,
+        "DF_GRAPH__EMBEDDING_DIM": graph_embedding_size,
+    }
+
+
 def configure_falkordb(
     falkordb_active: bool,
     falkordb_url: str,
     falkordb_username: str,
     falkordb_password: str,
+    embedding_model: str | int,
+    embedding_size: str | int,
     original_env: dict[str, Any] | None = None,
 ) -> FalkorDBConfig:
-    """Collect info about the Knowledge Graph's FalkorDB instance."""
+    """Collect info about the Knowledge Graph's FalkorDB instance and the models it uses.
+
+    Args:
+        falkordb_active: Whether the Knowledge Graph's FalkorDB instance should be configured.
+        falkordb_url: Requested FalkorDB connection host:port.
+        falkordb_username: Requested FalkorDB username.
+        falkordb_password: Requested FalkorDB password.
+        embedding_model: The vector DB's embedding model, reused by the Knowledge Graph unless it's sparse.
+        embedding_size: The vector DB's embedding vector size, reused along with embedding_model.
+        original_env: The prior install's .env content, if any.
+
+    Returns:
+        FalkorDBConfig: The `DF_GRAPH__*` envs and, for a local FalkorDB, its compose service.
+    """
     original_env = original_env or {}
 
     if not should_use_falkordb(falkordb_active):
@@ -714,6 +809,7 @@ def configure_falkordb(
                 "DF_GRAPH__PORT": port,
                 "DF_GRAPH__USERNAME": "",
                 "DF_GRAPH__PASSWORD": falkordb_password,
+                **configure_graph_models(original_env, embedding_model, embedding_size),
             },
             docker_compose=DOCKER_COMPOSE_FALKORDB,
         )
@@ -744,6 +840,7 @@ def configure_falkordb(
                 default=original_env.get("df_graph__password", ""),
                 password=True,
             ),
+            **configure_graph_models(original_env, embedding_model, embedding_size),
         },
         docker_compose={},
     )

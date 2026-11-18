@@ -103,6 +103,21 @@ ENV_METADATA: dict[str, EnvMetadata] = {
         description="FalkorDB password.",
         sensitive=True,
     ),
+    "DF_GRAPH__LLM_MODEL": EnvMetadata(
+        description="LLM used by the Knowledge Graph for document ingestion (entity and relation extraction).",
+    ),
+    "DF_GRAPH__ONTOLOGY_DISCOVERY_LLM_MODEL": EnvMetadata(
+        description="LLM used by the Knowledge Graph for ontology discovery.",
+    ),
+    "DF_GRAPH__EMBEDDING_MODEL": EnvMetadata(
+        description=(
+            "Embedding model used by the Knowledge Graph; set at install to the vector DB's embedding model, "
+            "or to a dense one (default mxbai-embed-large) when that is sparse."
+        ),
+    ),
+    "DF_GRAPH__EMBEDDING_DIM": EnvMetadata(
+        description="Embedding vector size of DF_GRAPH__EMBEDDING_MODEL.",
+    ),
 }
 
 

@@ -16,6 +16,10 @@ from deepfellow.common.defaults import (
     DEFAULT_VECTOR_DATABASE_TYPE,
     DF_FALKORDB_PORT,
     DF_FALKORDB_URL,
+    DF_GRAPH_EMBEDDING_DIM,
+    DF_GRAPH_EMBEDDING_MODEL,
+    DF_GRAPH_LLM_MODEL,
+    DF_GRAPH_ONTOLOGY_DISCOVERY_LLM_MODEL,
     DF_INFRA_URL,
     DF_MONGO_DB,
     DF_MONGO_URL,
@@ -36,6 +40,7 @@ from deepfellow.server.utils.configure import (
     _resolve_mongo_volume_conflict,
     configure_embedding,
     configure_falkordb,
+    configure_graph_models,
     configure_infra,
     configure_milvus_specific_fields,
     configure_mongo,
@@ -1312,26 +1317,39 @@ def test_is_custom_falkordb_true_when_default_and_local_declined(mock_echo):
     assert result is True
 
 
+GRAPH_MODEL_ENVS = {
+    "DF_GRAPH__LLM_MODEL": "graph-llm",
+    "DF_GRAPH__ONTOLOGY_DISCOVERY_LLM_MODEL": "graph-discovery-llm",
+    "DF_GRAPH__EMBEDDING_MODEL": "embed-model",
+    "DF_GRAPH__EMBEDDING_DIM": "768",
+}
+
+
+@mock.patch("deepfellow.server.utils.configure.configure_graph_models")
 @mock.patch("deepfellow.server.utils.configure.should_use_falkordb", return_value=False)
 @mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_falkordb_returns_disabled_env_when_declined(mock_echo, mock_should_use_falkordb):
-    result = configure_falkordb(False, DF_FALKORDB_URL, "", "")
+def test_configure_falkordb_returns_disabled_env_when_declined(
+    mock_echo, mock_should_use_falkordb, mock_configure_graph_models
+):
+    result = configure_falkordb(False, DF_FALKORDB_URL, "", "", "embed-model", "768")
 
     assert result.envs == {"DF_GRAPH__ENABLED": "false"}
     assert result.docker_compose == {}
     assert mock_should_use_falkordb.call_count == 1
+    assert mock_configure_graph_models.call_count == 0
 
 
+@mock.patch("deepfellow.server.utils.configure.configure_graph_models", return_value=GRAPH_MODEL_ENVS)
 @mock.patch("deepfellow.server.utils.configure.generate_password")
 @mock.patch("deepfellow.server.utils.configure.is_custom_falkordb", return_value=False)
 @mock.patch("deepfellow.server.utils.configure.should_use_falkordb", return_value=True)
 @mock.patch("deepfellow.server.utils.configure.echo")
 def test_configure_falkordb_managed_generates_missing_password(
-    mock_echo, mock_should_use_falkordb, mock_is_custom, mock_generate_password
+    mock_echo, mock_should_use_falkordb, mock_is_custom, mock_generate_password, mock_configure_graph_models
 ):
     mock_generate_password.return_value = "generated-password"
 
-    result = configure_falkordb(True, DF_FALKORDB_URL, "", "")
+    result = configure_falkordb(True, DF_FALKORDB_URL, "", "", "embed-model", "768")
 
     assert result.envs == {
         "DF_GRAPH__ENABLED": "true",
@@ -1339,38 +1357,42 @@ def test_configure_falkordb_managed_generates_missing_password(
         "DF_GRAPH__PORT": str(DF_FALKORDB_PORT),
         "DF_GRAPH__USERNAME": "",
         "DF_GRAPH__PASSWORD": "generated-password",
+        **GRAPH_MODEL_ENVS,
     }
     assert result.docker_compose == DOCKER_COMPOSE_FALKORDB
     assert mock_echo.info.call_count == 1
+    assert mock_configure_graph_models.call_args == mock.call({}, "embed-model", "768")
 
 
+@mock.patch("deepfellow.server.utils.configure.configure_graph_models", return_value=GRAPH_MODEL_ENVS)
 @mock.patch("deepfellow.server.utils.configure.generate_password")
 @mock.patch("deepfellow.server.utils.configure.is_custom_falkordb", return_value=False)
 @mock.patch("deepfellow.server.utils.configure.should_use_falkordb", return_value=True)
 @mock.patch("deepfellow.server.utils.configure.echo")
 def test_configure_falkordb_managed_preserves_existing_password_on_reconfigure(
-    mock_echo, mock_should_use_falkordb, mock_is_custom, mock_generate_password
+    mock_echo, mock_should_use_falkordb, mock_is_custom, mock_generate_password, mock_configure_graph_models
 ):
     original_env = {"df_graph__password": "existing-password"}
 
-    result = configure_falkordb(True, DF_FALKORDB_URL, "", "", original_env)
+    result = configure_falkordb(True, DF_FALKORDB_URL, "", "", "embed-model", "768", original_env)
 
     assert result.envs["DF_GRAPH__PASSWORD"] == "existing-password"
     assert mock_generate_password.call_count == 0
 
 
+@mock.patch("deepfellow.server.utils.configure.configure_graph_models", return_value=GRAPH_MODEL_ENVS)
 @mock.patch("deepfellow.server.utils.configure.is_custom_falkordb", return_value=True)
 @mock.patch("deepfellow.server.utils.configure.should_use_falkordb", return_value=True)
 @mock.patch("deepfellow.server.utils.configure.echo")
 def test_configure_falkordb_custom_prompts_for_host_port_and_password(
-    mock_echo, mock_should_use_falkordb, mock_is_custom
+    mock_echo, mock_should_use_falkordb, mock_is_custom, mock_configure_graph_models
 ):
     mock_echo.prompt_until_valid.side_effect = [
         "custom-falkordb:6379",
         "custom-password",
     ]
 
-    result = configure_falkordb(True, "custom-falkordb:6379", "custom-user", "custom-password")
+    result = configure_falkordb(True, "custom-falkordb:6379", "custom-user", "custom-password", "embed-model", "768")
 
     assert result.envs == {
         "DF_GRAPH__ENABLED": "true",
@@ -1378,8 +1400,107 @@ def test_configure_falkordb_custom_prompts_for_host_port_and_password(
         "DF_GRAPH__PORT": "6379",
         "DF_GRAPH__USERNAME": "custom-user",
         "DF_GRAPH__PASSWORD": "custom-password",
+        **GRAPH_MODEL_ENVS,
     }
     assert result.docker_compose == {}
+    assert mock_echo.prompt_until_valid.call_count == 2
+    assert mock_configure_graph_models.call_args == mock.call({}, "embed-model", "768")
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_graph_models_prompts_llms_with_cli_defaults_and_reuses_vector_db_embedding(mock_echo):
+    mock_echo.prompt.side_effect = lambda message, default: default
+
+    result = configure_graph_models({}, "embed-model", 768)
+
+    assert result == {
+        "DF_GRAPH__LLM_MODEL": DF_GRAPH_LLM_MODEL,
+        "DF_GRAPH__ONTOLOGY_DISCOVERY_LLM_MODEL": DF_GRAPH_ONTOLOGY_DISCOVERY_LLM_MODEL,
+        "DF_GRAPH__EMBEDDING_MODEL": "embed-model",
+        "DF_GRAPH__EMBEDDING_DIM": "768",
+    }
+    assert mock_echo.prompt.call_count == 2
+    assert mock_echo.warning.call_count == 0
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_graph_models_defaults_llms_to_prior_install_values(mock_echo):
+    mock_echo.prompt.side_effect = lambda message, default: default
+    original_env = {"df_graph": {"llm_model": "prior-llm", "ontology_discovery_llm_model": "prior-discovery-llm"}}
+
+    result = configure_graph_models(original_env, "embed-model", "768")
+
+    assert result["DF_GRAPH__LLM_MODEL"] == "prior-llm"
+    assert result["DF_GRAPH__ONTOLOGY_DISCOVERY_LLM_MODEL"] == "prior-discovery-llm"
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_graph_models_uses_user_answers_for_llms(mock_echo):
+    mock_echo.prompt.side_effect = ["user-llm", "user-discovery-llm"]
+
+    result = configure_graph_models({}, "embed-model", "768")
+
+    assert result["DF_GRAPH__LLM_MODEL"] == "user-llm"
+    assert result["DF_GRAPH__ONTOLOGY_DISCOVERY_LLM_MODEL"] == "user-discovery-llm"
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_graph_models_uses_dense_default_embedding_when_vector_db_is_sparse(mock_echo):
+    mock_echo.prompt.side_effect = lambda message, default: default
+
+    result = configure_graph_models({}, SPARSE_EMBEDDING_MODEL, SPARSE_EMBEDDING_SIZE)
+
+    assert result["DF_GRAPH__EMBEDDING_MODEL"] == DF_GRAPH_EMBEDDING_MODEL
+    assert result["DF_GRAPH__EMBEDDING_DIM"] == str(DF_GRAPH_EMBEDDING_DIM)
+    assert mock_echo.warning.call_count == 1
+    assert mock_echo.prompt.call_count == 4
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_graph_models_sparse_defaults_embedding_to_prior_dense_graph_model(mock_echo):
+    mock_echo.prompt.side_effect = lambda message, default: default
+    original_env = {"df_graph": {"embedding_model": "prior-dense", "embedding_dim": 768}}
+
+    result = configure_graph_models(original_env, SPARSE_EMBEDDING_MODEL, SPARSE_EMBEDDING_SIZE)
+
+    assert result["DF_GRAPH__EMBEDDING_MODEL"] == "prior-dense"
+    assert result["DF_GRAPH__EMBEDDING_DIM"] == "768"
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_graph_models_sparse_ignores_prior_sparse_graph_embedding(mock_echo):
+    mock_echo.prompt.side_effect = lambda message, default: default
+    original_env = {"df_graph": {"embedding_model": SPARSE_EMBEDDING_MODEL, "embedding_dim": 2048}}
+
+    result = configure_graph_models(original_env, SPARSE_EMBEDDING_MODEL, SPARSE_EMBEDDING_SIZE)
+
+    assert result["DF_GRAPH__EMBEDDING_MODEL"] == DF_GRAPH_EMBEDDING_MODEL
+    assert result["DF_GRAPH__EMBEDDING_DIM"] == str(DF_GRAPH_EMBEDDING_DIM)
+
+
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_graph_models_sparse_uses_user_answers_for_embedding(mock_echo):
+    mock_echo.prompt.side_effect = ["user-llm", "user-discovery-llm", "user-dense", "512"]
+
+    result = configure_graph_models({}, SPARSE_EMBEDDING_MODEL, SPARSE_EMBEDDING_SIZE)
+
+    assert result["DF_GRAPH__EMBEDDING_MODEL"] == "user-dense"
+    assert result["DF_GRAPH__EMBEDDING_DIM"] == "512"
+
+
+@mock.patch("deepfellow.server.utils.configure.generate_password", return_value="generated-password")
+@mock.patch("deepfellow.server.utils.configure.is_custom_falkordb", return_value=False)
+@mock.patch("deepfellow.server.utils.configure.should_use_falkordb", return_value=True)
+@mock.patch("deepfellow.server.utils.configure.echo")
+def test_configure_falkordb_managed_uses_dense_graph_embedding_when_vector_db_is_sparse(
+    mock_echo, mock_should_use_falkordb, mock_is_custom, mock_generate_password
+):
+    mock_echo.prompt.side_effect = lambda message, default: default
+
+    result = configure_falkordb(True, DF_FALKORDB_URL, "", "", SPARSE_EMBEDDING_MODEL, SPARSE_EMBEDDING_SIZE)
+
+    assert result.envs["DF_GRAPH__EMBEDDING_MODEL"] == DF_GRAPH_EMBEDDING_MODEL
+    assert result.envs["DF_GRAPH__EMBEDDING_DIM"] == str(DF_GRAPH_EMBEDDING_DIM)
 
 
 @mock.patch("deepfellow.server.utils.configure.echo")
