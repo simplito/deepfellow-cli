@@ -609,8 +609,8 @@ DOCKER_COMPOSE_OTEL_COLLECTOR = {
     "otel-collector": {
         "container_name": "otel-collector",
         "image": (
-            "otel/opentelemetry-collector-contrib:0.133.0"
-            "@sha256:98274b756324abdb2473fa0c898247a246091e861e61d1548f9be483198eecea"
+            "otel/opentelemetry-collector-contrib:0.163.2"
+            "@sha256:7f22d2a6748110ffb6a59bc0df448bccbf501cdb667d610ede4c61d3863d5849"
         ),
         "volumes": ["./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml"],
         "expose": [
@@ -652,10 +652,6 @@ OTEL_COLLECTOR_CONFIG = {
             "endpoint": "https://elastic:9200",
             "auth": {
                 "authenticator": "basicauth",
-            },
-            "traces_index": "YOUR_INDEX_NAME",
-            "mapping": {
-                "mode": "none",
             },
         },
     },
