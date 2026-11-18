@@ -615,6 +615,7 @@ def configure_otel(
 
     existing_otel_config: dict[str, Any] = load_compose_file(config_file)
     prev_endpoint: str = existing_otel_config.get("exporters", {}).get("elasticsearch", {}).get("endpoint")
+    prev_traces_index: str = existing_otel_config.get("exporters", {}).get("elasticsearch", {}).get("traces_index")
     prev_username: str = (
         existing_otel_config.get("extensions", {}).get("basicauth", {}).get("client_auth", {}).get("username")
     )
@@ -642,6 +643,9 @@ def configure_otel(
                 otel_config: dict[str, Any] = deepcopy(OTEL_COLLECTOR_CONFIG)
                 otel_config["exporters"]["elasticsearch"]["endpoint"] = echo.prompt_until_valid(
                     "Provide your ElasticSearch endpoint", validation=validate_url, default=prev_endpoint
+                )
+                otel_config["exporters"]["elasticsearch"]["traces_index"] = echo.prompt_until_valid(
+                    "Provide traces index", validation=validate_truthy, default=prev_traces_index
                 )
                 otel_config["extensions"]["basicauth"]["client_auth"]["username"] = echo.prompt_until_valid(
                     "Provide username", validation=validate_username, default=prev_username
