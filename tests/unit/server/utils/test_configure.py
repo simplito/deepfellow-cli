@@ -35,12 +35,7 @@ from deepfellow.common.defaults import (
 )
 from deepfellow.common.docker import DockerError
 from deepfellow.common.state import state
-from deepfellow.common.validation import (
-    validate_rabbitmq_credential,
-    validate_truthy,
-    validate_url,
-    validate_username,
-)
+from deepfellow.common.validation import validate_rabbitmq_credential, validate_truthy, validate_url
 from deepfellow.server.utils.configure import (
     _resolve_mongo_volume_conflict,
     configure_embedding,
@@ -217,6 +212,7 @@ def test_configure_otel_local_run_with_elasticsearch(mock_echo, mock_load, tmp_d
     mock_echo.confirm.side_effect = [False, True, True]
     mock_echo.prompt_until_valid.side_effect = [
         "https://elastic:9200",
+        "traces",
         "user",
         "pass",
     ]
@@ -235,56 +231,12 @@ def test_configure_otel_local_run_with_elasticsearch(mock_echo, mock_load, tmp_d
     assert result.docker_compose == DOCKER_COMPOSE_OTEL_COLLECTOR
     assert result.collector_config is not None
     assert result.collector_config["exporters"]["elasticsearch"]["endpoint"] == "https://elastic:9200"
-    assert mock_echo.prompt_until_valid.call_count == 3
-    assert "traces_index" not in result.collector_config["exporters"]["elasticsearch"]
-    assert "mapping" not in result.collector_config["exporters"]["elasticsearch"]
+    assert result.collector_config["exporters"]["elasticsearch"]["traces_index"] == "traces"
     assert result.collector_config["extensions"]["basicauth"]["client_auth"]["username"] == "user"
     assert result.collector_config["extensions"]["basicauth"]["client_auth"]["password"] == "pass"
     for pipeline in result.collector_config["service"]["pipelines"].values():
         assert "elasticsearch" in pipeline["exporters"]
         assert "debug" in pipeline["exporters"]
-
-
-@mock.patch(
-    "deepfellow.server.utils.configure.load_compose_file",
-    return_value={
-        "exporters": {
-            "elasticsearch": {
-                "endpoint": "https://old-elastic:9200",
-                "traces_index": "old-traces",
-                "mapping": {"mode": "none"},
-            },
-        },
-        "extensions": {"basicauth": {"client_auth": {"username": "old-user", "password": "old-pass"}}},
-    },
-)
-@mock.patch("deepfellow.server.utils.configure.echo")
-def test_configure_otel_local_run_with_elasticsearch_ignores_previous_traces_index(mock_echo, mock_load, tmp_directory):
-    # Confirms: no external server -> run locally -> export to Elasticsearch
-    mock_echo.confirm.side_effect = [False, True, True]
-    mock_echo.prompt_until_valid.side_effect = lambda *args, **kwargs: kwargs["default"]
-
-    result = configure_otel(tmp_directory, None, None)
-
-    assert mock_echo.prompt_until_valid.call_count == 3
-    assert mock_echo.prompt_until_valid.call_args_list[0] == mock.call(
-        "Provide your ElasticSearch endpoint", validation=validate_url, default="https://old-elastic:9200"
-    )
-    assert mock_echo.prompt_until_valid.call_args_list[1] == mock.call(
-        "Provide username", validation=validate_username, default="old-user"
-    )
-    assert mock_echo.prompt_until_valid.call_args_list[2] == mock.call(
-        "Provide password", validation=validate_truthy, password=True, default="old-pass"
-    )
-    assert result.collector_config is not None
-    assert result.collector_config["exporters"]["elasticsearch"] == {
-        "endpoint": "https://old-elastic:9200",
-        "auth": {"authenticator": "basicauth"},
-    }
-    assert result.collector_config["extensions"]["basicauth"]["client_auth"] == {
-        "username": "old-user",
-        "password": "old-pass",
-    }
 
 
 @mock.patch("deepfellow.server.utils.configure.load_compose_file", return_value={})
