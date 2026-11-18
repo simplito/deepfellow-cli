@@ -18,8 +18,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `DF_INFRA_IMAGE` and `DF_SERVER_IMAGE` are checked like `--image`, so `:latest` is refused
 - `--local-image` requires an explicit tag; the error names the component and the flags of the command used (e.g. `--infra-local-image` in `suite install`)
 - `update --tag` always pulls the image, like `--image`
-- `server install` and `suite install` with the Knowledge Graph enabled also set its models: they ask for the ingestion and ontology discovery LLMs (default `gemma4:e4b`, the model `suite install` installs) and reuse the vector DB's embedding model and size; with sparse embeddings, which the Knowledge Graph can't use, they ask for a dense embedding model instead (default `mxbai-embed-large`)
-- `suite install` with the Knowledge Graph enabled also installs the `gliner` entity extractor on Infra
+- The local OTel collector is now 0.163.2
+- **Breaking:** Elasticsearch export writes to the data streams `traces-generic.otel-default`, `metrics-generic.otel-default` and `logs-generic.otel-default`; traces no longer go to your traces index
+- **Breaking:** Elasticsearch export uses the OTel document format
+- Metrics are now exported to Elasticsearch
+- `server install` no longer asks for a traces index when configuring Elasticsearch export
+- Existing installations keep their collector and its configuration until `server install` is run again
 
 ## [0.39.0] - 2026-11-12
 
